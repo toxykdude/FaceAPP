@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: Optional[str] = None  # Made optional to handle .local domains
     full_name: Optional[str] = None
-    role: UserRole = UserRole.STAFF
+    role: str = "staff"
 
 
 class UserCreate(UserBase):

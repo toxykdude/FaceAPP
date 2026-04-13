@@ -105,7 +105,7 @@ async def require_admin(
             # Only admins can delete users
             pass
     """
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role.upper() != UserRole.ADMIN.value.upper():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -126,7 +126,7 @@ async def require_staff(
             # Staff and admins can create members
             pass
     """
-    if current_user.role not in [UserRole.ADMIN, UserRole.STAFF]:
+    if current_user.role.upper() not in [UserRole.ADMIN.value.upper(), UserRole.STAFF.value.upper()]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff access required"

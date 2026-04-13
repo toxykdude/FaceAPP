@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit
+from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export
 
 # Create FastAPI app
 app = FastAPI(
@@ -48,6 +48,7 @@ app.include_router(membership_plans.router, prefix=settings.API_V1_PREFIX)
 app.include_router(api_settings.router, prefix=settings.API_V1_PREFIX)
 app.include_router(cv_internal.router, prefix=settings.API_V1_PREFIX)
 app.include_router(audit.router, prefix=settings.API_V1_PREFIX)
+app.include_router(import_export.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/")
