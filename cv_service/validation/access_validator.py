@@ -1,7 +1,7 @@
 """
 Access validation logic following SOPs.
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from datetime import datetime, date
 from loguru import logger
 
@@ -14,6 +14,21 @@ class AccessValidator:
     def __init__(self):
         """Initialize access validator."""
         self.api_client = BackendAPIClient()
+    
+    async def _get_camera(self, camera_id: str) -> Optional[Dict]:
+        """Get camera data from backend."""
+        try:
+            response = await self.api_client.client.get(
+                f"{self.api_client.base_url}/cv/cameras"
+            )
+            if response.status_code == 200:
+                cameras = response.json().get("cameras", [])
+                for cam in cameras:
+                    if cam["id"] == camera_id:
+                        return cam
+            return None
+        except Exception:
+            return None
     
     async def validate_access(
         self,
@@ -91,9 +106,12 @@ class AccessValidator:
                 if not allowed:
                     return False, "access_time_restriction"
             
-            # Check location (if camera has location_id)
-            # Note: This would require camera data from backend
-            # Skipping for now as it requires additional API call
+            # Check location restrictions
+            if "location_ids" in access_rules and access_rules["location_ids"]:
+                camera_data = await self._get_camera(camera_id)
+                if camera_data and camera_data.get("location"):
+                    if camera_data["location"] not in access_rules["location_ids"]:
+                        return False, "access_location_restriction"
         
         # All checks passed
         return True, None

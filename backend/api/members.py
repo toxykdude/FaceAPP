@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
+import httpx
+
 from api.deps import get_db, require_staff
 from models.user import User
 from models.member import Member, MemberStatus
@@ -19,6 +21,15 @@ from schemas.member import (
 )
 
 router = APIRouter(prefix="/members", tags=["Members"])
+
+
+async def notify_cv_invalidation(member_id: str):
+    """Notify CV service to invalidate a member's cached template."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"http://localhost:8001/invalidate/{member_id}")
+    except Exception:
+        pass  # CV service might be down, non-critical
 
 
 @router.get("", response_model=MemberListResponse)
@@ -123,7 +134,7 @@ def get_member(
 
 
 @router.put("/{member_id}", response_model=MemberResponse)
-def update_member(
+async def update_member(
     member_id: str,
     member_update: MemberUpdate,
     db: Session = Depends(get_db),
@@ -162,11 +173,15 @@ def update_member(
     db.commit()
     db.refresh(member)
     
+    # Invalidate CV cache if member status changed
+    if "status" in update_data:
+        await notify_cv_invalidation(str(member.id))
+    
     return member
 
 
 @router.delete("/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_member(
+async def delete_member(
     member_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff)
@@ -187,6 +202,8 @@ def delete_member(
     # Delete member (biometric template will be deleted via CASCADE)
     db.delete(member)
     db.commit()
+    
+    await notify_cv_invalidation(str(member.id))
     
     return None
 

@@ -4,7 +4,7 @@ RTSP stream processor for real-time face recognition.
 import cv2
 import numpy as np
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 from loguru import logger
 from threading import Thread, Event, Lock
 
@@ -48,6 +48,17 @@ class RTSPStreamProcessor:
         
         # Callbacks
         self.on_recognition: Optional[Callable] = None
+        
+        # Health monitoring
+        self.last_frame_time: float = 0
+        self.total_frames_processed: int = 0
+        self.total_faces_detected: int = 0
+        self.last_error: Optional[str] = None
+        self.connected: bool = False
+        
+        # Frame dropping: track processing time
+        self._processing: bool = False
+        self._frames_dropped: int = 0
     
     def start(self, on_recognition: Callable):
         """
@@ -76,6 +87,7 @@ class RTSPStreamProcessor:
             return
         
         self.is_running = False
+        self.connected = False
         self.stop_event.set()
         
         if self.thread:
@@ -106,13 +118,18 @@ class RTSPStreamProcessor:
             
             if not self.capture.isOpened():
                 logger.error(f"Failed to open stream: {self.rtsp_url}")
+                self.connected = False
+                self.last_error = f"Failed to open stream: {self.rtsp_url}"
                 return False
             
             logger.info(f"Connected to stream: {self.camera_id}")
+            self.connected = True
             return True
         
         except Exception as e:
             logger.error(f"Error connecting to stream: {e}")
+            self.connected = False
+            self.last_error = str(e)
             return False
     
     def _process_stream(self):
@@ -126,6 +143,7 @@ class RTSPStreamProcessor:
                 
                 if reconnect_attempts >= settings.MAX_RECONNECT_ATTEMPTS:
                     logger.error(f"Max reconnect attempts reached for camera {self.camera_id}")
+                    self.last_error = "Max reconnect attempts reached"
                     break
                 
                 logger.warning(f"Reconnecting in {settings.RECONNECT_DELAY}s...")
@@ -151,15 +169,25 @@ class RTSPStreamProcessor:
                 
                 if not ret:
                     logger.warning(f"Failed to read frame from camera {self.camera_id}")
+                    self.last_error = "Failed to read frame"
                     break  # Reconnect
                 
                 last_frame_time = current_time
+                self.last_frame_time = current_time
                 
                 # Process frame
                 with self.frame_lock:
                     self.latest_frame = frame.copy()
                 
+                # Drop frame if previous frame still processing
+                if self._processing:
+                    self._frames_dropped += 1
+                    continue  # Drop frame
+                
+                self._processing = True
                 self._process_frame(frame)
+                self.total_frames_processed += 1
+                self._processing = False
             
             # Release capture before reconnecting
             if self.capture:
@@ -176,7 +204,9 @@ class RTSPStreamProcessor:
             # Detect faces
             faces = self.detector.detect_faces(frame)
             
-            if not faces:
+            if faces:
+                self.total_faces_detected += 1
+            else:
                 return  # No faces detected
             
             # Process largest face only
@@ -213,3 +243,21 @@ class RTSPStreamProcessor:
         
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
+
+    def get_health(self) -> Dict[str, Any]:
+        """Get stream health status."""
+        now = time.time()
+        frame_age = now - self.last_frame_time if self.last_frame_time > 0 else None
+        
+        return {
+            "camera_id": self.camera_id,
+            "is_running": self.is_running,
+            "connected": self.connected,
+            "last_frame_seconds_ago": round(frame_age, 1) if frame_age else None,
+            "frozen": frame_age is not None and frame_age > 10,  # No frame for 10s = frozen
+            "total_frames": self.total_frames_processed,
+            "total_faces": self.total_faces_detected,
+            "last_error": self.last_error,
+            "fps_target": self.fps,
+            "frames_dropped": self._frames_dropped,
+        }

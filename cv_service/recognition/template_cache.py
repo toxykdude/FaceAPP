@@ -17,6 +17,27 @@ class TemplateCache:
         """Initialize Redis connection."""
         self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=False)
         self.ttl = settings.CACHE_TTL
+        # Shared version stored in Redis so all instances stay in sync
+        self._version = int(self.redis_client.get("template_cache:version") or 0)
+    
+    def increment_version(self):
+        """Increment cache version for atomic reloads."""
+        self._version = self.redis_client.incr("template_cache:version")
+    
+    def _make_key(self, member_id: str) -> str:
+        """Build versioned cache key."""
+        return f"member:template:v{self._version}:{member_id}"
+    
+    def _scan_keys(self, pattern: str) -> list:
+        """SCAN-based key retrieval (non-blocking alternative to KEYS)."""
+        keys = []
+        cursor = 0
+        while True:
+            cursor, batch = self.redis_client.scan(cursor, match=pattern, count=100)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        return keys
     
     def store_template(self, member_id: str, template: np.ndarray, member_data: dict):
         """
@@ -27,7 +48,7 @@ class TemplateCache:
             template: Face embedding (numpy array)
             member_data: Member metadata (name, status, etc.)
         """
-        key = f"member:template:{member_id}"
+        key = self._make_key(member_id)
         
         # Serialize template and data
         data = {
@@ -57,7 +78,7 @@ class TemplateCache:
         Returns:
             Dict with template and metadata, or None if not found
         """
-        key = f"member:template:{member_id}"
+        key = self._make_key(member_id)
         
         data = self.redis_client.get(key)
         if not data:
@@ -78,9 +99,9 @@ class TemplateCache:
         Returns:
             List of dicts with templates and metadata
         """
-        # Get all template keys
-        pattern = "member:template:*"
-        keys = self.redis_client.keys(pattern)
+        # Get all template keys for current version
+        pattern = f"member:template:v{self._version}:*"
+        keys = self._scan_keys(pattern)
         
         templates = []
         for key in keys:
@@ -103,18 +124,31 @@ class TemplateCache:
         Args:
             member_id: Member UUID
         """
-        key = f"member:template:{member_id}"
+        key = self._make_key(member_id)
         self.redis_client.delete(key)
         logger.debug(f"Removed template for member {member_id}")
     
     def clear_all_templates(self):
-        """Clear all member templates from cache."""
-        pattern = "member:template:*"
-        keys = self.redis_client.keys(pattern)
-        
+        """Clear all member templates from current and old versions."""
+        # Clear all versions (0..current)
+        for v in range(self._version + 1):
+            pattern = f"member:template:v{v}:*"
+            keys = self._scan_keys(pattern)
+            if keys:
+                self.redis_client.delete(*keys)
+        # Also clean unversioned keys (legacy)
+        keys = []
+        cursor = 0
+        while True:
+            cursor, batch = self.redis_client.scan(cursor, match="member:template:*", count=100)
+            # Only delete keys that don't have :v in them
+            unversioned = [k for k in batch if b":v" not in k]
+            keys.extend(unversioned)
+            if cursor == 0:
+                break
         if keys:
             self.redis_client.delete(*keys)
-            logger.info(f"Cleared {len(keys)} templates from cache")
+        logger.info("Cleared all templates from cache")
     
     def refresh_template(self, member_id: str):
         """
@@ -123,7 +157,7 @@ class TemplateCache:
         Args:
             member_id: Member UUID
         """
-        key = f"member:template:{member_id}"
+        key = self._make_key(member_id)
         self.redis_client.expire(key, self.ttl)
     
     def ping(self) -> bool:

@@ -10,7 +10,7 @@ from typing import Dict, Optional
 from loguru import logger
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Depends, Header
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -28,6 +28,14 @@ class StartCameraRequest(BaseModel):
 
 class StopCameraRequest(BaseModel):
     camera_id: str
+
+async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
+    """Verify API key for management endpoints."""
+    if not settings.API_KEY:
+        return  # No key configured, auth disabled
+    if x_api_key != settings.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
 
 class CVService:
     """Main computer vision service."""
@@ -78,6 +86,9 @@ class CVService:
             logger.warning("Redis not available — skipping template sync")
             return
         
+        # Atomic reload: increment version first
+        cache.increment_version()
+        
         templates = await self.api_client.sync_templates()
         
         loaded = 0
@@ -94,7 +105,7 @@ class CVService:
             cache.store_template(t["member_id"], embedding, member_data)
             loaded += 1
         
-        logger.info(f"Loaded {loaded} templates into Redis cache")
+        logger.info(f"Loaded {loaded} templates into Redis cache (version {cache._version})")
     
     async def _auto_start_cameras(self):
         """Auto-start all enabled cameras from backend."""
@@ -226,6 +237,7 @@ class CVService:
         logger.info("CV service shutdown complete")
 
 # Global Service Instance
+_start_time = time.time()
 service = CVService()
 
 @asynccontextmanager
@@ -255,12 +267,12 @@ async def root():
     return {"status": "running", "cameras": list(service.processors.keys())}
 
 @app.post("/cameras/start")
-async def start_camera_endpoint(request: StartCameraRequest):
+async def start_camera_endpoint(request: StartCameraRequest, _: None = Depends(verify_api_key)):
     await service.start_camera(request.camera_id, request.rtsp_url, request.fps)
     return {"status": "started", "camera_id": request.camera_id}
 
 @app.post("/cameras/stop")
-async def stop_camera_endpoint(request: StopCameraRequest):
+async def stop_camera_endpoint(request: StopCameraRequest, _: None = Depends(verify_api_key)):
     service.stop_camera(request.camera_id)
     return {"status": "stopped", "camera_id": request.camera_id}
 
@@ -302,10 +314,49 @@ async def generate_mjpeg(camera_id: str):
         await asyncio.sleep(0.1)
 
 @app.post("/reload")
-async def reload_templates():
+async def reload_templates(_: None = Depends(verify_api_key)):
     """Manually trigger template reload from backend."""
     await service._load_templates()
     return {"status": "ok", "message": "Templates reloaded"}
+
+@app.post("/invalidate/{member_id}")
+async def invalidate_member(member_id: str):
+    """Invalidate specific member template (called by backend on member update/deactivation)."""
+    from recognition.template_cache import TemplateCache
+    cache = TemplateCache()
+    cache.remove_template(member_id)
+    logger.info(f"Invalidated template for member {member_id}")
+    return {"status": "ok", "member_id": member_id}
+
+@app.get("/health")
+async def health_check():
+    """Comprehensive health check with camera status and metrics."""
+    from recognition.template_cache import TemplateCache
+    
+    cameras_health = {}
+    for cam_id, processor in service.processors.items():
+        cameras_health[cam_id] = processor.get_health()
+    
+    # Get template count from cache
+    cache = TemplateCache()
+    template_count = 0
+    try:
+        if cache.ping():
+            template_count = len(cache.get_all_active_templates())
+    except Exception:
+        pass
+    
+    return {
+        "status": "healthy",
+        "version": settings.SERVICE_VERSION,
+        "uptime_seconds": round(time.time() - _start_time, 1),
+        "cameras": {
+            "total": len(service.processors),
+            "details": cameras_health
+        },
+        "templates_cached": template_count,
+        "recent_events_tracked": len(service._recent_events),
+    }
 
 if __name__ == "__main__":
     import uvicorn

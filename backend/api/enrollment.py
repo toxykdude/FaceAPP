@@ -11,6 +11,8 @@ import cv2
 import logging
 import json
 
+import httpx
+
 from api.deps import get_db, get_current_user
 from models.member import Member
 from models.biometric import BiometricTemplate
@@ -26,6 +28,15 @@ router = APIRouter(prefix="/enrollment", tags=["enrollment"])
 
 # FaceNet model (lazy loaded)
 _face_net_model = None
+
+
+async def notify_cv_invalidation(member_id: str):
+    """Notify CV service to invalidate a member's cached template."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"http://localhost:8001/invalidate/{member_id}")
+    except Exception:
+        pass  # CV service might be down, non-critical
 
 
 def _get_face_net():
@@ -56,13 +67,13 @@ def _generate_embedding(face_roi: np.ndarray) -> np.ndarray:
     model = _get_face_net()
     device = next(model.parameters()).device
     
-    # BGR → RGB
+    # BGR -> RGB
     face_rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
     
     # Resize to 160x160 (FaceNet input)
     face_resized = cv2.resize(face_rgb, (160, 160))
     
-    # Convert to tensor: HWC → CHW, normalize to [-1, 1]
+    # Convert to tensor: HWC -> CHW, normalize to [-1, 1]
     face_tensor = torch.from_numpy(np.array(face_resized)).float()
     face_tensor = face_tensor.permute(2, 0, 1)
     face_tensor = (face_tensor - 127.5) / 128.0
@@ -121,7 +132,7 @@ class CameraEnrollmentRequest(BaseModel):
     camera_id: str
 
 
-# ─── Endpoints ───────────────────────────────────────────────
+# --- Endpoints ---
 
 
 @router.post("/{member_id}/enroll", response_model=BiometricEnrollmentResponse)
@@ -184,6 +195,9 @@ async def enroll_member_face(
         db.commit()
         db.refresh(biometric_template)
         
+        # Invalidate CV cache so new template gets picked up on next reload
+        await notify_cv_invalidation(member_id)
+        
         logger.info(f"Face enrolled for member {member_id} (quality: {quality_score:.2f})")
         
         return BiometricEnrollmentResponse(
@@ -221,6 +235,9 @@ async def delete_enrollment(
     db.delete(template)
     member.facial_data_enrolled = False
     db.commit()
+    
+    # Invalidate CV cache
+    await notify_cv_invalidation(member_id)
     
     logger.info(f"Enrollment deleted for member {member_id}")
     return {"success": True, "message": "Enrollment deleted successfully"}
@@ -389,6 +406,9 @@ async def enroll_member_camera(
         member.facial_data_enrolled = True
         db.commit()
         db.refresh(biometric_template)
+        
+        # Invalidate CV cache so new template gets picked up on next reload
+        await notify_cv_invalidation(member_id)
         
         logger.info(f"Face enrolled from camera {camera.name} for member {member_id}")
         
