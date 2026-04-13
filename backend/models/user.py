@@ -3,7 +3,7 @@ User model for authentication and authorization.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum
+from sqlalchemy import Column, String, DateTime, Enum, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 
@@ -25,8 +25,8 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), nullable=False, default=UserRole.STAFF)
-    is_active = Column(String(20), nullable=False, default=True)
+    role = Column(String(20), nullable=False, default=UserRole.STAFF.value)
+    is_active = Column(Boolean, nullable=False, default=True)
     
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

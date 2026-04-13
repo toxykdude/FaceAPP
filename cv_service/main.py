@@ -38,6 +38,13 @@ class CVService:
         self.validator = AccessValidator()
         self.api_client = BackendAPIClient()
         
+        # Store event loop reference for thread-safe coroutine scheduling
+        self._event_loop = None  # Set during startup()
+        
+        # Event deduplication: {member_id+camera_id: last_event_timestamp}
+        self._recent_events: Dict[str, float] = {}
+        self._event_cooldown = 30.0  # seconds between events for same member+camera
+        
         # Configure logging
         logger.remove()
         logger.add(
@@ -48,6 +55,8 @@ class CVService:
     
     async def startup(self):
         """Load templates and auto-start cameras from backend."""
+        # Capture running event loop (we're inside async context now)
+        self._event_loop = asyncio.get_running_loop()
         logger.info("CV Service starting up...")
         
         # 1. Load templates into Redis cache
@@ -143,14 +152,27 @@ class CVService:
         logger.info(f"Stopped camera {camera_id}")
     
     def _on_recognition(self, member_id, confidence, camera_id, frame, face_bbox, member_data):
-        """Callback for recognition events."""
-        asyncio.create_task(
-            self._process_recognition(member_id, confidence, camera_id, frame, face_bbox, member_data)
-        )
+        """Callback for recognition events (called from sync Thread)."""
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._process_recognition(member_id, confidence, camera_id, frame, face_bbox, member_data),
+                self._event_loop
+            )
+        except Exception as e:
+            logger.error(f"Error scheduling recognition task: {e}")
     
     async def _process_recognition(self, member_id, confidence, camera_id, frame, face_bbox, member_data):
-        """Process recognition result."""
+        """Process recognition result with deduplication."""
         try:
+            # Event deduplication: skip if same member+camera seen recently
+            event_key = f"{member_id}:{camera_id}"
+            now = time.time()
+            last_seen = self._recent_events.get(event_key, 0)
+            if now - last_seen < self._event_cooldown:
+                return  # Skip duplicate event
+            
+            self._recent_events[event_key] = now
+            
             # Validate access
             access_granted, denial_reason = await self.validator.validate_access(
                 member_id, confidence, camera_id
@@ -168,9 +190,9 @@ class CVService:
             # Log result
             name = member_data['name'] if member_data else 'Unknown'
             if access_granted:
-                logger.info(f"✅ ACCESS GRANTED - {name} ({confidence:.2f})")
+                logger.info(f"ACCESS GRANTED - {name} ({confidence:.2f})")
             else:
-                logger.warning(f"❌ ACCESS DENIED - {name} ({denial_reason}, {confidence:.2f})")
+                logger.warning(f"ACCESS DENIED - {name} ({denial_reason}, {confidence:.2f})")
         
         except Exception as e:
             logger.error(f"Error processing recognition: {e}")
@@ -234,8 +256,8 @@ def video_feed(camera_id: str):
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
-def generate_mjpeg(camera_id: str):
-    """Generator for MJPEG stream."""
+async def generate_mjpeg(camera_id: str):
+    """Async generator for MJPEG stream."""
     processor = service.processors.get(camera_id)
     if not processor:
         return
@@ -246,7 +268,7 @@ def generate_mjpeg(camera_id: str):
         
         frame = processor.get_latest_frame()
         if frame is None:
-            time.sleep(0.05)
+            await asyncio.sleep(0.05)
             continue
         
         # Encode to JPEG
@@ -258,7 +280,7 @@ def generate_mjpeg(camera_id: str):
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         
         # Limit stream FPS to save bandwidth
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
 @app.post("/reload")
 async def reload_templates():

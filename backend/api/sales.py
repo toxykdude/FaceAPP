@@ -25,8 +25,10 @@ router = APIRouter(prefix="/sales", tags=["Sales"])
 
 def generate_invoice_number() -> str:
     """Generate unique invoice number."""
+    import uuid
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return f"INV-{timestamp}"
+    short_id = uuid.uuid4().hex[:6]
+    return f"INV-{timestamp}-{short_id}"
 
 
 @router.get("", response_model=SalesTransactionListResponse)
