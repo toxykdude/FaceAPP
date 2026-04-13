@@ -9,6 +9,7 @@ export interface AccessEvent {
     camera_id: string;
     event_type: 'check_in' | 'check_out' | 'unauthorized';
     confidence: number;
+    confidence_score?: number;
     image_path: string;
     timestamp: string;
     member_name?: string;

@@ -60,6 +60,17 @@ export const MembershipsList: React.FC = () => {
         is_active: true
     });
 
+    // Edit Plan State
+    const [editPlan, setEditPlan] = useState<any>(null);
+    const [editFormData, setEditFormData] = useState<CreatePlanDTO>({
+        name: '',
+        duration_days: 30,
+        duration_months: 0,
+        price: 0,
+        description: '',
+        is_active: true
+    });
+
     // Queries
     const { data: memberships, isLoading: loadingMemberships, refetch: refetchMemberships } = useQuery({
         queryKey: ['memberships'],
@@ -91,6 +102,43 @@ export const MembershipsList: React.FC = () => {
 
     const handleCreatePlan = () => {
         createPlanMutation.mutate(newPlan);
+    };
+
+    // Edit Plan Mutation
+    const updatePlanMutation = useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => membershipPlansApi.updatePlan(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
+            setEditPlan(null);
+        },
+    });
+
+    // Delete Plan Mutation
+    const deletePlanMutation = useMutation({
+        mutationFn: (id: string) => membershipPlansApi.deletePlan(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
+        },
+    });
+
+    // Sync edit form data when editPlan changes
+    React.useEffect(() => {
+        if (editPlan) {
+            setEditFormData({
+                name: editPlan.name,
+                duration_days: editPlan.duration_days,
+                duration_months: editPlan.duration_months,
+                price: editPlan.price,
+                description: editPlan.description || '',
+                is_active: editPlan.is_active,
+            });
+        }
+    }, [editPlan]);
+
+    const handleUpdatePlan = () => {
+        if (editPlan) {
+            updatePlanMutation.mutate({ id: editPlan.id, data: editFormData });
+        }
     };
 
     if (loadingMemberships && tabValue === 0) {
@@ -195,8 +243,8 @@ export const MembershipsList: React.FC = () => {
                                         <Chip label={p.is_active ? "Active" : "Inactive"} color={p.is_active ? "success" : "default"} size="small" />
                                     </TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small"><EditIcon /></IconButton>
-                                        <IconButton size="small" color="error"><DeleteIcon /></IconButton>
+                                        <IconButton size="small" onClick={() => setEditPlan(p)}><EditIcon /></IconButton>
+                                        <IconButton size="small" color="error" onClick={() => { if (window.confirm(`Delete plan "${p.name}"?`)) deletePlanMutation.mutate(p.id); }}><DeleteIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
@@ -271,6 +319,73 @@ export const MembershipsList: React.FC = () => {
                         disabled={!newPlan.name || createPlanMutation.isPending}
                     >
                         {createPlanMutation.isPending ? "Creating..." : "Create Plan"}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Edit Plan Dialog */}
+            <Dialog open={!!editPlan} onClose={() => setEditPlan(null)} maxWidth="sm" fullWidth>
+                <DialogTitle>Edit Membership Plan</DialogTitle>
+                <DialogContent>
+                    <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                        <TextField
+                            label="Plan Name"
+                            fullWidth
+                            value={editFormData.name}
+                            onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                            placeholder="e.g. Gold Monthly"
+                        />
+                        <Grid container spacing={2}>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label="Duration (Months)"
+                                    type="number"
+                                    fullWidth
+                                    value={editFormData.duration_months}
+                                    onChange={(e) => setEditFormData({ ...editFormData, duration_months: Number(e.target.value) })}
+                                />
+                            </Grid>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label="Duration (Days)"
+                                    type="number"
+                                    fullWidth
+                                    value={editFormData.duration_days}
+                                    onChange={(e) => setEditFormData({ ...editFormData, duration_days: Number(e.target.value) })}
+                                    helperText="Additional days"
+                                />
+                            </Grid>
+                        </Grid>
+                        <TextField
+                            label="Price"
+                            type="number"
+                            fullWidth
+                            value={editFormData.price}
+                            onChange={(e) => setEditFormData({ ...editFormData, price: Number(e.target.value) })}
+                            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                        />
+                        <TextField
+                            label="Description"
+                            fullWidth
+                            multiline
+                            rows={3}
+                            value={editFormData.description}
+                            onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                        />
+                        <FormControlLabel
+                            control={<Switch checked={editFormData.is_active} onChange={(e) => setEditFormData({ ...editFormData, is_active: e.target.checked })} />}
+                            label="Active (Available for assignment)"
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditPlan(null)}>Cancel</Button>
+                    <Button
+                        onClick={handleUpdatePlan}
+                        variant="contained"
+                        disabled={!editFormData.name || updatePlanMutation.isPending}
+                    >
+                        {updatePlanMutation.isPending ? "Saving..." : "Save Changes"}
                     </Button>
                 </DialogActions>
             </Dialog>

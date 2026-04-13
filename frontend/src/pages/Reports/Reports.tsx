@@ -1,4 +1,8 @@
 import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { salesApi } from '@/api/sales';
+import { eventsApi } from '@/api/events';
+import { membersApi } from '@/api/members';
 import {
     Box,
     Typography,
@@ -12,7 +16,6 @@ import {
     InputLabel,
     Paper,
     Avatar,
-    Chip,
 } from '@mui/material';
 import {
     TrendingUp as TrendingUpIcon,
@@ -123,16 +126,32 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, changeLab
 };
 
 export const Reports: React.FC = () => {
+    const queryClient = useQueryClient();
     const [timeRange, setTimeRange] = useState('30days');
 
-    // Mock data - replace with actual API calls
+    const { data: salesReport } = useQuery({
+        queryKey: ['sales-report'],
+        queryFn: () => salesApi.getReportSummary(),
+    });
+
+    const { data: membersData } = useQuery({
+        queryKey: ['members-count'],
+        queryFn: () => membersApi.getMembers({ limit: 1 }),
+    });
+
+    const { data: eventsStats } = useQuery({
+        queryKey: ['events-stats'],
+        queryFn: () => eventsApi.getEvents(0, 1000),
+    });
+
+    const totalCheckins = eventsStats?.events?.filter((e: any) => e.access_granted || e.event_type === 'check_in').length || 0;
     const metrics = {
-        totalRevenue: { value: '$45,230', change: 12.5, label: 'from last month' },
-        activeMembers: { value: '1,234', change: 8.3, label: 'from last month' },
-        newSignups: { value: '87', change: 15.2, label: 'from last month' },
-        checkIns: { value: '3,456', change: -2.1, label: 'from last month' },
-        avgRevPerMember: { value: '$36.67', change: 4.2, label: 'from last month' },
-        retention: { value: '94.2%', change: 1.8, label: 'from last month' },
+        totalRevenue: { value: `$${(salesReport?.total_revenue || 0).toLocaleString()}`, change: 0, label: 'this period' },
+        activeMembers: { value: (membersData?.total || 0).toLocaleString(), change: 0, label: 'total registered' },
+        newSignups: { value: '0', change: 0, label: 'this period' },
+        checkIns: { value: totalCheckins.toLocaleString(), change: 0, label: 'this period' },
+        avgRevPerMember: { value: membersData?.total ? `$${((salesReport?.total_revenue || 0) / membersData.total).toFixed(2)}` : '$0', change: 0, label: 'average' },
+        retention: { value: '0%', change: 0, label: 'this period' },
     };
 
     // Revenue Chart Data
@@ -141,7 +160,7 @@ export const Reports: React.FC = () => {
         datasets: [
             {
                 label: 'Revenue',
-                data: Array.from({ length: 30 }, () => Math.floor(Math.random() * 2000) + 1000),
+                data: Array.from({ length: 30 }, () => 0),
                 borderColor: '#2e7d32',
                 backgroundColor: 'rgba(46, 125, 50, 0.1)',
                 fill: true,
@@ -237,6 +256,11 @@ export const Reports: React.FC = () => {
                         variant="outlined"
                         startIcon={<RefreshIcon />}
                         sx={{ borderColor: '#2e7d32', color: '#2e7d32' }}
+                        onClick={() => {
+                            queryClient.invalidateQueries({ queryKey: ['sales-report'] });
+                            queryClient.invalidateQueries({ queryKey: ['events-stats'] });
+                            queryClient.invalidateQueries({ queryKey: ['members-count'] });
+                        }}
                     >
                         Refresh
                     </Button>
@@ -375,53 +399,26 @@ export const Reports: React.FC = () => {
                 </Grid>
             </Grid>
 
-            {/* Top Performers & Recent Activity */}
+            {/* Sales by Payment Method & Recent Activity */}
             <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                     <Paper sx={{ p: 3 }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>
-                            Top Membership Plans
+                            Sales by Payment Method
                         </Typography>
                         <Box sx={{ mt: 2 }}>
-                            {[
-                                { name: 'Premium Annual', revenue: '$12,450', members: 450, growth: 12 },
-                                { name: 'Basic Monthly', revenue: '$8,960', members: 320, growth: 8 },
-                                { name: 'VIP Unlimited', revenue: '$6,480', members: 180, growth: 15 },
-                                { name: 'Student Discount', revenue: '$4,260', members: 284, growth: -3 },
-                            ].map((plan, index) => (
-                                <Box
-                                    key={index}
-                                    sx={{
-                                        mb: 2,
-                                        p: 2,
-                                        bgcolor: '#f5f5f5',
-                                        borderRadius: 2,
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                    }}
-                                >
+                            {Object.entries(salesReport?.revenue_by_method || {}).map(([method, revenue], index) => (
+                                <Box key={index} sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <Box>
-                                        <Typography variant="subtitle1" fontWeight="600">
-                                            {plan.name}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary">
-                                            {plan.members} members
-                                        </Typography>
+                                        <Typography variant="subtitle1" fontWeight="600">{method.toUpperCase()}</Typography>
+                                        <Typography variant="body2" color="text.secondary">{salesReport?.transactions_by_method?.[method] || 0} transactions</Typography>
                                     </Box>
-                                    <Box textAlign="right">
-                                        <Typography variant="h6" fontWeight="bold" color="#2e7d32">
-                                            {plan.revenue}
-                                        </Typography>
-                                        <Chip
-                                            label={`${plan.growth > 0 ? '+' : ''}${plan.growth}%`}
-                                            size="small"
-                                            color={plan.growth >= 0 ? 'success' : 'error'}
-                                            sx={{ mt: 0.5 }}
-                                        />
-                                    </Box>
+                                    <Typography variant="h6" fontWeight="bold" color="#2e7d32">${(revenue as number).toLocaleString()}</Typography>
                                 </Box>
                             ))}
+                            {Object.keys(salesReport?.revenue_by_method || {}).length === 0 && (
+                                <Typography textAlign="center" color="text.secondary" py={4}>No sales data yet</Typography>
+                            )}
                         </Box>
                     </Paper>
                 </Grid>
@@ -431,47 +428,9 @@ export const Reports: React.FC = () => {
                             Recent Transactions
                         </Typography>
                         <Box sx={{ mt: 2 }}>
-                            {[
-                                { member: 'John Smith', plan: 'Premium Annual', amount: '$299', date: '2 hours ago' },
-                                { member: 'Sarah Johnson', plan: 'Basic Monthly', amount: '$29', date: '5 hours ago' },
-                                { member: 'Mike Davis', plan: 'VIP Unlimited', amount: '$399', date: '1 day ago' },
-                                { member: 'Emily Brown', plan: 'Student Discount', amount: '$15', date: '1 day ago' },
-                            ].map((transaction, index) => (
-                                <Box
-                                    key={index}
-                                    sx={{
-                                        mb: 2,
-                                        p: 2,
-                                        bgcolor: '#f5f5f5',
-                                        borderRadius: 2,
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                    }}
-                                >
-                                    <Box display="flex" alignItems="center" gap={2}>
-                                        <Avatar sx={{ bgcolor: '#2e7d32' }}>
-                                            {transaction.member.charAt(0)}
-                                        </Avatar>
-                                        <Box>
-                                            <Typography variant="subtitle2" fontWeight="600">
-                                                {transaction.member}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {transaction.plan}
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-                                    <Box textAlign="right">
-                                        <Typography variant="subtitle1" fontWeight="bold" color="#2e7d32">
-                                            {transaction.amount}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                            {transaction.date}
-                                        </Typography>
-                                    </Box>
-                                </Box>
-                            ))}
+                            {salesReport?.total_transactions === 0 && (
+                                <Typography textAlign="center" color="text.secondary" py={4}>No transactions yet</Typography>
+                            )}
                         </Box>
                     </Paper>
                 </Grid>

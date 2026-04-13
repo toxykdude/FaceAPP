@@ -1,8 +1,9 @@
 /**
  * Dashboard page component - Modern task management interface
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
     Box,
     Typography,
@@ -11,17 +12,16 @@ import {
     IconButton,
     Avatar,
     Button,
-    Collapse,
-    Checkbox,
 } from '@mui/material';
 import {
-    ExpandMore as ExpandMoreIcon,
-    ExpandLess as ExpandLessIcon,
-    Add as AddIcon,
-    CheckCircle as CheckCircleIcon,
+    PersonAdd as PersonAddIcon,
+    Videocam as VideocamIcon,
+    Assessment as AssessmentIcon,
     Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 import { eventsApi } from '@/api/events';
+import { membersApi } from '@/api/members';
+import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import {
     Select,
@@ -34,22 +34,13 @@ import {
 } from '@mui/material';
 import {
     OpenInNew as OpenInNewIcon,
-    Videocam as VideocamIcon
 } from '@mui/icons-material';
 import { camerasApi } from '@/api/cameras';
 import { cvServiceApi } from '@/api/cvService';
 
-interface Task {
-    id: string;
-    name: string;
-    priority: 'High' | 'Normal' | 'Low';
-    dueDate: string;
-    completed: boolean;
-}
-
 export const Dashboard: React.FC = () => {
-    const [inProgressExpanded, setInProgressExpanded] = useState(true);
-    const [todoExpanded, setTodoExpanded] = useState(true);
+    const navigate = useNavigate();
+    const { user } = useAuth();
 
     // Note: Member count query removed - using hardcoded stats for now
     // In production, fetch from a dedicated stats endpoint
@@ -58,6 +49,11 @@ export const Dashboard: React.FC = () => {
         queryKey: ['recent-events'],
         queryFn: () => eventsApi.getRecentEvents(5),
         retry: false,
+    });
+
+    const { data: membersData } = useQuery({
+        queryKey: ['members-stats'],
+        queryFn: () => membersApi.getMembers({ limit: 1 }),
     });
 
 
@@ -70,7 +66,7 @@ export const Dashboard: React.FC = () => {
     });
 
     // Auto-select first camera (cameras are auto-started by CV service on startup)
-    React.useEffect(() => {
+    useEffect(() => {
         if (camerasData?.length && !selectedCam) {
             setSelectedCam(camerasData[0].id);
         }
@@ -84,43 +80,8 @@ export const Dashboard: React.FC = () => {
         setSelectedCam(e.target.value);
     };
 
-    // Mock tasks - In production, these would come from API
-    const [inProgressTasks, setInProgressTasks] = useState<Task[]>([
-        {
-            id: '1',
-            name: 'Review new member applications',
-            priority: 'High',
-            dueDate: 'Today',
-            completed: false
-        },
-        {
-            id: '2',
-            name: 'Process membership renewals',
-            priority: 'Low',
-            dueDate: '3 days left',
-            completed: false
-        },
-        {
-            id: '3',
-            name: 'Update facial recognition database',
-            priority: 'Low',
-            dueDate: '5 days left',
-            completed: false
-        },
-    ]);
-
-    const [todoTasks, setTodoTasks] = useState<Task[]>([
-        {
-            id: '4',
-            name: 'Check camera system status',
-            priority: 'Normal',
-            dueDate: '4 days left',
-            completed: false
-        },
-    ]);
-
-    const stats = {
-        activeMembers: 150,
+const stats = {
+        activeMembers: membersData?.total || 0,
         todayCheckIns: recentEvents?.filter(e => {
             const date = new Date(e.timestamp);
             const today = new Date();
@@ -128,48 +89,11 @@ export const Dashboard: React.FC = () => {
                 date.getMonth() === today.getMonth() &&
                 date.getFullYear() === today.getFullYear();
         }).length || 0,
-        monthlyRevenue: 12500,
+        // TODO: connect to sales report API
+        monthlyRevenue: 0,
     };
 
     const currentDate = format(new Date(), 'EEE, MMMM d');
-    const currentUser = 'Admin'; // This should come from auth context
-
-    const toggleTask = (taskId: string, section: 'inProgress' | 'todo') => {
-        if (section === 'inProgress') {
-            setInProgressTasks(tasks =>
-                tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t)
-            );
-        } else {
-            setTodoTasks(tasks =>
-                tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t)
-            );
-        }
-    };
-
-    const getPriorityColor = (priority: string) => {
-        switch (priority) {
-            case 'High':
-                return {
-                    bg: 'var(--status-high)',
-                    color: 'var(--status-high-text)',
-                };
-            case 'Normal':
-                return {
-                    bg: 'var(--status-normal)',
-                    color: 'var(--status-normal-text)',
-                };
-            case 'Low':
-                return {
-                    bg: 'var(--status-low)',
-                    color: 'var(--status-low-text)',
-                };
-            default:
-                return {
-                    bg: 'var(--status-low)',
-                    color: 'var(--status-low-text)',
-                };
-        }
-    };
 
     return (
         <Box
@@ -199,7 +123,7 @@ export const Dashboard: React.FC = () => {
                         mb: 0.5,
                     }}
                 >
-                    Hello, {currentUser}
+                    Hello, {user?.username || 'Admin'}
                 </Typography>
                 <Typography
                     variant="h4"
@@ -214,7 +138,7 @@ export const Dashboard: React.FC = () => {
 
             {/* Main Content */}
             <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', lg: 'row' } }}>
-                {/* Tasks Section */}
+                {/* Quick Actions Section */}
                 <Box sx={{ flex: 1 }}>
                     <Paper
                         elevation={0}
@@ -225,283 +149,52 @@ export const Dashboard: React.FC = () => {
                             background: 'var(--bg-secondary)',
                         }}
                     >
-                        {/* Tasks Header */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                            <CheckCircleIcon sx={{ mr: 1.5, color: 'var(--accent-purple)' }} />
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                                My Tasks
-                            </Typography>
-                        </Box>
-
-                        {/* In Progress Section */}
-                        <Box sx={{ mb: 3 }}>
-                            <Box
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                            Quick Actions
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Button
+                                variant="outlined"
+                                startIcon={<PersonAddIcon />}
+                                onClick={() => navigate('/members/new')}
                                 sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    mb: 2,
-                                    cursor: 'pointer',
-                                    '&:hover': { opacity: 0.8 },
+                                    justifyContent: 'flex-start',
+                                    p: 1.5,
+                                    borderRadius: 'var(--radius-lg)',
+                                    textTransform: 'none',
+                                    borderColor: 'var(--border-color)',
                                 }}
-                                onClick={() => setInProgressExpanded(!inProgressExpanded)}
                             >
-                                <IconButton size="small" sx={{ mr: 1 }}>
-                                    {inProgressExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                </IconButton>
-                                <Chip
-                                    label="IN PROGRESS"
-                                    size="small"
-                                    sx={{
-                                        background: 'var(--status-progress)',
-                                        color: 'var(--status-progress-text)',
-                                        fontWeight: 600,
-                                        fontSize: '0.7rem',
-                                        mr: 1.5,
-                                    }}
-                                />
-                                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                                    • {inProgressTasks.length} tasks
-                                </Typography>
-                            </Box>
-
-                            <Collapse in={inProgressExpanded}>
-                                <Box>
-                                    {/* Table Header */}
-                                    <Box
-                                        sx={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr 120px 120px',
-                                            gap: 2,
-                                            px: 2,
-                                            py: 1,
-                                            borderBottom: '1px solid var(--border-color)',
-                                        }}
-                                    >
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Name
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Priority
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Due date
-                                        </Typography>
-                                    </Box>
-
-                                    {/* Task Items */}
-                                    {inProgressTasks.map((task) => (
-                                        <Box
-                                            key={task.id}
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: '1fr 120px 120px',
-                                                gap: 2,
-                                                px: 2,
-                                                py: 2,
-                                                alignItems: 'center',
-                                                borderBottom: '1px solid var(--border-color)',
-                                                transition: 'var(--transition-base)',
-                                                '&:hover': {
-                                                    background: 'var(--bg-primary)',
-                                                },
-                                            }}
-                                        >
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                                <Checkbox
-                                                    checked={task.completed}
-                                                    onChange={() => toggleTask(task.id, 'inProgress')}
-                                                    size="small"
-                                                    sx={{
-                                                        color: 'var(--accent-cyan)',
-                                                        '&.Mui-checked': {
-                                                            color: 'var(--accent-cyan)',
-                                                        },
-                                                    }}
-                                                />
-                                                <Typography
-                                                    variant="body2"
-                                                    sx={{
-                                                        fontWeight: 500,
-                                                        textDecoration: task.completed ? 'line-through' : 'none',
-                                                        color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-                                                    }}
-                                                >
-                                                    {task.name}
-                                                </Typography>
-                                            </Box>
-                                            <Chip
-                                                label={task.priority}
-                                                size="small"
-                                                sx={{
-                                                    background: getPriorityColor(task.priority).bg,
-                                                    color: getPriorityColor(task.priority).color,
-                                                    fontWeight: 600,
-                                                    fontSize: '0.75rem',
-                                                }}
-                                            />
-                                            <Typography
-                                                variant="body2"
-                                                sx={{
-                                                    color: task.dueDate === 'Today' ? 'var(--status-high-text)' : 'var(--text-secondary)',
-                                                    fontWeight: task.dueDate === 'Today' ? 600 : 400,
-                                                }}
-                                            >
-                                                {task.dueDate}
-                                            </Typography>
-                                        </Box>
-                                    ))}
-
-                                    <Button
-                                        startIcon={<AddIcon />}
-                                        sx={{
-                                            mt: 2,
-                                            color: 'var(--text-secondary)',
-                                            textTransform: 'none',
-                                            fontWeight: 500,
-                                            '&:hover': {
-                                                background: 'var(--bg-primary)',
-                                            },
-                                        }}
-                                    >
-                                        Add task
-                                    </Button>
-                                </Box>
-                            </Collapse>
-                        </Box>
-
-                        {/* To Do Section */}
-                        <Box>
-                            <Box
+                                Add Member
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                startIcon={<VideocamIcon />}
+                                onClick={() => navigate('/cameras')}
                                 sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    mb: 2,
-                                    cursor: 'pointer',
-                                    '&:hover': { opacity: 0.8 },
+                                    justifyContent: 'flex-start',
+                                    p: 1.5,
+                                    borderRadius: 'var(--radius-lg)',
+                                    textTransform: 'none',
+                                    borderColor: 'var(--border-color)',
                                 }}
-                                onClick={() => setTodoExpanded(!todoExpanded)}
                             >
-                                <IconButton size="small" sx={{ mr: 1 }}>
-                                    {todoExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                </IconButton>
-                                <Chip
-                                    label="TO DO"
-                                    size="small"
-                                    sx={{
-                                        background: 'var(--status-low)',
-                                        color: 'var(--text-secondary)',
-                                        fontWeight: 600,
-                                        fontSize: '0.7rem',
-                                        mr: 1.5,
-                                    }}
-                                />
-                                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                                    • {todoTasks.length} task
-                                </Typography>
-                            </Box>
-
-                            <Collapse in={todoExpanded}>
-                                <Box>
-                                    {/* Table Header */}
-                                    <Box
-                                        sx={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr 120px 120px',
-                                            gap: 2,
-                                            px: 2,
-                                            py: 1,
-                                            borderBottom: '1px solid var(--border-color)',
-                                        }}
-                                    >
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Name
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Priority
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: 'var(--text-muted)', fontWeight: 600 }}>
-                                            Due date
-                                        </Typography>
-                                    </Box>
-
-                                    {/* Task Items */}
-                                    {todoTasks.map((task) => (
-                                        <Box
-                                            key={task.id}
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: '1fr 120px 120px',
-                                                gap: 2,
-                                                px: 2,
-                                                py: 2,
-                                                alignItems: 'center',
-                                                borderBottom: '1px solid var(--border-color)',
-                                                transition: 'var(--transition-base)',
-                                                '&:hover': {
-                                                    background: 'var(--bg-primary)',
-                                                },
-                                            }}
-                                        >
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                                <Checkbox
-                                                    checked={task.completed}
-                                                    onChange={() => toggleTask(task.id, 'todo')}
-                                                    size="small"
-                                                    sx={{
-                                                        color: 'var(--accent-cyan)',
-                                                        '&.Mui-checked': {
-                                                            color: 'var(--accent-cyan)',
-                                                        },
-                                                    }}
-                                                />
-                                                <Typography
-                                                    variant="body2"
-                                                    sx={{
-                                                        fontWeight: 500,
-                                                        textDecoration: task.completed ? 'line-through' : 'none',
-                                                        color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-                                                    }}
-                                                >
-                                                    {task.name}
-                                                </Typography>
-                                            </Box>
-                                            <Chip
-                                                label={task.priority}
-                                                size="small"
-                                                sx={{
-                                                    background: getPriorityColor(task.priority).bg,
-                                                    color: getPriorityColor(task.priority).color,
-                                                    fontWeight: 600,
-                                                    fontSize: '0.75rem',
-                                                }}
-                                            />
-                                            <Typography
-                                                variant="body2"
-                                                sx={{
-                                                    color: 'var(--text-secondary)',
-                                                }}
-                                            >
-                                                {task.dueDate}
-                                            </Typography>
-                                        </Box>
-                                    ))}
-
-                                    <Button
-                                        startIcon={<AddIcon />}
-                                        sx={{
-                                            mt: 2,
-                                            color: 'var(--text-secondary)',
-                                            textTransform: 'none',
-                                            fontWeight: 500,
-                                            '&:hover': {
-                                                background: 'var(--bg-primary)',
-                                            },
-                                        }}
-                                    >
-                                        Add task
-                                    </Button>
-                                </Box>
-                            </Collapse>
+                                View Cameras
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                startIcon={<AssessmentIcon />}
+                                onClick={() => navigate('/reports')}
+                                sx={{
+                                    justifyContent: 'flex-start',
+                                    p: 1.5,
+                                    borderRadius: 'var(--radius-lg)',
+                                    textTransform: 'none',
+                                    borderColor: 'var(--border-color)',
+                                }}
+                            >
+                                View Reports
+                            </Button>
                         </Box>
                     </Paper>
                 </Box>

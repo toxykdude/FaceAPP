@@ -21,6 +21,7 @@ import { FaceEnrollment } from '@/pages/Members/FaceEnrollment';
 import { Kiosk } from '@/pages/Kiosk/Kiosk';
 import { SettingsPage } from '@/pages/Settings/Settings';
 import { Reports } from '@/pages/Reports/Reports';
+import { SalesList } from '@/pages/Sales/SalesList';
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -64,7 +65,7 @@ function App() {
                                 <Route path="members/:id/enroll" element={<FaceEnrollment />} />
                                 <Route path="memberships" element={<MembershipsList />} />
                                 <Route path="memberships/new" element={<MembershipForm />} />
-                                <Route path="sales" element={<div>Sales (Coming Soon)</div>} />
+                                <Route path="sales" element={<SalesList />} />
                                 <Route path="cameras" element={<CamerasList />} />
                                 <Route path="reports" element={<Reports />} />
                                 <Route path="enrollment" element={<div>Enrollment (Coming Soon)</div>} />

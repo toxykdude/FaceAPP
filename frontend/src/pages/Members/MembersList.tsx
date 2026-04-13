@@ -3,7 +3,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Box,
     Button,
@@ -21,6 +21,11 @@ import {
     Chip,
     IconButton,
     InputAdornment,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -33,6 +38,17 @@ import { membersApi, Member } from '@/api/members';
 
 export const MembersList: React.FC = () => {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => membersApi.deleteMember(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            setDeleteTarget(null);
+        },
+    });
+
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [search, setSearch] = useState('');
@@ -152,7 +168,7 @@ export const MembersList: React.FC = () => {
                                                 >
                                                     <EditIcon />
                                                 </IconButton>
-                                                <IconButton size="small" title="Delete">
+                                                <IconButton size="small" title="Delete" onClick={() => setDeleteTarget(member.id)}>
                                                     <DeleteIcon />
                                                 </IconButton>
                                             </TableCell>
@@ -176,6 +192,26 @@ export const MembersList: React.FC = () => {
                     />
                 </CardContent>
             </Card>
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+                <DialogTitle>Delete Member</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Are you sure you want to delete this member? This action cannot be undone.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                    <Button
+                        onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+                        color="error"
+                        variant="contained"
+                        disabled={deleteMutation.isPending}
+                    >
+                        {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

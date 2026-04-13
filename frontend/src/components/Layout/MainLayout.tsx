@@ -19,16 +19,12 @@ import {
     useMediaQuery,
     useTheme,
     Typography,
-    Chip,
 } from '@mui/material';
 import {
     Home as HomeIcon,
     People as PeopleIcon,
     Assessment as ReportsIcon,
     Settings as SettingsIcon,
-    Inbox as InboxIcon,
-    CalendarMonth as CalendarIcon,
-    Star as StarIcon,
     Menu as MenuIcon,
     KeyboardArrowDown as ArrowDownIcon,
     Logout,
@@ -40,10 +36,7 @@ const drawerWidth = 280;
 
 const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
-    { text: 'Prodify AI', icon: <StarIcon />, path: '/ai', special: true },
-    { text: 'My tasks', icon: <PeopleIcon />, path: '/members' },
-    { text: 'Inbox', icon: <InboxIcon />, path: '/inbox', badge: 3 },
-    { text: 'Calendar', icon: <CalendarIcon />, path: '/calendar' },
+    { text: 'Members', icon: <PeopleIcon />, path: '/members' },
     { text: 'Reports & Analytics', icon: <ReportsIcon />, path: '/reports' },
 ];
 
@@ -51,6 +44,7 @@ const projectItems = [
     { text: 'Members', icon: '🟣', color: '#8b5cf6', path: '/members' },
     { text: 'Memberships', icon: '🔵', color: '#3b82f6', path: '/memberships' },
     { text: 'Cameras', icon: '🔷', color: '#06b6d4', path: '/cameras' },
+    { text: 'Sales', icon: '🟢', color: '#22c55e', path: '/sales' },
 ];
 
 export const MainLayout: React.FC = () => {
@@ -160,8 +154,7 @@ export const MainLayout: React.FC = () => {
                                 <ListItemIcon
                                     sx={{
                                         minWidth: 40,
-                                        color: item.special ? 'var(--accent-purple)' :
-                                            isActivePath(item.path) ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                        color: isActivePath(item.path) ? 'var(--text-primary)' : 'var(--text-secondary)',
                                     }}
                                 >
                                     {item.icon}
@@ -174,20 +167,7 @@ export const MainLayout: React.FC = () => {
                                         color: isActivePath(item.path) ? 'var(--text-primary)' : 'var(--text-secondary)',
                                     }}
                                 />
-                                {item.badge && (
-                                    <Chip
-                                        label={item.badge}
-                                        size="small"
-                                        sx={{
-                                            height: 20,
-                                            minWidth: 20,
-                                            background: 'var(--accent-purple)',
-                                            color: 'white',
-                                            fontSize: '0.7rem',
-                                            fontWeight: 600,
-                                        }}
-                                    />
-                                )}
+
                             </ListItemButton>
                         </ListItem>
                     ))}

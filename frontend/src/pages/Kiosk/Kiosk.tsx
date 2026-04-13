@@ -139,9 +139,9 @@ export const Kiosk: React.FC = () => {
                                                             color={event.access_granted ? "success" : "error"}
                                                             size="small"
                                                         />
-                                                        {event.confidence_score > 0 && (
+                                                        {(event.confidence_score || event.confidence || 0) > 0 && (
                                                             <Typography variant="caption" color="grey.500">
-                                                                {(event.confidence_score * 100).toFixed(0)}% match
+                                                                {((event.confidence_score || event.confidence || 0) * 100).toFixed(0)}% match
                                                             </Typography>
                                                         )}
                                                     </Box>

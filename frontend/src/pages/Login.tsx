@@ -98,9 +98,6 @@ export const LoginPage: React.FC = () => {
                             </Button>
                         </form>
 
-                        <Typography variant="caption" color="text.secondary" display="block" mt={3} align="center">
-                            Default credentials: admin / admin123
-                        </Typography>
                     </CardContent>
                 </Card>
             </Box>
