@@ -1,0 +1,58 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+*.egg-info/
+dist-backup/
+*.egg
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist_backup/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data directories
+/var/lib/powerhouse/uploads/
+/var/lib/powerhouse/snapshots/
+/var/lib/powerhouse/biometric_data/
+uploads/
+snapshots/
+biometric_data/
+
+# Temp files
+*.tmp
+*.bak
+*.cache
+
+# Alembic
+backend/alembic/versions/__pycache__/
+
+# Caches
+.cache/
+.npm/
+.local/
+.bun/

@@ -1,0 +1,14 @@
+# Crontab for PowerHouse Membership Platform
+# Automated backups and health monitoring
+
+# Daily backup at 2 AM
+0 2 * * * /opt/powerhouse-membership/scripts/backup.sh >> /var/log/powerhouse-backup.log 2>&1
+
+# Health check every 5 minutes
+*/5 * * * * /opt/powerhouse-membership/scripts/health_monitor.sh >> /var/log/powerhouse-health.log 2>&1
+
+# Weekly log cleanup (every Sunday at 3 AM)
+0 3 * * 0 find /var/log/powerhouse-*.log -type f -mtime +30 -delete
+
+# Monthly backup directory cleanup (keep last 90 days)
+0 4 1 * * find /var/backups/powerhouse -type f -mtime +90 -delete

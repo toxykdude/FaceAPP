@@ -1,0 +1,279 @@
+/**
+ * Memberships list page.
+ */
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+    Box,
+    Typography,
+    Button,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Chip,
+    CircularProgress,
+    IconButton,
+    Tabs,
+    Tab,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
+    Grid,
+    InputAdornment,
+    Switch,
+    FormControlLabel
+} from '@mui/material';
+import { Add as AddIcon, Refresh as RefreshIcon, Visibility as ViewIcon, Delete as DeleteIcon, Edit as EditIcon, CardMembership as PlanIcon, Assignment as AssignIcon } from '@mui/icons-material';
+import { membershipsApi } from '@/api/memberships';
+import { membershipPlansApi } from '@/api/membershipPlans';
+import { format } from 'date-fns';
+
+interface CreatePlanDTO {
+    name: string;
+    duration_days: number;
+    duration_months: number;
+    price: number;
+    description: string;
+    is_active: boolean;
+}
+
+export const MembershipsList: React.FC = () => {
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const [tabValue, setTabValue] = useState(0);
+    const [openPlanDialog, setOpenPlanDialog] = useState(false);
+
+    // New Plan Form State
+    const [newPlan, setNewPlan] = useState<CreatePlanDTO>({
+        name: '',
+        duration_days: 30,
+        duration_months: 0,
+        price: 0,
+        description: '',
+        is_active: true
+    });
+
+    // Queries
+    const { data: memberships, isLoading: loadingMemberships, refetch: refetchMemberships } = useQuery({
+        queryKey: ['memberships'],
+        queryFn: () => membershipsApi.getMemberships(),
+    });
+
+    const { data: plansData, refetch: refetchPlans } = useQuery({
+        queryKey: ['membershipPlans'],
+        queryFn: () => membershipPlansApi.getPlans(),
+    });
+    const plans = plansData?.plans || [];
+
+    // Mutations
+    const createPlanMutation = useMutation({
+        mutationFn: (data: CreatePlanDTO) => membershipPlansApi.createPlan(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
+            setOpenPlanDialog(false);
+            setNewPlan({
+                name: '',
+                duration_days: 30,
+                duration_months: 0,
+                price: 0,
+                description: '',
+                is_active: true
+            });
+        }
+    });
+
+    const handleCreatePlan = () => {
+        createPlanMutation.mutate(newPlan);
+    };
+
+    if (loadingMemberships && tabValue === 0) {
+        return <Box display="flex" justifyContent="center" p={5}><CircularProgress /></Box>;
+    }
+
+    const getStatusChip = (status: string) => {
+        switch (status) {
+            case 'active': return <Chip label="Active" color="success" size="small" />;
+            case 'expired': return <Chip label="Expired" color="error" size="small" />;
+            case 'cancelled': return <Chip label="Cancelled" color="warning" size="small" />;
+            default: return <Chip label={status} size="small" />;
+        }
+    };
+
+    return (
+        <Box>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                <Typography variant="h4">Memberships</Typography>
+                <Box>
+                    <IconButton onClick={() => { refetchMemberships(); refetchPlans(); }} sx={{ mr: 1 }}>
+                        <RefreshIcon />
+                    </IconButton>
+                    <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                            if (tabValue === 0) navigate('/memberships/new'); // Existing manual add
+                            else setOpenPlanDialog(true);
+                        }}
+                    >
+                        {tabValue === 0 ? "New Membership" : "New Plan"}
+                    </Button>
+                </Box>
+            </Box>
+
+            <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 3 }}>
+                <Tab icon={<AssignIcon />} iconPosition="start" label="Active Memberships" />
+                <Tab icon={<PlanIcon />} iconPosition="start" label="Membership Plans" />
+            </Tabs>
+
+            {/* TAB 0: Memberships List */}
+            {tabValue === 0 && (
+                <TableContainer component={Paper}>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Member ID</TableCell>
+                                <TableCell>Type / Plan</TableCell>
+                                <TableCell>Start Date</TableCell>
+                                <TableCell>End Date</TableCell>
+                                <TableCell>Status</TableCell>
+                                <TableCell align="right">Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {memberships?.map((m) => (
+                                <TableRow key={m.id}>
+                                    <TableCell>{m.member_id.substring(0, 8)}...</TableCell>
+                                    <TableCell>{m.type}</TableCell>
+                                    <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>
+                                    <TableCell>{format(new Date(m.end_date), 'PPP')}</TableCell>
+                                    <TableCell>{getStatusChip(m.status)}</TableCell>
+                                    <TableCell align="right">
+                                        <IconButton size="small"><ViewIcon /></IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                            {(!memberships || memberships.length === 0) && (
+                                <TableRow><TableCell colSpan={6} align="center">No memberships found.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            )}
+
+            {/* TAB 1: Plans List */}
+            {tabValue === 1 && (
+                <TableContainer component={Paper}>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Plan Name</TableCell>
+                                <TableCell>Duration</TableCell>
+                                <TableCell>Price</TableCell>
+                                <TableCell>Description</TableCell>
+                                <TableCell>Status</TableCell>
+                                <TableCell align="right">Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {plans.map((p) => (
+                                <TableRow key={p.id}>
+                                    <TableCell sx={{ fontWeight: 'bold' }}>{p.name}</TableCell>
+                                    <TableCell>
+                                        {p.duration_months > 0 ? `${p.duration_months} Months ` : ''}
+                                        {p.duration_days > 0 ? `${p.duration_days} Days` : ''}
+                                    </TableCell>
+                                    <TableCell>${p.price}</TableCell>
+                                    <TableCell>{p.description || '-'}</TableCell>
+                                    <TableCell>
+                                        <Chip label={p.is_active ? "Active" : "Inactive"} color={p.is_active ? "success" : "default"} size="small" />
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        <IconButton size="small"><EditIcon /></IconButton>
+                                        <IconButton size="small" color="error"><DeleteIcon /></IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                            {plans.length === 0 && (
+                                <TableRow><TableCell colSpan={6} align="center">No plans found. Create one to get started.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            )}
+
+            {/* Create Plan Dialog */}
+            <Dialog open={openPlanDialog} onClose={() => setOpenPlanDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Create Membership Plan</DialogTitle>
+                <DialogContent>
+                    <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                        <TextField
+                            label="Plan Name"
+                            fullWidth
+                            value={newPlan.name}
+                            onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
+                            placeholder="e.g. Gold Monthly"
+                        />
+                        <Grid container spacing={2}>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label="Duration (Months)"
+                                    type="number"
+                                    fullWidth
+                                    value={newPlan.duration_months}
+                                    onChange={(e) => setNewPlan({ ...newPlan, duration_months: Number(e.target.value) })}
+                                />
+                            </Grid>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label="Duration (Days)"
+                                    type="number"
+                                    fullWidth
+                                    value={newPlan.duration_days}
+                                    onChange={(e) => setNewPlan({ ...newPlan, duration_days: Number(e.target.value) })}
+                                    helperText="Additional days"
+                                />
+                            </Grid>
+                        </Grid>
+                        <TextField
+                            label="Price"
+                            type="number"
+                            fullWidth
+                            value={newPlan.price}
+                            onChange={(e) => setNewPlan({ ...newPlan, price: Number(e.target.value) })}
+                            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                        />
+                        <TextField
+                            label="Description"
+                            fullWidth
+                            multiline
+                            rows={3}
+                            value={newPlan.description}
+                            onChange={(e) => setNewPlan({ ...newPlan, description: e.target.value })}
+                        />
+                        <FormControlLabel
+                            control={<Switch checked={newPlan.is_active} onChange={(e) => setNewPlan({ ...newPlan, is_active: e.target.checked })} />}
+                            label="Active (Available for assignment)"
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenPlanDialog(false)}>Cancel</Button>
+                    <Button
+                        onClick={handleCreatePlan}
+                        variant="contained"
+                        disabled={!newPlan.name || createPlanMutation.isPending}
+                    >
+                        {createPlanMutation.isPending ? "Creating..." : "Create Plan"}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </Box>
+    );
+};
