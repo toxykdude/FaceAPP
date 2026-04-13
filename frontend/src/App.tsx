@@ -11,6 +11,8 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { MainLayout } from '@/components/Layout/MainLayout';
 import { LoginPage } from '@/pages/Login';
+import { ForgotPasswordPage } from '@/pages/ForgotPassword';
+import { ResetPasswordPage } from '@/pages/ResetPassword';
 import { Dashboard } from '@/pages/Dashboard';
 import { MembersList } from '@/pages/Members/MembersList';
 import { MemberForm } from '@/pages/Members/MemberForm';
@@ -42,6 +44,8 @@ function App() {
                     <BrowserRouter>
                         <Routes>
                             <Route path="/login" element={<LoginPage />} />
+                            <Route path="forgot-password" element={<ForgotPasswordPage />} />
+                            <Route path="reset-password" element={<ResetPasswordPage />} />
                             <Route
                                 path="/kiosk"
                                 element={

@@ -23,7 +23,7 @@ class EmailService:
         self.enabled = bool(self.smtp_host and self.smtp_user)
     
     def _send_email(self, to: str, subject: str, body: str, html: Optional[str] = None):
-        """Send an email (or log if SMTP not configured)."""
+        """Send an email via SMTP."""
         if not self.enabled:
             logger.info(f"[EMAIL DISABLED] To: {to}, Subject: {subject}")
             return False
@@ -32,6 +32,7 @@ class EmailService:
             import smtplib
             from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
+            from core.config import settings
             
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
@@ -42,10 +43,19 @@ class EmailService:
             if html:
                 msg.attach(MIMEText(html, "html"))
             
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            use_ssl = getattr(settings, 'SMTP_USE_SSL', False)
+            
+            if use_ssl:
+                # SMTP over SSL (port 465)
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port)
+            else:
+                # SMTP with STARTTLS (port 587)
+                server = smtplib.SMTP(self.smtp_host, self.smtp_port)
                 server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.sendmail(self.smtp_from, to, msg.as_string())
+            
+            server.login(self.smtp_user, self.smtp_password)
+            server.sendmail(self.smtp_from, to, msg.as_string())
+            server.quit()
             
             logger.info(f"Email sent to {to}: {subject}")
             return True

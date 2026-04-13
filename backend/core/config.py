@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: Optional[str] = None
+    SMTP_USE_SSL: bool = False
     
     # Frontend & CORS
     FRONTEND_URL: str = "http://localhost"

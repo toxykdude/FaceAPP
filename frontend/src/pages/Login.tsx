@@ -98,6 +98,15 @@ export const LoginPage: React.FC = () => {
                             </Button>
                         </form>
 
+                        <Button
+                            fullWidth
+                            variant="text"
+                            sx={{ mt: 1 }}
+                            onClick={() => navigate("/forgot-password")}
+                        >
+                            Forgot Password?
+                        </Button>
+
                     </CardContent>
                 </Card>
             </Box>

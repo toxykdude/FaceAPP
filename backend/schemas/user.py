@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: Optional[str] = None  # Made optional to handle .local domains
     full_name: Optional[str] = None
-    role: str = "staff"
+    role: UserRole = UserRole.STAFF
 
 
 class UserCreate(UserBase):
@@ -42,6 +42,13 @@ class UserResponse(UserBase):
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
+
+    @field_serializer('role')
+    def serialize_role(self, value: Any) -> str:
+        """Normalize role to lowercase string."""
+        if isinstance(value, str):
+            return value.lower()
+        return str(value).lower() if value else 'staff' 
     
     class Config:
         from_attributes = True
