@@ -55,6 +55,15 @@ async def get_current_user(
     if payload is None:
         raise credentials_exception
     
+    # Check if token is blacklisted
+    from core.security import is_token_blacklisted
+    if is_token_blacklisted(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     # Get user ID from token
     user_id: Optional[str] = payload.get("sub")
     if user_id is None:

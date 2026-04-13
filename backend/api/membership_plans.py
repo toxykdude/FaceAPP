@@ -4,7 +4,7 @@ Membership Plans API endpoints.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 
 from api.deps import get_db, require_staff
 from models.user import User
@@ -102,7 +102,7 @@ def update_membership_plan(
     for field, value in update_data.items():
         setattr(plan, field, value)
         
-    plan.updated_at = datetime.utcnow()
+    plan.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(plan)
     return plan

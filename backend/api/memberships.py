@@ -4,7 +4,7 @@ Memberships API endpoints.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 
 from api.deps import get_db, require_staff
 from models.user import User
@@ -150,7 +150,7 @@ def update_membership(
         else:
             setattr(membership, field, value)
     
-    membership.updated_at = datetime.utcnow()
+    membership.updated_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(membership)
@@ -179,6 +179,39 @@ def delete_membership(
     db.commit()
     
     return None
+
+
+@router.post("/{membership_id}/renew", response_model=MembershipResponse)
+def renew_membership(
+    membership_id: str,
+    extend_days: int = Query(30, ge=1, description="Days to extend the membership"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff)
+):
+    """
+    Renew/extend a membership by adding days to the end_date.
+    
+    If the membership is expired, the new period starts from today.
+    If active, the days are added to the current end_date.
+    """
+    membership = db.query(Membership).filter(Membership.id == membership_id).first()
+    
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membership not found"
+        )
+    
+    # If expired, start from today; otherwise extend from current end_date
+    base_date = max(membership.end_date, date.today())
+    membership.end_date = base_date + timedelta(days=extend_days)
+    membership.status = MembershipStatus.ACTIVE.value
+    membership.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(membership)
+    
+    return membership
 
 
 @router.get("/member/{member_id}/active", response_model=MembershipResponse)

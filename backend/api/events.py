@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from api.deps import get_db, require_staff
 from models.user import User
@@ -92,10 +92,26 @@ def create_event(
         member_id=event.member_id,
         confidence_score=event.confidence_score,
         access_granted=event.access_granted,
-        denial_reason=event.denial_reason
+        denial_reason=event.denial_reason,
+        frame_snapshot_path=event.frame_snapshot_path
     )
     
     db.add(db_event)
+    
+    # Update member last_seen
+    if event.member_id:
+        from models.member import Member
+        member = db.query(Member).filter(Member.id == event.member_id).first()
+        if member:
+            member.last_seen = datetime.now(timezone.utc)
+    
+    # Update camera last_seen
+    if event.camera_id:
+        from models.camera import Camera
+        camera = db.query(Camera).filter(Camera.id == event.camera_id).first()
+        if camera:
+            camera.last_seen = datetime.now(timezone.utc)
+    
     db.commit()
     db.refresh(db_event)
     

@@ -2,7 +2,7 @@
 Sales transaction model for payment tracking.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -29,11 +29,11 @@ class SalesTransaction(Base):
     
     amount = Column(Numeric(10, 2), nullable=False)
     payment_method = Column(String(20), nullable=False)
-    transaction_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    transaction_date = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
     invoice_number = Column(String(50), unique=True, nullable=False, index=True)
     notes = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     member = relationship("Member", back_populates="sales_transactions")

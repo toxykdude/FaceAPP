@@ -4,7 +4,7 @@ Members API endpoints.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 
 from api.deps import get_db, require_staff
 from models.user import User
@@ -92,7 +92,7 @@ def create_member(
         email=member.email,
         phone=member.phone,
         status=MemberStatus.ACTIVE.value,
-        consent_given_at=datetime.utcnow() if member.consent_given else None
+        consent_given_at=datetime.now(timezone.utc) if member.consent_given else None
     )
     
     db.add(db_member)
@@ -157,7 +157,7 @@ def update_member(
         else:
             setattr(member, field, value)
     
-    member.updated_at = datetime.utcnow()
+    member.updated_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(member)

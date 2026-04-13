@@ -1,8 +1,8 @@
 """
 Authentication API endpoints.
 """
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_user
@@ -51,7 +51,7 @@ def login(
         )
     
     # Update last login
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     db.commit()
     
     # Create access token
@@ -69,13 +69,21 @@ def login(
 
 
 @router.post("/logout")
-def logout(current_user: User = Depends(get_current_user)):
+def logout(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """
-    Logout current user.
+    Logout current user. Blacklists the JWT token.
+    """
+    from core.security import blacklist_token
     
-    Note: JWT tokens are stateless, so logout is client-side only.
-    Client should discard the token.
-    """
+    # Extract token from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        blacklist_token(token)
+    
     return {"message": "Successfully logged out"}
 
 

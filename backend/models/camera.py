@@ -2,7 +2,7 @@
 Camera model for RTSP camera configuration.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Boolean, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -28,8 +28,8 @@ class Camera(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     confidence_threshold = Column(Float, nullable=False, default=0.85)
     
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_seen = Column(DateTime, nullable=True)  # Last successful frame
     
     # Relationships

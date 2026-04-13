@@ -4,7 +4,7 @@ Cameras API endpoints.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 import glob
 import platform
 import os
@@ -156,7 +156,7 @@ def update_camera(
         else:
             setattr(camera, field, value)
     
-    camera.updated_at = datetime.utcnow()
+    camera.updated_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(camera)

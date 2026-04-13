@@ -1,7 +1,7 @@
 """
 Health check API endpoints.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -21,7 +21,7 @@ def health_check():
     """
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION
     }
 
@@ -40,7 +40,7 @@ def health_check_database(db: Session = Depends(get_db)):
     
     return {
         "status": "healthy" if db_status == "connected" else "unhealthy",
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
         "database": db_status
     }
@@ -61,7 +61,7 @@ def health_check_redis():
     
     return {
         "status": "healthy" if redis_status == "connected" else "unhealthy",
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
         "redis": redis_status
     }
@@ -91,7 +91,7 @@ def health_check_full(db: Session = Depends(get_db)):
     
     return {
         "status": overall_status,
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
         "database": db_status,
         "redis": redis_status

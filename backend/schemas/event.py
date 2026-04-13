@@ -17,7 +17,7 @@ class AccessEventBase(BaseModel):
 
 class AccessEventCreate(AccessEventBase):
     """Schema for creating an access event."""
-    pass
+    frame_snapshot_path: Optional[str] = None
 
 
 class AccessEventResponse(AccessEventBase):

@@ -45,10 +45,7 @@ class Settings(BaseSettings):
     CUDA_DEVICE: int = 0
     
     # File Storage
-    UPLOAD_DIR: str = "/var/lib/powerhouse/uploads"
-    SNAPSHOT_DIR: str = "/var/lib/powerhouse/snapshots"
     SNAPSHOT_RETENTION_DAYS: int = 30
-    BIOMETRIC_DATA_DIR: str = "/var/lib/powerhouse/biometric_data"
     
     # Email (optional)
     SMTP_HOST: Optional[str] = None
@@ -63,7 +60,6 @@ class Settings(BaseSettings):
     
     # Monitoring
     LOG_LEVEL: str = "INFO"
-    ENABLE_METRICS: bool = True
     
     class Config:
         env_file = ".env"

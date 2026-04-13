@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 
 from api.deps import get_db, require_staff
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/sales", tags=["Sales"])
 def generate_invoice_number() -> str:
     """Generate unique invoice number."""
     import uuid
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     short_id = uuid.uuid4().hex[:6]
     return f"INV-{timestamp}-{short_id}"
 

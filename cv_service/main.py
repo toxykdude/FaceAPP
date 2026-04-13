@@ -178,13 +178,32 @@ class CVService:
                 member_id, confidence, camera_id
             )
             
+            # Save snapshot for denied events
+            snapshot_path = None
+            if not access_granted and frame is not None:
+                try:
+                    import os
+                    snapshot_dir = "/var/lib/powerhouse/snapshots"
+                    os.makedirs(snapshot_dir, exist_ok=True)
+                    
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"denied_{camera_id[:8]}_{timestamp}.jpg"
+                    filepath = os.path.join(snapshot_dir, filename)
+                    
+                    cv2.imwrite(filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                    snapshot_path = filepath
+                    logger.info(f"Saved denied access snapshot: {filepath}")
+                except Exception as e:
+                    logger.error(f"Failed to save snapshot: {e}")
+            
             # Log event to backend
             await self.api_client.create_access_event(
                 camera_id=camera_id,
                 member_id=member_id,
                 confidence_score=confidence,
                 access_granted=access_granted,
-                denial_reason=denial_reason
+                denial_reason=denial_reason,
+                frame_snapshot_path=snapshot_path
             )
             
             # Log result

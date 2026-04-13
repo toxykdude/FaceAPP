@@ -2,7 +2,7 @@
 Member model for member profiles.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -34,8 +34,8 @@ class Member(Base):
     # biometric_template_id = Column(UUID(as_uuid=True), ForeignKey("biometric_templates.id"), nullable=True)
     consent_given_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_seen = Column(DateTime, nullable=True)
     
     # Relationships

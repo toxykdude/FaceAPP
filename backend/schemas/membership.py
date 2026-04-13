@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import date, datetime
 from decimal import Decimal
+from models.membership import MembershipType, MembershipStatus
 
 
 class AccessRules(BaseModel):
@@ -16,7 +17,7 @@ class AccessRules(BaseModel):
 
 class MembershipBase(BaseModel):
     """Base membership schema."""
-    type: str = Field(..., description="Membership type: monthly, annual, prepaid, daily")
+    type: MembershipType = Field(..., description="Membership type")
     start_date: date
     end_date: date
     price: Decimal = Field(..., ge=0, decimal_places=2)
@@ -32,7 +33,7 @@ class MembershipCreate(MembershipBase):
 class MembershipUpdate(BaseModel):
     """Schema for updating a membership."""
     end_date: Optional[date] = None
-    status: Optional[str] = None
+    status: Optional[MembershipStatus] = None
     access_rules: Optional[AccessRules] = None
 
 

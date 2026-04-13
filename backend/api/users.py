@@ -4,9 +4,9 @@ User management API endpoints.
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 
-from api.deps import get_db, require_admin
+from api.deps import get_db, require_admin, get_current_user
 from core.security import get_password_hash, verify_password
 from models.user import User
 from schemas.user import UserCreate, UserUpdate, UserResponse, PasswordChange
@@ -66,8 +66,8 @@ def create_user(
         password_hash=get_password_hash(user_data.password),
         role=user_data.role,
         is_active=user_data.is_active if user_data.is_active is not None else True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     
     db.add(user)
@@ -142,7 +142,7 @@ def update_user(
     for field, value in update_data.items():
         setattr(user, field, value)
     
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(user)
@@ -207,9 +207,35 @@ def change_password(
     
     # Update password
     user.password_hash = get_password_hash(password_data.new_password)
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
     
     db.commit()
     
     return {"message": "Password changed successfully"}
 
+
+@router.post("/me/change-password")
+def change_own_password(
+    password_data: PasswordChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Change own password. Requires current password verification.
+    
+    Available to any authenticated user.
+    """
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Update password
+    current_user.password_hash = get_password_hash(password_data.new_password)
+    current_user.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    
+    return {"message": "Password changed successfully"}

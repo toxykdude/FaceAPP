@@ -2,13 +2,13 @@
 Membership model for membership plans and subscriptions.
 """
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import Column, String, DateTime, Date, Numeric, ForeignKey, Enum, Integer, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import enum
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from core.database import Base
 
@@ -40,8 +40,8 @@ class MembershipPlan(Base):
     description = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<MembershipPlan {self.name}>"
@@ -67,8 +67,8 @@ class Membership(Base):
     # Access rules stored as JSONB
     access_rules = Column(JSONB, nullable=True, default={})
     
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     member = relationship("Member", back_populates="memberships")

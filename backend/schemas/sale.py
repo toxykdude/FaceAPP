@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
+from models.sale import PaymentMethod
 
 
 class SalesTransactionBase(BaseModel):
@@ -12,7 +13,7 @@ class SalesTransactionBase(BaseModel):
     member_id: str
     membership_id: Optional[str] = None
     amount: Decimal = Field(..., ge=0, decimal_places=2)
-    payment_method: str = Field(..., description="Payment method: cash, card, transfer")
+    payment_method: PaymentMethod = Field(..., description="Payment method")
     notes: Optional[str] = None
 
 
