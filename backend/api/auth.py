@@ -61,6 +61,10 @@ def login(
         expires_delta=access_token_expires
     )
     
+    # Audit log
+    from core.audit import log_action
+    log_action(db, action="login", resource_type="session", user_id=str(user.id), username=user.username)
+    
     return {
         "access_token": access_token,
         "token_type": "bearer",

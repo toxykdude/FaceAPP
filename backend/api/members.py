@@ -110,6 +110,12 @@ def create_member(
     db.commit()
     db.refresh(db_member)
     
+    # Audit log
+    from core.audit import log_action
+    log_action(db, action="create", resource_type="member", resource_id=str(db_member.id), 
+               user_id=str(current_user.id), username=current_user.username,
+               details={"name": f"{db_member.first_name} {db_member.last_name}"})
+    
     return db_member
 
 
@@ -173,6 +179,12 @@ async def update_member(
     db.commit()
     db.refresh(member)
     
+    # Audit log
+    from core.audit import log_action
+    log_action(db, action="update", resource_type="member", resource_id=str(member.id),
+               user_id=str(current_user.id), username=current_user.username,
+               details={"updated_fields": list(update_data.keys())})
+    
     # Invalidate CV cache if member status changed
     if "status" in update_data:
         await notify_cv_invalidation(str(member.id))
@@ -203,7 +215,12 @@ async def delete_member(
     db.delete(member)
     db.commit()
     
-    await notify_cv_invalidation(str(member.id))
+    # Audit log
+    from core.audit import log_action
+    log_action(db, action="delete", resource_type="member", resource_id=str(member_id),
+               user_id=str(current_user.id), username=current_user.username)
+    
+    await notify_cv_invalidation(str(member_id))
     
     return None
 

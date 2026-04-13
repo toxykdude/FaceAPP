@@ -10,6 +10,7 @@ from threading import Thread, Event, Lock
 
 from detection.face_detector import FaceDetector
 from detection.quality_assessor import FaceQualityAssessor
+from detection.liveness_detector import liveness_detector
 from recognition.face_recognizer import FaceRecognizer
 from recognition.template_matcher import TemplateMatcher
 from config import settings
@@ -37,6 +38,7 @@ class RTSPStreamProcessor:
         self.quality_assessor = FaceQualityAssessor()
         self.recognizer = FaceRecognizer()
         self.matcher = TemplateMatcher()
+        self.liveness = liveness_detector
         
         # Stream state
         self.capture: Optional[cv2.VideoCapture] = None
@@ -223,6 +225,13 @@ class RTSPStreamProcessor:
             # Skip low quality faces
             if quality_score < 0.5:
                 return
+            
+
+            # Anti-spoofing: liveness check
+            is_live, liveness_details = self.liveness.check_liveness(frame, face_roi, largest_face)
+            if not is_live:
+                logger.warning(f"Spoof detected for camera {self.camera_id}: {liveness_details}")
+                return  # Skip potential spoof
             
             # Generate embedding
             embedding = self.recognizer.generate_embedding(face_roi)
