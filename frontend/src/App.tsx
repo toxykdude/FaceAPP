@@ -66,6 +66,7 @@ function App() {
                                 <Route path="members" element={<MembersList />} />
                                 <Route path="members/new" element={<MemberForm />} />
                                 <Route path="members/:id/edit" element={<MemberForm />} />
+                                <Route path="members/:id/membership" element={<MemberForm />} />
                                 <Route path="members/:id/enroll" element={<FaceEnrollment />} />
                                 <Route path="memberships" element={<MembershipsList />} />
                                 <Route path="memberships/new" element={<MembershipForm />} />

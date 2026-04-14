@@ -22,6 +22,7 @@ import {
     Paper,
     Chip,
     InputAdornment,
+    CircularProgress,
 } from '@mui/material';
 import { PhotoCamera } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
@@ -507,22 +508,88 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const [enrollmentStatus, setEnrollmentStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const [qualityScore, setQualityScore] = React.useState<number | null>(null);
+    const [errorMsg, setErrorMsg] = React.useState<string>('');
+    const [cameraActive, setCameraActive] = React.useState(false);
+    const [stream, setStream] = React.useState<MediaStream | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const videoRef = React.useRef<HTMLVideoElement>(null);
+    const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
+    const enrollWithFile = async (file: File) => {
         setEnrollmentStatus('uploading');
+        setErrorMsg('');
         try {
             const result = await membersApi.enrollBiometric(memberId, file);
             setQualityScore(result.quality_score);
             setEnrollmentStatus('success');
         } catch (error: any) {
-            console.error('Enrollment failed:', error);
+            const detail = error?.response?.data?.detail || error?.message || 'Unknown error';
+            setErrorMsg(detail);
             setEnrollmentStatus('error');
         }
     };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        await enrollWithFile(file);
+    };
+
+    const startCamera = async () => {
+        try {
+            const mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: 'user' }
+            });
+            setStream(mediaStream);
+            setCameraActive(true);
+            setErrorMsg('');
+            // Attach stream to video element after render
+            setTimeout(() => {
+                if (videoRef.current) {
+                    videoRef.current.srcObject = mediaStream;
+                }
+            }, 100);
+        } catch (err: any) {
+            setErrorMsg('Could not access camera: ' + (err.message || 'Permission denied'));
+            setEnrollmentStatus('error');
+        }
+    };
+
+    const stopCamera = () => {
+        if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+        }
+        setStream(null);
+        setCameraActive(false);
+    };
+
+    const captureAndEnroll = async () => {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!video || !canvas) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.drawImage(video, 0, 0);
+        stopCamera();
+
+        // Convert canvas to File
+        canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], 'webcam-capture.jpg', { type: 'image/jpeg' });
+            await enrollWithFile(file);
+        }, 'image/jpeg', 0.92);
+    };
+
+    // Cleanup camera on unmount
+    React.useEffect(() => {
+        return () => {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+        };
+    }, []);
 
     return (
         <Card sx={{ mt: 3 }}>
@@ -530,35 +597,90 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                 <Typography variant="h6" gutterBottom>Face Enrollment</Typography>
 
                 {enrollmentStatus === 'success' ? (
-                    <Box>
-                        <Alert severity="success" sx={{ mb: 2 }}>
-                            Face enrolled successfully! Quality score: {qualityScore?.toFixed(2)}
-                        </Alert>
-                    </Box>
+                    <Alert severity="success">
+                        Face enrolled successfully! Quality score: {qualityScore?.toFixed(2)}
+                    </Alert>
                 ) : (
                     <Box>
                         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                            Upload a clear photo of the member's face for biometric enrollment.
+                            Enroll this member's face using a webcam or by uploading a photo.
                         </Typography>
-                        <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleFileUpload}
-                            ref={fileInputRef}
-                            style={{ display: 'none' }}
-                        />
-                        <Button
-                            variant="outlined"
-                            startIcon={<PhotoCamera />}
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={enrollmentStatus === 'uploading'}
-                        >
-                            {enrollmentStatus === 'uploading' ? 'Processing...' : 'Upload Face Photo'}
-                        </Button>
-                        {enrollmentStatus === 'error' && (
+
+                        {/* Webcam Preview */}
+                        {cameraActive && (
+                            <Box sx={{ mb: 2, position: 'relative' }}>
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    style={{
+                                        width: '100%',
+                                        maxWidth: 480,
+                                        borderRadius: 8,
+                                        border: '2px solid',
+                                        borderColor: 'primary.main',
+                                    }}
+                                />
+                                <Box display="flex" gap={1} mt={1}>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={captureAndEnroll}
+                                        disabled={enrollmentStatus === 'uploading'}
+                                    >
+                                        {enrollmentStatus === 'uploading' ? 'Processing...' : '📸 Capture & Enroll'}
+                                    </Button>
+                                    <Button variant="outlined" color="error" onClick={stopCamera}>
+                                        Cancel
+                                    </Button>
+                                </Box>
+                            </Box>
+                        )}
+
+                        {/* Action Buttons */}
+                        {!cameraActive && (
+                            <Box display="flex" gap={2} flexWrap="wrap">
+                                <Button
+                                    variant="contained"
+                                    startIcon={<PhotoCamera />}
+                                    onClick={startCamera}
+                                    disabled={enrollmentStatus === 'uploading'}
+                                >
+                                    Use Webcam
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<PhotoCamera />}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={enrollmentStatus === 'uploading'}
+                                >
+                                    {enrollmentStatus === 'uploading' ? 'Processing...' : 'Upload Photo'}
+                                </Button>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleFileUpload}
+                                    ref={fileInputRef}
+                                    style={{ display: 'none' }}
+                                />
+                            </Box>
+                        )}
+
+                        {/* Hidden canvas for webcam capture */}
+                        <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+                        {enrollmentStatus === 'error' && errorMsg && (
                             <Alert severity="error" sx={{ mt: 2 }}>
-                                Enrollment failed. Make sure the photo has a clear, single face.
+                                {errorMsg}
                             </Alert>
+                        )}
+
+                        {enrollmentStatus === 'uploading' && !cameraActive && (
+                            <Box display="flex" alignItems="center" gap={1} mt={2}>
+                                <CircularProgress size={20} />
+                                <Typography variant="body2">Processing face enrollment...</Typography>
+                            </Box>
                         )}
                     </Box>
                 )}

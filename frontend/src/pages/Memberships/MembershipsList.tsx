@@ -79,7 +79,7 @@ export const MembershipsList: React.FC = () => {
 
     const { data: plansData, refetch: refetchPlans } = useQuery({
         queryKey: ['membershipPlans'],
-        queryFn: () => membershipPlansApi.getPlans(),
+        queryFn: () => membershipPlansApi.getPlans(true),
     });
     const plans = plansData?.plans || [];
 
@@ -118,6 +118,9 @@ export const MembershipsList: React.FC = () => {
         mutationFn: (id: string) => membershipPlansApi.deletePlan(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
+        },
+        onError: (error: any) => {
+            alert('Error deleting plan: ' + (error?.response?.data?.detail || error?.message || 'Unknown error'));
         },
     });
 
@@ -247,7 +250,7 @@ export const MembershipsList: React.FC = () => {
                                     </TableCell>
                                     <TableCell align="right">
                                         <IconButton size="small" onClick={() => setEditPlan(p)}><EditIcon /></IconButton>
-                                        <IconButton size="small" color="error" onClick={() => { if (window.confirm(`Delete plan "${p.name}"?`)) deletePlanMutation.mutate(p.id); }}><DeleteIcon /></IconButton>
+                                        <IconButton size="small" color="error" onClick={() => { console.log('Deleting plan:', p.id, p.name); if (confirm(`Delete plan "${p.name}"?`)) { console.log('Confirmed, calling deletePlanMutation...'); deletePlanMutation.mutate(p.id); } else { console.log('Cancelled'); } }}><DeleteIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}

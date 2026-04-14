@@ -33,6 +33,7 @@ import {
     Edit as EditIcon,
     Delete as DeleteIcon,
     FaceRetouchingNatural as EnrollIcon,
+    CardMembership as CardMembershipIcon,
 } from '@mui/icons-material';
 import { membersApi, Member } from '@/api/members';
 
@@ -154,27 +155,37 @@ export const MembersList: React.FC = () => {
                                             </TableCell>
                                             <TableCell>
                                                 <Chip
-                                                    label={member.consent_given ? 'Yes' : 'No'}
-                                                    color={member.consent_given ? 'success' : 'default'}
+                                                    label={member.facial_data_enrolled ? 'Yes' : 'No'}
+                                                    color={member.facial_data_enrolled ? 'success' : 'default'}
                                                     size="small"
                                                 />
                                             </TableCell>
                                             <TableCell align="right">
                                                 <IconButton
                                                     size="small"
-                                                    onClick={() => navigate(`/members/${member.id}/enroll`)}
-                                                    title="Enroll Biometric"
-                                                >
-                                                    <EnrollIcon />
-                                                </IconButton>
-                                                <IconButton
-                                                    size="small"
                                                     onClick={() => navigate(`/members/${member.id}/edit`)}
-                                                    title="Edit"
+                                                    title="Edit Member"
+                                                    color="primary"
                                                 >
                                                     <EditIcon />
                                                 </IconButton>
-                                                <IconButton size="small" title="Delete" onClick={() => setDeleteTarget(member.id)}>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => navigate(`/members/${member.id}/membership`)}
+                                                    title="Membership"
+                                                    color="secondary"
+                                                >
+                                                    <CardMembershipIcon />
+                                                </IconButton>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => navigate(`/members/${member.id}/enroll`)}
+                                                    title="Face Enrollment"
+                                                    color={member.facial_data_enrolled ? 'success' : 'warning'}
+                                                >
+                                                    <EnrollIcon />
+                                                </IconButton>
+                                                <IconButton size="small" title="Delete" color="error" onClick={() => setDeleteTarget(member.id)}>
                                                     <DeleteIcon />
                                                 </IconButton>
                                             </TableCell>

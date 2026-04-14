@@ -13,6 +13,7 @@ export interface Member {
     date_of_birth?: string;
     address?: string;
     status: 'active' | 'inactive' | 'suspended';
+    facial_data_enrolled: boolean;
     consent_given: boolean;
     created_at: string;
     updated_at: string;

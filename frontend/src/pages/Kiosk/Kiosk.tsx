@@ -438,7 +438,7 @@ export const Kiosk: React.FC = () => {
             </Box>
 
             {/* Main Content */}
-            <Grid container sx={{ flex: 1, overflow: 'hidden' }}>
+            <Grid container sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 {/* Video Feed */}
                 <Grid
                     item
@@ -447,12 +447,18 @@ export const Kiosk: React.FC = () => {
                     sx={{
                         bgcolor: '#000',
                         position: 'relative',
+                        overflow: 'hidden',
+                        minHeight: 0,
+                    }}
+                >
+                    <Box sx={{
+                        position: 'absolute',
+                        inset: 0,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         overflow: 'hidden',
-                    }}
-                >
+                    }}>
                     {selectedCameraId ? (
                         usbMode ? (
                             <>
@@ -462,8 +468,11 @@ export const Kiosk: React.FC = () => {
                                     playsInline
                                     muted
                                     style={{
+                                        display: 'block',
                                         maxWidth: '100%',
                                         maxHeight: '100%',
+                                        width: '100%',
+                                        height: '100%',
                                         objectFit: 'contain',
                                     }}
                                 />
@@ -471,11 +480,10 @@ export const Kiosk: React.FC = () => {
                                     ref={overlayCanvasRef}
                                     style={{
                                         position: 'absolute',
-                                        top: '50%',
-                                        left: '50%',
-                                        transform: 'translate(-50%, -50%)',
-                                        maxWidth: '100%',
-                                        maxHeight: '100%',
+                                        top: 0,
+                                        left: 0,
+                                        width: '100%',
+                                        height: '100%',
                                         objectFit: 'contain',
                                         pointerEvents: 'none',
                                     }}
@@ -504,12 +512,15 @@ export const Kiosk: React.FC = () => {
                         ) : (
                             <img
                                 src={cvServiceApi.getStreamUrl(selectedCameraId)}
+                                alt="Live Camera Feed"
                                 style={{
+                                    display: 'block',
                                     maxWidth: '100%',
                                     maxHeight: '100%',
+                                    width: '100%',
+                                    height: '100%',
                                     objectFit: 'contain',
                                 }}
-                                alt="Live Camera Feed"
                             />
                         )
                     ) : (
@@ -518,6 +529,7 @@ export const Kiosk: React.FC = () => {
                             <Typography mt={1}>Select a camera to start monitoring</Typography>
                         </Box>
                     )}
+                    </Box>
                 </Grid>
 
                 {/* Events Panel */}

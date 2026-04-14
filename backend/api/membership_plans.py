@@ -115,12 +115,22 @@ def delete_membership_plan(
     current_user: User = Depends(require_staff)
 ):
     """
-    Delete membership plan.
+    Delete membership plan. If the plan has linked memberships, soft-delete (deactivate) instead.
     """
     plan = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(404, "Plan not found")
-        
-    db.delete(plan)
-    db.commit()
+    
+    # Check if any memberships reference this plan
+    from models.membership import Membership
+    linked_count = db.query(Membership).filter(Membership.plan_id == plan_id).count()
+    
+    if linked_count > 0:
+        # Soft-delete: deactivate the plan instead of hard-deleting
+        plan.is_active = False
+        plan.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    else:
+        db.delete(plan)
+        db.commit()
     return None

@@ -244,7 +244,7 @@ const stats = {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {expiredMemberships?.slice(0, 20).map((m: any) => (
+                                    {[...(expiredMemberships || [])].sort((a: any, b: any) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime()).slice(0, 20).map((m: any) => (
                                         <TableRow
                                             key={m.id}
                                             hover
