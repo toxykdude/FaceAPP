@@ -46,6 +46,7 @@ import {
 } from "@mui/icons-material";
 import { camerasApi } from "@/api/cameras";
 import { membershipsApi } from "@/api/memberships";
+import { salesApi } from '@/api/sales';
 import { cvServiceApi } from "@/api/cvService";
 
 export const Dashboard: React.FC = () => {
@@ -64,6 +65,11 @@ export const Dashboard: React.FC = () => {
     const { data: membersData } = useQuery({
         queryKey: ["members-stats"],
         queryFn: () => membersApi.getMembers({ limit: 1 }),
+    });
+
+    const { data: salesReport } = useQuery({
+        queryKey: ['sales-report-summary'],
+        queryFn: () => salesApi.getReportSummary(),
     });
 
     const { data: expiredMemberships } = useQuery({
@@ -110,17 +116,8 @@ export const Dashboard: React.FC = () => {
 
     const stats = {
         activeMembers: membersData?.total || 0,
-        todayCheckIns: recentEvents?.filter((e) => {
-            const date = new Date(e.timestamp);
-            const today = new Date();
-            return (
-                date.getDate() === today.getDate() &&
-                date.getMonth() === today.getMonth() &&
-                date.getFullYear() === today.getFullYear()
-            );
-        }).length || 0,
-        // TODO: connect to sales report API
-        monthlyRevenue: 0,
+        todayCheckIns: recognizedActive.length + recognizedExpired.length,
+        monthlyRevenue: Number(salesReport?.total_revenue || 0),
     };
 
     const currentDate = format(new Date(), "EEE, MMMM d");
