@@ -12,6 +12,9 @@ export interface User {
     is_active: boolean;
     created_at: string;
     last_login?: string;
+    permissions?: {
+        pages: string[];
+    };
 }
 
 export interface UserCreate {
@@ -21,6 +24,9 @@ export interface UserCreate {
     password: string;
     role: 'admin' | 'staff';
     is_active?: boolean;
+    permissions?: {
+        pages: string[];
+    };
 }
 
 export interface UserUpdate {
@@ -29,6 +35,9 @@ export interface UserUpdate {
     full_name?: string;
     role?: 'admin' | 'staff';
     is_active?: boolean;
+    permissions?: {
+        pages: string[];
+    };
 }
 
 export interface PasswordChange {

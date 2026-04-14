@@ -31,20 +31,21 @@ import {
     Add as AddIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
+// Logo is served from /logo.png (Vite public directory)
 
 const drawerWidth = 280;
 
 const menuItems = [
-    { text: 'Home', icon: <HomeIcon />, path: '/' },
-    { text: 'Members', icon: <PeopleIcon />, path: '/members' },
-    { text: 'Reports & Analytics', icon: <ReportsIcon />, path: '/reports' },
+    { text: 'Home', icon: <HomeIcon />, path: '/', page: 'dashboard' },
+    { text: 'Members', icon: <PeopleIcon />, path: '/members', page: 'members' },
+    { text: 'Reports & Analytics', icon: <ReportsIcon />, path: '/reports', page: 'reports' },
 ];
 
 const projectItems = [
-    { text: 'Members', icon: '🟣', color: '#8b5cf6', path: '/members' },
-    { text: 'Memberships', icon: '🔵', color: '#3b82f6', path: '/memberships' },
-    { text: 'Cameras', icon: '🔷', color: '#06b6d4', path: '/cameras' },
-    { text: 'Sales', icon: '🟢', color: '#22c55e', path: '/sales' },
+    { text: 'Members', icon: '🟣', color: '#8b5cf6', path: '/members', page: 'members' },
+    { text: 'Memberships', icon: '🔵', color: '#3b82f6', path: '/memberships', page: 'memberships' },
+    { text: 'Cameras', icon: '🔷', color: '#06b6d4', path: '/cameras', page: 'cameras' },
+    { text: 'Sales', icon: '🟢', color: '#22c55e', path: '/sales', page: 'sales' },
 ];
 
 export const MainLayout: React.FC = () => {
@@ -53,6 +54,16 @@ export const MainLayout: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuth();
+
+    const canAccess = (page: string): boolean => {
+        if (!user) return false;
+        if (user.role === 'admin') return true;
+        const pages = (user as any).permissions?.pages || [];
+        return pages.includes('all') || pages.includes(page);
+    };
+
+    const filteredMenuItems = menuItems.filter(item => canAccess(item.page));
+    const filteredProjectItems = projectItems.filter(item => canAccess(item.page));
 
     const [mobileOpen, setMobileOpen] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -96,6 +107,14 @@ export const MainLayout: React.FC = () => {
                 borderRight: '1px solid var(--border-color)',
             }}
         >
+            {/* Logo Section */}
+            <Box sx={{ p: 2.5, pb: 0, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <img src="/logo.png" alt="PowerHouse" style={{ width: 36, height: 36, borderRadius: 8 }} />
+                <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1.1rem' }}>
+                    PowerHouse
+                </Typography>
+            </Box>
+
             {/* User Profile Section */}
             <Box sx={{ p: 3 }}>
                 <Box
@@ -137,7 +156,7 @@ export const MainLayout: React.FC = () => {
             {/* Main Navigation */}
             <Box sx={{ px: 2, flex: 1, overflowY: 'auto' }}>
                 <List sx={{ py: 0 }}>
-                    {menuItems.map((item) => (
+                    {filteredMenuItems.map((item) => (
                         <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
                             <ListItemButton
                                 onClick={() => handleMenuClick(item.path)}
@@ -208,7 +227,7 @@ export const MainLayout: React.FC = () => {
                         </IconButton>
                     </Box>
                     <List sx={{ py: 0 }}>
-                        {projectItems.map((item) => (
+                        {filteredProjectItems.map((item) => (
                             <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
                                 <ListItemButton
                                     onClick={() => handleMenuClick(item.path)}
@@ -335,9 +354,12 @@ export const MainLayout: React.FC = () => {
                     >
                         <MenuIcon />
                     </IconButton>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                        PowerHouse
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <img src="/logo.png" alt="PowerHouse" style={{ width: 36, height: 36, borderRadius: 8 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                            PowerHouse
+                        </Typography>
+                    </Box>
                 </Box>
             )}
 

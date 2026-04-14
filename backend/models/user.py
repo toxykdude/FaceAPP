@@ -4,6 +4,7 @@ User model for authentication and authorization.
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Enum, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 
@@ -27,6 +28,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.STAFF.value)
     is_active = Column(Boolean, nullable=False, default=True)
+    permissions = Column(JSONB, nullable=False, default=lambda: {"pages": ["all"]})
     
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

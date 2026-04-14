@@ -134,7 +134,12 @@ def get_member_photo(
     """Get member photo from latest access event snapshot or generated initials avatar."""
     import os
 
-    # Try to find latest granted event with snapshot
+    # 1. Check dedicated member photo first
+    photo_path = f"/var/lib/powerhouse/member-photos/{member_id}.jpg"
+    if os.path.exists(photo_path):
+        return FileResponse(photo_path, media_type="image/jpeg")
+
+    # 2. Try to find latest granted event with snapshot
     event = db.query(AccessEvent).filter(
         AccessEvent.member_id == member_id,
         AccessEvent.access_granted == True,

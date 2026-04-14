@@ -14,6 +14,9 @@ export interface User {
     email: string;
     role: 'admin' | 'staff';
     is_active: boolean;
+    permissions?: {
+        pages: string[];
+    };
 }
 
 export interface LoginResponse {

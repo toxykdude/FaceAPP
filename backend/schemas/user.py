@@ -29,12 +29,14 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+    permissions: Optional[dict] = None
 
 
 class UserResponse(UserBase):
     """Schema for user response."""
     id: Any  # Accept UUID or str
     is_active: bool
+    permissions: Optional[dict] = None
     created_at: datetime
     last_login: Optional[datetime] = None
     

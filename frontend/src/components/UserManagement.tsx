@@ -24,6 +24,8 @@ import {
     MenuItem,
     Switch,
     FormControlLabel,
+    Checkbox,
+    FormGroup,
     Alert,
     Tooltip,
 } from '@mui/material';
@@ -37,6 +39,15 @@ import {
 import { usersApi, User, UserCreate, UserUpdate, PasswordChange } from '@/api/users';
 import { format } from 'date-fns';
 
+const PERMISSION_PAGES = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'members', label: 'Members' },
+    { key: 'memberships', label: 'Memberships' },
+    { key: 'cameras', label: 'Cameras' },
+    { key: 'sales', label: 'Sales' },
+    { key: 'reports', label: 'Reports' },
+];
+
 export const UserManagement: React.FC = () => {
     const queryClient = useQueryClient();
     const [openDialog, setOpenDialog] = useState(false);
@@ -44,6 +55,7 @@ export const UserManagement: React.FC = () => {
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [passwordUserId, setPasswordUserId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [permissions, setPermissions] = useState<string[]>(['all']);
 
     const [formData, setFormData] = useState<UserCreate>({
         username: '',
@@ -126,6 +138,7 @@ export const UserManagement: React.FC = () => {
             role: 'staff',
             is_active: true,
         });
+        setPermissions(['all']);
         setError(null);
         setOpenDialog(true);
     };
@@ -140,6 +153,7 @@ export const UserManagement: React.FC = () => {
             role: user.role,
             is_active: user.is_active,
         });
+        setPermissions((user as any).permissions?.pages || ['all']);
         setError(null);
         setOpenDialog(true);
     };
@@ -185,11 +199,15 @@ export const UserManagement: React.FC = () => {
                 full_name: formData.full_name || undefined,
                 role: formData.role,
                 is_active: formData.is_active,
+                permissions: { pages: permissions },
             };
             updateMutation.mutate({ id: editingUser.id, data: updateData });
         } else {
             // Create user
-            createMutation.mutate(formData);
+            createMutation.mutate({
+                ...formData,
+                permissions: { pages: permissions },
+            });
         }
     };
 
@@ -254,6 +272,7 @@ export const UserManagement: React.FC = () => {
                             <TableCell>Email</TableCell>
                             <TableCell>Role</TableCell>
                             <TableCell>Status</TableCell>
+                            <TableCell>Permissions</TableCell>
                             <TableCell>Last Login</TableCell>
                             <TableCell align="right">Actions</TableCell>
                         </TableRow>
@@ -277,6 +296,21 @@ export const UserManagement: React.FC = () => {
                                         color={user.is_active ? 'success' : 'default'}
                                         size="small"
                                     />
+                                </TableCell>
+                                <TableCell>
+                                    {user.role === 'admin' ? (
+                                        <Chip label="All" size="small" color="info" />
+                                    ) : (
+                                        <Tooltip title={((user as any).permissions?.pages || []).join(', ')}>
+                                            <Chip
+                                                label={((user as any).permissions?.pages || []).includes('all')
+                                                    ? 'All'
+                                                    : `${((user as any).permissions?.pages || []).length} pages`}
+                                                size="small"
+                                                variant="outlined"
+                                            />
+                                        </Tooltip>
+                                    )}
                                 </TableCell>
                                 <TableCell>
                                     {user.last_login
@@ -311,7 +345,7 @@ export const UserManagement: React.FC = () => {
                         ))}
                         {(!users || users.length === 0) && (
                             <TableRow>
-                                <TableCell colSpan={7} align="center">
+                                <TableCell colSpan={8} align="center">
                                     No users found
                                 </TableCell>
                             </TableRow>
@@ -383,6 +417,51 @@ export const UserManagement: React.FC = () => {
                             }
                             label="Active"
                         />
+
+                        {formData.role !== 'admin' && (
+                            <Box sx={{ mt: 1 }}>
+                                <Typography variant="subtitle2" gutterBottom>
+                                    Page Permissions
+                                </Typography>
+                                <FormControlLabel
+                                    control={
+                                        <Checkbox
+                                            checked={permissions.includes('all')}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setPermissions(['all']);
+                                                } else {
+                                                    setPermissions([]);
+                                                }
+                                            }}
+                                        />
+                                    }
+                                    label="All Pages"
+                                />
+                                {!permissions.includes('all') && (
+                                    <FormGroup sx={{ ml: 2 }}>
+                                        {PERMISSION_PAGES.map((p) => (
+                                            <FormControlLabel
+                                                key={p.key}
+                                                control={
+                                                    <Checkbox
+                                                        checked={permissions.includes(p.key)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setPermissions([...permissions, p.key]);
+                                                            } else {
+                                                                setPermissions(permissions.filter(k => k !== p.key));
+                                                            }
+                                                        }}
+                                                    />
+                                                }
+                                                label={p.label}
+                                            />
+                                        ))}
+                                    </FormGroup>
+                                )}
+                            </Box>
+                        )}
                     </Box>
                 </DialogContent>
                 <DialogActions>

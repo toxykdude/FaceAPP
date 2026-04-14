@@ -133,3 +133,18 @@ async def require_staff(
         )
     
     return current_user
+
+def require_page(page: str):
+    """Check if current user has access to a specific page."""
+    async def _check(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role.upper() == UserRole.ADMIN.value.upper():
+            return current_user  # Admins always have access
+
+        perms = current_user.permissions or {}
+        pages = perms.get('pages', [])
+
+        if 'all' in pages or page in pages:
+            return current_user
+
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to {page}")
+    return _check

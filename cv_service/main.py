@@ -38,6 +38,34 @@ async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def save_member_photo(member_id: str, frame, face_bbox=None):
+    """Save a member's face photo for profile/tooltips."""
+    try:
+        import os
+        photo_dir = "/var/lib/powerhouse/member-photos"
+        os.makedirs(photo_dir, exist_ok=True)
+
+        # Crop face from frame if bbox provided
+        if face_bbox is not None and len(face_bbox) == 4:
+            x, y, w, h = [int(v) for v in face_bbox]
+            padding = int(min(w, h) * 0.3)
+            x1 = max(0, x - padding)
+            y1 = max(0, y - padding)
+            x2 = min(frame.shape[1], x + w + padding)
+            y2 = min(frame.shape[0], y + h + padding)
+            face_crop = frame[y1:y2, x1:x2]
+        else:
+            face_crop = frame
+
+        photo_path = os.path.join(photo_dir, f"{member_id}.jpg")
+        cv2.imwrite(photo_path, face_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        logger.info(f"Saved member photo: {photo_path}")
+        return photo_path
+    except Exception as e:
+        logger.error(f"Failed to save member photo: {e}")
+        return None
+
+
 class CVService:
     """Main computer vision service."""
     
@@ -221,6 +249,10 @@ class CVService:
                 frame_snapshot_path=snapshot_path
             )
             
+            # Save member photo on successful recognition
+            if access_granted and frame is not None:
+                save_member_photo(member_id, frame, face_bbox)
+
             # Log result
             name = member_data['name'] if member_data else 'Unknown'
             if access_granted:
@@ -446,6 +478,10 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
                     denial_reason=denial_reason,
                     frame_snapshot_path=snapshot_path,
                 )
+
+            # Save member photo on successful recognition
+            if access_granted and not is_duplicate:
+                save_member_photo(member_id, frame, largest_face)
 
             # Send recognition result back to browser
             name = member_data["name"] if member_data else "Unknown"
