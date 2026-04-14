@@ -174,6 +174,14 @@ async def enroll_member_face(
         # Detect face and extract ROI
         face_roi, quality_score = _detect_and_extract_face(img)
         
+        # Quality threshold - reject low quality photos
+        MIN_QUALITY = 0.9
+        if quality_score < MIN_QUALITY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Face photo quality too low ({quality_score:.2f}). Minimum required: {MIN_QUALITY}. Please use a clearer, closer photo with better lighting."
+            )
+        
         # Generate FaceNet embedding
         embedding = _generate_embedding(face_roi)
         
@@ -387,6 +395,14 @@ async def enroll_member_camera(
         
         # Detect face and extract ROI
         face_roi, quality_score = _detect_and_extract_face(frame)
+        
+        # Quality threshold - reject low quality captures
+        MIN_QUALITY = 0.9
+        if quality_score < MIN_QUALITY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Face capture quality too low ({quality_score:.2f}). Minimum required: {MIN_QUALITY}. Please ensure good lighting and face the camera directly."
+            )
         
         # Generate FaceNet embedding
         embedding = _generate_embedding(face_roi)
