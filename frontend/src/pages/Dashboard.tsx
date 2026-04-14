@@ -18,6 +18,7 @@ import {
     TableContainer,
     TableHead,
     TableRow,
+    Tooltip,
 } from "@mui/material";
 import {
     PersonAdd as PersonAddIcon,
@@ -123,6 +124,77 @@ export const Dashboard: React.FC = () => {
     };
 
     const currentDate = format(new Date(), "EEE, MMMM d");
+
+
+    // Member hover tooltip component
+    const MemberTooltip: React.FC<{ member: any; children: React.ReactElement }> = ({ member, children }) => {
+        const [photoUrl, setPhotoUrl] = React.useState<string | null>(null);
+
+        React.useEffect(() => {
+            if (member.member_id) {
+                setPhotoUrl(`/api/members/${member.member_id}/photo?t=${Date.now()}`);
+            }
+        }, [member.member_id]);
+
+        const isActive = member.membership_status === 'active';
+
+        return (
+            <Tooltip
+                placement="left"
+                componentsProps={{
+                    tooltip: {
+                        sx: {
+                            bgcolor: '#1e1e1e',
+                            border: '1px solid #333',
+                            borderRadius: 2,
+                            p: 2,
+                            maxWidth: 280,
+                        }
+                    }
+                }}
+                title={
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                        <Avatar
+                            src={photoUrl || undefined}
+                            sx={{
+                                width: 56,
+                                height: 56,
+                                bgcolor: '#444',
+                                fontSize: '1.2rem',
+                            }}
+                        >
+                            {member.member_name?.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
+                        </Avatar>
+                        <Box>
+                            <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
+                                {member.member_name}
+                            </Typography>
+                            {member.membership_plan && (
+                                <Typography variant="caption" sx={{ color: '#aaa' }}>
+                                    {member.membership_plan}
+                                </Typography>
+                            )}
+                            {member.membership_end && (
+                                <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
+                                    {isActive ? (
+                                        <Typography variant="caption" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
+                                            ✅ Active until {format(new Date(member.membership_end), 'MMM d, yyyy')}
+                                        </Typography>
+                                    ) : (
+                                        <Typography variant="caption" sx={{ color: '#f44336', fontWeight: 'bold' }}>
+                                            ❌ Expired {format(new Date(member.membership_end), 'MMM d, yyyy')}
+                                        </Typography>
+                                    )}
+                                </Box>
+                            )}
+                        </Box>
+                    </Box>
+                }
+            >
+                {children}
+            </Tooltip>
+        );
+    };
 
     return (
         <Box
@@ -260,8 +332,14 @@ export const Dashboard: React.FC = () => {
                                         .sort((a: any, b: any) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime())
                                         .slice(0, 20)
                                         .map((m: any) => (
+                                            <MemberTooltip key={m.id} member={{
+                                                member_id: m.member_id,
+                                                member_name: m.member_name,
+                                                membership_plan: m.plan_name,
+                                                membership_end: m.end_date,
+                                                membership_status: "expired",
+                                            }}>
                                             <TableRow
-                                                key={m.id}
                                                 hover
                                                 onClick={() => navigate(`/members/${m.member_id}`)}
                                                 sx={{ cursor: "pointer" }}
@@ -271,6 +349,7 @@ export const Dashboard: React.FC = () => {
                                                 <TableCell>{m.plan_name || m.type}</TableCell>
                                                 <TableCell>{format(new Date(m.end_date), "MMM d, yyyy")}</TableCell>
                                             </TableRow>
+                                            </MemberTooltip>
                                         ))}
                                     {(!expiredMemberships || expiredMemberships.length === 0) && (
                                         <TableRow>
@@ -313,8 +392,8 @@ export const Dashboard: React.FC = () => {
                                 </TableHead>
                                 <TableBody>
                                     {recognizedActive.map((r: any) => (
+                                        <MemberTooltip key={r.member_id} member={r}>
                                         <TableRow
-                                            key={r.member_id}
                                             hover
                                             onClick={() => navigate(`/members/${r.member_id}`)}
                                             sx={{ cursor: "pointer" }}
@@ -329,6 +408,7 @@ export const Dashboard: React.FC = () => {
                                                 {r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}
                                             </TableCell>
                                         </TableRow>
+                                        </MemberTooltip>
                                     ))}
                                     {recognizedActive.length === 0 && (
                                         <TableRow>
@@ -373,8 +453,8 @@ export const Dashboard: React.FC = () => {
                                 </TableHead>
                                 <TableBody>
                                     {recognizedExpired.map((r: any) => (
+                                        <MemberTooltip key={r.member_id} member={r}>
                                         <TableRow
-                                            key={r.member_id}
                                             hover
                                             onClick={() => navigate(`/members/${r.member_id}`)}
                                             sx={{ cursor: "pointer" }}
@@ -389,6 +469,7 @@ export const Dashboard: React.FC = () => {
                                                 {r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}
                                             </TableCell>
                                         </TableRow>
+                                        </MemberTooltip>
                                     ))}
                                     {recognizedExpired.length === 0 && (
                                         <TableRow>

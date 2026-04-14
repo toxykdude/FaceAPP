@@ -3,14 +3,17 @@ Members API endpoints.
 """
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 import httpx
+import io
 
 from api.deps import get_db, require_staff
 from models.user import User
 from models.member import Member, MemberStatus
+from models.event import AccessEvent
 from models.biometric import BiometricTemplate
 from schemas.member import (
     MemberCreate,
@@ -121,6 +124,67 @@ def create_member(
     return db_member
 
 
+
+@router.get("/{member_id}/photo")
+def get_member_photo(
+    member_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Get member photo from latest access event snapshot or generated initials avatar."""
+    import os
+
+    # Try to find latest granted event with snapshot
+    event = db.query(AccessEvent).filter(
+        AccessEvent.member_id == member_id,
+        AccessEvent.access_granted == True,
+        AccessEvent.frame_snapshot_path.isnot(None),
+    ).order_by(AccessEvent.timestamp.desc()).first()
+
+    if event and event.frame_snapshot_path and os.path.exists(event.frame_snapshot_path):
+        return FileResponse(event.frame_snapshot_path, media_type="image/jpeg")
+
+    # Try any event with snapshot (denied events always have snapshots)
+    event = db.query(AccessEvent).filter(
+        AccessEvent.member_id == member_id,
+        AccessEvent.frame_snapshot_path.isnot(None),
+    ).order_by(AccessEvent.timestamp.desc()).first()
+
+    if event and event.frame_snapshot_path and os.path.exists(event.frame_snapshot_path):
+        return FileResponse(event.frame_snapshot_path, media_type="image/jpeg")
+
+    # Fallback: generate initials avatar
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        initials = (member.first_name[0] if member.first_name else "?").upper()
+        initials += (member.last_name[0] if member.last_name else "").upper()
+
+        img = Image.new("RGB", (200, 200), color=(102, 126, 234))
+        draw = ImageDraw.Draw(img)
+
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
+        except Exception:
+            font = ImageFont.load_default()
+
+        bbox = draw.textbbox((0, 0), initials, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        draw.text(((200 - text_w) / 2, (200 - text_h) / 2 - 10), initials, fill="white", font=font)
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+
+        return Response(content=buf.read(), media_type="image/png")
+    except ImportError:
+        raise HTTPException(status_code=404, detail="No photo available")
+
 @router.get("/{member_id}", response_model=MemberResponse)
 def get_member(
     member_id: str,
@@ -225,6 +289,9 @@ async def delete_member(
     await notify_cv_invalidation(str(member_id))
     
     return None
+
+
+
 
 
 @router.get("/{member_id}/biometric-status", response_model=BiometricStatusResponse)

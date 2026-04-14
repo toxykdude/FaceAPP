@@ -164,6 +164,7 @@ def get_today_recognized(
             "membership_status": latest_membership.status if latest_membership else "none",
             "membership_plan": latest_membership.type if latest_membership else None,
             "membership_end": latest_membership.end_date.isoformat() if latest_membership and latest_membership.end_date else None,
+            "photo_url": f"/api/members/{mid}/photo",
             "last_seen": evt.timestamp.isoformat(),
             "confidence": evt.confidence_score,
         })
