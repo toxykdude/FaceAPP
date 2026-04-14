@@ -152,15 +152,13 @@ async def enroll_member_face(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     
-    # Check if already enrolled
+    # Delete existing enrollment if present (re-enrollment)
     existing = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Member already enrolled. Delete existing enrollment first."
-        )
+        db.delete(existing)
+        db.flush()
     
     try:
         # Read image
@@ -363,10 +361,8 @@ async def enroll_member_camera(
         BiometricTemplate.member_id == member_id
     ).first()
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Member already enrolled. Delete existing enrollment first."
-        )
+        db.delete(existing)
+        db.flush()
     
     camera = db.query(Camera).filter(Camera.id == request.camera_id).first()
     if not camera:
