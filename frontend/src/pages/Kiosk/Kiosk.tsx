@@ -3,32 +3,28 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
     Box,
-    Card,
     Typography,
     Select,
     MenuItem,
     FormControl,
     InputLabel,
-    List,
-    ListItem,
-    ListItemAvatar,
-    Avatar,
-    ListItemText,
-    Chip,
-    IconButton,
-    Tooltip,
+    Fade,
     alpha,
     keyframes,
     styled,
+    Tooltip,
+    IconButton,
+    Chip,
 } from '@mui/material';
 import {
     CheckCircle as CheckCircleIcon,
-    Cancel as CancelIcon,
     VideocamOff as VideocamOffIcon,
     Usb as UsbIcon,
     Videocam as VideocamIcon,
     WifiOff as WifiOffIcon,
-    LinkOff as LinkOffIcon,
+    Settings as SettingsIcon,
+    Close as CloseIcon,
+    WarningAmber as WarningAmberIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 
@@ -69,50 +65,84 @@ interface LocalEvent {
 }
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+type RecognitionState = 'idle' | 'granted' | 'denied';
+
+// ---------------------------------------------------------------------------
+// Keyframe Animations
+// ---------------------------------------------------------------------------
+
+const pulseGreen = keyframes`
+  0% { box-shadow: 0 0 20px 5px rgba(76, 175, 80, 0.4); }
+  50% { box-shadow: 0 0 60px 15px rgba(76, 175, 80, 0.7); }
+  100% { box-shadow: 0 0 20px 5px rgba(76, 175, 80, 0.4); }
+`;
+
+const pulseRed = keyframes`
+  0% { box-shadow: 0 0 20px 5px rgba(244, 67, 54, 0.4); }
+  50% { box-shadow: 0 0 60px 15px rgba(244, 67, 54, 0.7); }
+  100% { box-shadow: 0 0 20px 5px rgba(244, 67, 54, 0.4); }
+`;
+
+const slideDown = keyframes`
+  from { transform: translateY(-30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+`;
+
+const fadeIn = keyframes`
+  from { opacity: 0; }
+  to { opacity: 1; }
+`;
+
+const breathe = keyframes`
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+`;
 
 // ---------------------------------------------------------------------------
 // Styled Components
 // ---------------------------------------------------------------------------
 
-const pulseGreen = keyframes`
-  0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
-`;
+const CameraContainer = styled('div')<{
+    $state: RecognitionState;
+}>(({ $state }) => ({
+    position: 'relative',
+    width: '100%',
+    maxWidth: 800,
+    aspectRatio: '16 / 9',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    border: '3px solid',
+    borderColor:
+        $state === 'granted'
+            ? '#4caf50'
+            : $state === 'denied'
+              ? '#f44336'
+              : '#222',
+    transition: 'border-color 0.4s ease, box-shadow 0.4s ease',
+    animation:
+        $state === 'granted'
+            ? `${pulseGreen} 1.5s ease-in-out 2`
+            : $state === 'denied'
+              ? `${pulseRed} 2s ease-in-out 1`
+              : 'none',
+}));
 
-const pulseRed = keyframes`
-  0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(244, 67, 54, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
-`;
-
-const StatusDot = styled('span')<{ $color: 'green' | 'red' | 'yellow' }>(({ $color }) => ({
+const StatusDotSmall = styled('span')<{ $color: 'green' | 'red' | 'yellow' }>(({ $color }) => ({
     display: 'inline-block',
-    width: 10,
-    height: 10,
+    width: 8,
+    height: 8,
     borderRadius: '50%',
     backgroundColor:
         $color === 'green' ? '#4caf50' : $color === 'red' ? '#f44336' : '#ff9800',
-    marginRight: 6,
-    animation: $color !== 'yellow' ? `${$color === 'green' ? pulseGreen : pulseRed} 2s infinite` : 'none',
+    animation: $color !== 'yellow' ? `${breathe} 2s ease-in-out infinite` : 'none',
 }));
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const STATUS_DOT: Record<ConnectionStatus, 'green' | 'red' | 'yellow'> = {
     connected: 'green',
     connecting: 'yellow',
     disconnected: 'red',
     error: 'red',
-};
-
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
-    connected: 'Live',
-    connecting: 'Connecting...',
-    disconnected: 'Disconnected',
-    error: 'Error',
 };
 
 // ---------------------------------------------------------------------------
@@ -132,6 +162,18 @@ export const Kiosk: React.FC = () => {
     const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
     const [latestRecognition, setLatestRecognition] = useState<WsRecognitionResult | null>(null);
 
+    // Recognition display state
+    const [recognitionState, setRecognitionState] = useState<RecognitionState>('idle');
+    const [recognizedName, setRecognizedName] = useState<string>('');
+    const [, setDenialReason] = useState<string>('');
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    // Settings panel toggle
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
+    // Auto-reset timer ref
+    const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -139,6 +181,12 @@ export const Kiosk: React.FC = () => {
     const wsRef = useRef<WebSocket | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const captureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Clock — update every second
+    useEffect(() => {
+        const interval = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Fetch Cameras
     const { data: camerasData, isLoading: loadingCameras } = useQuery({
@@ -156,6 +204,46 @@ export const Kiosk: React.FC = () => {
     });
 
     const remoteEvents = eventsData?.events || [];
+
+    // -----------------------------------------------------------------------
+    // Recognition State Machine
+    // -----------------------------------------------------------------------
+
+    const resetRecognition = useCallback(() => {
+        setRecognitionState('idle');
+        setRecognizedName('');
+        setDenialReason('');
+    }, []);
+
+    // When latestRecognition changes, drive the state machine
+    useEffect(() => {
+        if (!latestRecognition || !latestRecognition.member_name) return;
+
+        // Clear any existing reset timer
+        if (resetTimerRef.current) {
+            clearTimeout(resetTimerRef.current);
+            resetTimerRef.current = null;
+        }
+
+        if (latestRecognition.access_granted) {
+            setRecognitionState('granted');
+        } else {
+            setRecognitionState('denied');
+        }
+        setRecognizedName(latestRecognition.member_name);
+        setDenialReason(latestRecognition.denial_reason || '');
+
+        // Auto-reset to idle after 3 seconds
+        resetTimerRef.current = setTimeout(() => {
+            resetRecognition();
+        }, 3000);
+
+        return () => {
+            if (resetTimerRef.current) {
+                clearTimeout(resetTimerRef.current);
+            }
+        };
+    }, [latestRecognition, resetRecognition]);
 
     // -----------------------------------------------------------------------
     // USB Camera Lifecycle
@@ -349,104 +437,182 @@ export const Kiosk: React.FC = () => {
     };
 
     const displayEvents = usbMode ? localEvents : remoteEvents;
+    const recentCheckins = displayEvents.slice(0, 3);
+
+    // -----------------------------------------------------------------------
+    // Render
+    // -----------------------------------------------------------------------
 
     return (
         <Box
             sx={{
                 height: '100vh',
+                width: '100vw',
                 display: 'flex',
                 flexDirection: 'column',
-                bgcolor: '#0a0a0a',
+                alignItems: 'center',
+                background: 'linear-gradient(180deg, #0a0a0a 0%, #111111 100%)',
                 color: 'white',
+                position: 'relative',
+                overflow: 'hidden',
             }}
         >
-            {/* Header / Controls */}
+            {/* ---- TOP BAR: Logo (center) + Time (right) ---- */}
             <Box
                 sx={{
-                    p: 2,
-                    bgcolor: '#141414',
-                    borderBottom: '1px solid #2a2a2a',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 2,
-                    flexWrap: 'wrap',
+                    justifyContent: 'space-between',
+                    px: 4,
+                    py: 2.5,
+                    zIndex: 10,
                 }}
             >
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                    <InputLabel id="cam-select-label" sx={{ color: '#aaa' }}>
-                        Select Camera
-                    </InputLabel>
-                    <Select
-                        labelId="cam-select-label"
-                        value={selectedCameraId}
-                        label="Select Camera"
-                        onChange={handleCameraChange}
+                {/* Logo / Brand */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <img
+                        src="/logo.png"
+                        alt="PowerHouse Gym"
+                        style={{ height: 36, width: 'auto' }}
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                    />
+                    <Typography
+                        variant="h5"
+                        fontWeight={900}
                         sx={{
-                            bgcolor: '#1e1e1e',
-                            color: 'white',
-                            '.MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-                            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
+                            letterSpacing: '0.05em',
+                            background: 'linear-gradient(135deg, #fff 0%, #aaa 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: { xs: '1.1rem', md: '1.5rem' },
                         }}
                     >
-                        {loadingCameras ? (
-                            <MenuItem disabled>Loading...</MenuItem>
-                        ) : (
-                            camerasData?.map((cam: any) => (
-                                <MenuItem key={cam.id} value={cam.id}>
-                                    {cam.name}
-                                </MenuItem>
-                            ))
-                        )}
-                        {!loadingCameras && (!camerasData || camerasData.length === 0) && (
-                            <MenuItem disabled>No cameras found</MenuItem>
-                        )}
-                    </Select>
-                </FormControl>
+                        POWERHOUSE GYM
+                    </Typography>
+                </Box>
 
-                <Tooltip title={usbMode ? 'Switch to Remote Camera (RTSP)' : 'Switch to Local USB Camera'}>
-                    <IconButton
-                        onClick={handleUsbToggle}
-                        disabled={!selectedCameraId}
-                        sx={{
-                            bgcolor: usbMode ? alpha('#4caf50', 0.15) : 'transparent',
-                            border: '1px solid',
-                            borderColor: usbMode ? '#4caf50' : '#444',
-                            color: usbMode ? '#4caf50' : '#aaa',
-                            '&:hover': {
-                                bgcolor: usbMode ? alpha('#4caf50', 0.25) : alpha('#fff', 0.05),
-                            },
-                            '&.Mui-disabled': {
-                                bgcolor: 'transparent',
-                                borderColor: '#333',
-                                color: '#555',
-                            },
-                        }}
-                    >
-                        {usbMode ? <UsbIcon /> : <VideocamIcon />}
-                    </IconButton>
-                </Tooltip>
-
-                {usbMode && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-                        <StatusDot $color={STATUS_DOT[connectionStatus]} />
-                        <Typography variant="body2" sx={{ color: '#aaa' }}>
-                            USB Camera - {STATUS_LABEL[connectionStatus]}
-                        </Typography>
-                    </Box>
-                )}
+                {/* Clock */}
+                <Typography
+                    variant="h4"
+                    fontWeight={300}
+                    sx={{
+                        color: 'rgba(255,255,255,0.6)',
+                        fontVariantNumeric: 'tabular-nums',
+                        letterSpacing: '0.02em',
+                    }}
+                >
+                    {format(currentTime, 'h:mm a')}
+                </Typography>
             </Box>
 
-            {/* Main Content - plain flexbox, NO MUI Grid */}
-            <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
-                {/* Video Feed - fixed container */}
-                <Box sx={{
-                    flex: '1 1 0',
-                    bgcolor: '#000',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    minWidth: 0,
-                    minHeight: 0,
-                }}>
+            {/* ---- MAIN CONTENT: Camera + Recognition Overlay ---- */}
+            <Box
+                sx={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '100%',
+                    px: 3,
+                    pt: 8, // account for top bar
+                    pb: 6, // account for bottom check-ins
+                }}
+            >
+                {/* Recognition Overlay — shows ABOVE camera */}
+                <Fade in={recognitionState !== 'idle'} timeout={400}>
+                    <Box
+                        sx={{
+                            textAlign: 'center',
+                            mb: 2.5,
+                            minHeight: 70,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        {recognitionState === 'granted' && (
+                            <Box
+                                sx={{
+                                    animation: `${slideDown} 0.4s ease-out`,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                <CheckCircleIcon
+                                    sx={{ fontSize: 48, color: '#4caf50', mb: 0.5 }}
+                                />
+                                <Typography
+                                    variant="h4"
+                                    fontWeight={800}
+                                    sx={{
+                                        color: '#4caf50',
+                                        letterSpacing: '0.02em',
+                                        textShadow: '0 0 20px rgba(76, 175, 80, 0.4)',
+                                    }}
+                                >
+                                    WELCOME BACK!
+                                </Typography>
+                                <Typography
+                                    variant="h5"
+                                    fontWeight={600}
+                                    sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}
+                                >
+                                    {recognizedName}
+                                </Typography>
+                            </Box>
+                        )}
+                        {recognitionState === 'denied' && (
+                            <Box
+                                sx={{
+                                    animation: `${slideDown} 0.4s ease-out`,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                <WarningAmberIcon
+                                    sx={{ fontSize: 48, color: '#f44336', mb: 0.5 }}
+                                />
+                                <Typography
+                                    variant="h4"
+                                    fontWeight={800}
+                                    sx={{
+                                        color: '#f44336',
+                                        letterSpacing: '0.02em',
+                                        textShadow: '0 0 20px rgba(244, 67, 54, 0.4)',
+                                    }}
+                                >
+                                    MEMBERSHIP EXPIRED
+                                </Typography>
+                                <Typography
+                                    variant="h5"
+                                    fontWeight={600}
+                                    sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}
+                                >
+                                    {recognizedName}
+                                </Typography>
+                                <Typography
+                                    variant="body2"
+                                    sx={{ color: 'rgba(255,255,255,0.5)', mt: 0.5 }}
+                                >
+                                    Please visit reception to renew
+                                </Typography>
+                            </Box>
+                        )}
+                    </Box>
+                </Fade>
+
+                {/* Camera Feed — Hero Element */}
+                <CameraContainer $state={recognitionState}>
                     {selectedCameraId ? (
                         usbMode ? (
                             <>
@@ -461,7 +627,7 @@ export const Kiosk: React.FC = () => {
                                         left: 0,
                                         width: '100%',
                                         height: '100%',
-                                        objectFit: 'contain',
+                                        objectFit: 'cover',
                                     }}
                                 />
                                 <canvas
@@ -486,12 +652,14 @@ export const Kiosk: React.FC = () => {
                                             flexDirection: 'column',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            bgcolor: alpha('#000', 0.7),
+                                            bgcolor: alpha('#000', 0.8),
                                         }}
                                     >
                                         <WifiOffIcon sx={{ fontSize: 48, color: '#f44336', mb: 1 }} />
-                                        <Typography color="error">Connection Error</Typography>
-                                        <Typography variant="body2" color="grey.500">
+                                        <Typography color="error" fontWeight={600}>
+                                            Camera Error
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: 'grey.500' }}>
                                             Check that the CV service is running
                                         </Typography>
                                     </Box>
@@ -507,167 +675,268 @@ export const Kiosk: React.FC = () => {
                                     left: 0,
                                     width: '100%',
                                     height: '100%',
-                                    objectFit: 'contain',
+                                    objectFit: 'cover',
                                 }}
                             />
                         )
                     ) : (
-                        <Box sx={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }} color="grey.500">
-                            <VideocamOffIcon sx={{ fontSize: 60 }} />
-                            <Typography mt={1}>Select a camera to start monitoring</Typography>
+                        <Box
+                            sx={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: '#0d0d0d',
+                            }}
+                        >
+                            <VideocamOffIcon sx={{ fontSize: 64, color: '#333', mb: 1 }} />
+                            <Typography sx={{ color: '#555', fontWeight: 500 }}>
+                                Select a camera to start
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#444', mt: 0.5 }}>
+                                Open settings to configure
+                            </Typography>
                         </Box>
                     )}
-                </Box>
 
-                {/* Events Panel */}
-                <Box sx={{
-                    width: 340,
-                    flexShrink: 0,
-                    borderLeft: '1px solid #2a2a2a',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    bgcolor: '#111',
-                    overflow: 'hidden',
-                }}>
-                    <Box sx={{ p: 2, bgcolor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
-                        <Typography variant="h6" fontWeight="bold">
-                            Recent Access
-                        </Typography>
-                        <Typography variant="caption" color="grey.500">
-                            {usbMode ? 'Live via USB camera' : 'Polling from server'}
+                    {/* Scanning indicator when USB is connected and idle */}
+                    {usbMode && connectionStatus === 'connected' && recognitionState === 'idle' && (
+                        <Box
+                            sx={{
+                                position: 'absolute',
+                                bottom: 12,
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                bgcolor: 'rgba(0,0,0,0.6)',
+                                px: 2,
+                                py: 0.75,
+                                borderRadius: 3,
+                                backdropFilter: 'blur(8px)',
+                            }}
+                        >
+                            <Box
+                                sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    bgcolor: '#4caf50',
+                                    animation: `${breathe} 1.5s ease-in-out infinite`,
+                                }}
+                            />
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                                Scanning...
+                            </Typography>
+                        </Box>
+                    )}
+                </CameraContainer>
+
+                {/* Idle message below camera */}
+                <Fade in={recognitionState === 'idle' && !!selectedCameraId}>
+                    <Box
+                        sx={{
+                            mt: 2.5,
+                            textAlign: 'center',
+                            animation: `${fadeIn} 0.6s ease-out`,
+                        }}
+                    >
+                        <Typography
+                            variant="body1"
+                            sx={{ color: 'rgba(255,255,255,0.35)', fontWeight: 400 }}
+                        >
+                            Please face the camera to check in
                         </Typography>
                     </Box>
+                </Fade>
+            </Box>
 
-                    <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-                        <List disablePadding>
-                            {displayEvents.map((event: any) => (
-                                <Card
-                                    key={event.id}
-                                    sx={{
-                                        mb: 1,
-                                        bgcolor: '#1a1a1a',
-                                        color: 'white',
-                                        border: '1px solid',
-                                        borderColor: event.access_granted
-                                            ? alpha('#4caf50', 0.3)
-                                            : alpha('#f44336', 0.3),
-                                        transition: 'all 0.3s ease',
-                                    }}
-                                >
-                                    <ListItem alignItems="flex-start" sx={{ py: 1, px: 1.5 }}>
-                                        <ListItemAvatar sx={{ minWidth: 42 }}>
-                                            <Avatar
-                                                sx={{
-                                                    width: 32,
-                                                    height: 32,
-                                                    bgcolor: event.access_granted
-                                                        ? 'success.main'
-                                                        : 'error.main',
-                                                }}
-                                            >
-                                                {event.access_granted ? (
-                                                    <CheckCircleIcon sx={{ fontSize: 18 }} />
-                                                ) : (
-                                                    <CancelIcon sx={{ fontSize: 18 }} />
-                                                )}
-                                            </Avatar>
-                                        </ListItemAvatar>
-                                        <ListItemText
-                                            primary={
-                                                <Typography variant="subtitle2" fontWeight="bold">
-                                                    {event.member_name || 'Unknown Person'}
-                                                </Typography>
-                                            }
-                                            secondary={
-                                                <Box
-                                                    component="span"
-                                                    sx={{
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        gap: 0.3,
-                                                    }}
-                                                >
-                                                    <Typography variant="caption" color="grey.400">
-                                                        {format(
-                                                            new Date(event.timestamp),
-                                                            'h:mm:ss a'
-                                                        )}
-                                                    </Typography>
-                                                    <Box display="flex" gap={1} alignItems="center">
-                                                        <Chip
-                                                            label={
-                                                                event.access_granted
-                                                                    ? 'Granted'
-                                                                    : 'Denied'
-                                                            }
-                                                            color={
-                                                                event.access_granted
-                                                                    ? 'success'
-                                                                    : 'error'
-                                                            }
-                                                            size="small"
-                                                            sx={{ height: 22, fontSize: '0.7rem' }}
-                                                        />
-                                                        <Typography
-                                                            variant="caption"
-                                                            color="grey.500"
-                                                        >
-                                                            {(
-                                                                (event.confidence_score ||
-                                                                    event.confidence ||
-                                                                    0) * 100
-                                                            ).toFixed(0)}
-                                                            % match
-                                                        </Typography>
-                                                    </Box>
-                                                    {!event.access_granted &&
-                                                        event.denial_reason && (
-                                                            <Typography
-                                                                variant="caption"
-                                                                color="error.light"
-                                                            >
-                                                                {event.denial_reason}
-                                                            </Typography>
-                                                        )}
-                                                </Box>
-                                            }
-                                        />
-                                    </ListItem>
-                                </Card>
-                            ))}
+            {/* ---- BOTTOM BAR: Recent Check-ins ---- */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 3,
+                    px: 4,
+                    py: 2,
+                    zIndex: 10,
+                }}
+            >
+                {recentCheckins.map((event: any) => (
+                    <Chip
+                        key={event.id}
+                        size="small"
+                        sx={{
+                            bgcolor: 'rgba(255,255,255,0.05)',
+                            border: '1px solid',
+                            borderColor: event.access_granted
+                                ? 'rgba(76,175,80,0.2)'
+                                : 'rgba(244,67,54,0.2)',
+                            color: 'rgba(255,255,255,0.5)',
+                            fontSize: '0.75rem',
+                            '& .MuiChip-icon': {
+                                color: event.access_granted ? '#4caf50' : '#f44336',
+                            },
+                            '& .MuiChip-label': {
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.5,
+                            },
+                        }}
+                        icon={
+                            <StatusDotSmall
+                                $color={event.access_granted ? 'green' : 'red'}
+                            />
+                        }
+                        label={`${event.member_name} · ${format(new Date(event.timestamp), 'h:mm a')}`}
+                    />
+                ))}
+            </Box>
 
-                            {displayEvents.length === 0 && (
-                                <Box textAlign="center" color="grey.600" mt={6} px={2}>
-                                    {usbMode ? (
-                                        <>
-                                            <LinkOffIcon sx={{ fontSize: 40, mb: 1 }} />
-                                            <Typography variant="body2">
-                                                Waiting for camera feed...
+            {/* ---- SETTINGS PANEL (bottom-right, expandable) ---- */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    bottom: 16,
+                    right: 16,
+                    zIndex: 20,
+                }}
+            >
+                <Fade in={settingsOpen} timeout={200}>
+                    <Box
+                        sx={{
+                            display: settingsOpen ? 'block' : 'none',
+                            bgcolor: 'rgba(20,20,20,0.95)',
+                            backdropFilter: 'blur(12px)',
+                            border: '1px solid #333',
+                            borderRadius: 2,
+                            p: 2.5,
+                            mb: 1,
+                            minWidth: 260,
+                            animation: settingsOpen ? `${fadeIn} 0.2s ease-out` : 'none',
+                        }}
+                    >
+                        {/* Close button */}
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: -1 }}>
+                            <IconButton size="small" onClick={() => setSettingsOpen(false)}>
+                                <CloseIcon sx={{ fontSize: 18, color: '#888' }} />
+                            </IconButton>
+                        </Box>
+
+                        <Typography variant="caption" sx={{ color: '#666', mb: 1, display: 'block' }}>
+                            Kiosk Settings
+                        </Typography>
+
+                        {/* Camera Select */}
+                        <FormControl size="small" fullWidth sx={{ mt: 1 }}>
+                            <InputLabel id="cam-select-label" sx={{ color: '#aaa', fontSize: '0.8rem' }}>
+                                Camera
+                            </InputLabel>
+                            <Select
+                                labelId="cam-select-label"
+                                value={selectedCameraId}
+                                label="Camera"
+                                onChange={handleCameraChange}
+                                sx={{
+                                    bgcolor: '#1a1a1a',
+                                    color: 'white',
+                                    fontSize: '0.85rem',
+                                    '.MuiOutlinedInput-notchedOutline': { borderColor: '#333' },
+                                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#555' },
+                                }}
+                            >
+                                {loadingCameras ? (
+                                    <MenuItem disabled>Loading...</MenuItem>
+                                ) : (
+                                    camerasData?.map((cam: any) => (
+                                        <MenuItem key={cam.id} value={cam.id}>
+                                            {cam.name}
+                                        </MenuItem>
+                                    ))
+                                )}
+                                {!loadingCameras && (!camerasData || camerasData.length === 0) && (
+                                    <MenuItem disabled>No cameras found</MenuItem>
+                                )}
+                            </Select>
+                        </FormControl>
+
+                        {/* USB Toggle */}
+                        <Tooltip
+                            title={usbMode ? 'Switch to Remote Camera (RTSP)' : 'Switch to Local USB Camera'}
+                        >
+                            <Box
+                                onClick={selectedCameraId ? handleUsbToggle : undefined}
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1.5,
+                                    mt: 2,
+                                    p: 1,
+                                    borderRadius: 1,
+                                    border: '1px solid',
+                                    borderColor: usbMode ? '#4caf50' : '#333',
+                                    bgcolor: usbMode ? 'rgba(76,175,80,0.08)' : 'transparent',
+                                    cursor: selectedCameraId ? 'pointer' : 'not-allowed',
+                                    opacity: selectedCameraId ? 1 : 0.4,
+                                    transition: 'all 0.2s',
+                                    '&:hover': {
+                                        borderColor: usbMode ? '#66bb6a' : '#555',
+                                        bgcolor: usbMode ? 'rgba(76,175,80,0.12)' : 'rgba(255,255,255,0.03)',
+                                    },
+                                }}
+                            >
+                                {usbMode ? (
+                                    <UsbIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                                ) : (
+                                    <VideocamIcon sx={{ fontSize: 18, color: '#888' }} />
+                                )}
+                                <Box sx={{ flex: 1 }}>
+                                    <Typography variant="body2" sx={{ color: '#ccc', fontSize: '0.8rem', fontWeight: 500 }}>
+                                        USB Camera Mode
+                                    </Typography>
+                                    {usbMode && (
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <StatusDotSmall $color={STATUS_DOT[connectionStatus]} />
+                                            <Typography variant="caption" sx={{ color: '#888', fontSize: '0.7rem' }}>
+                                                {connectionStatus === 'connected'
+                                                    ? 'Connected'
+                                                    : connectionStatus === 'connecting'
+                                                      ? 'Connecting...'
+                                                      : connectionStatus === 'error'
+                                                        ? 'Error'
+                                                        : 'Disconnected'}
                                             </Typography>
-                                            <Typography variant="caption">
-                                                Point your face at the camera
-                                            </Typography>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <VideocamOffIcon sx={{ fontSize: 40, mb: 1 }} />
-                                            <Typography variant="body2">
-                                                Waiting for events...
-                                            </Typography>
-                                        </>
+                                        </Box>
                                     )}
                                 </Box>
-                            )}
-                        </List>
+                            </Box>
+                        </Tooltip>
                     </Box>
-                </Box>
+                </Fade>
+
+                {/* Gear icon button */}
+                <IconButton
+                    onClick={() => setSettingsOpen((prev) => !prev)}
+                    sx={{
+                        bgcolor: 'rgba(255,255,255,0.05)',
+                        border: '1px solid #333',
+                        color: '#666',
+                        '&:hover': {
+                            bgcolor: 'rgba(255,255,255,0.1)',
+                            color: '#aaa',
+                        },
+                    }}
+                >
+                    <SettingsIcon />
+                </IconButton>
             </Box>
         </Box>
     );
