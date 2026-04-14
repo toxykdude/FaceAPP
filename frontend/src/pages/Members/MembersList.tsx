@@ -36,10 +36,12 @@ import {
     CardMembership as CardMembershipIcon,
 } from '@mui/icons-material';
 import { membersApi, Member } from '@/api/members';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 export const MembersList: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const deleteMutation = useMutation({
@@ -49,7 +51,7 @@ export const MembersList: React.FC = () => {
             setDeleteTarget(null);
         },
         onError: (error: any) => {
-            alert('Error deleting member: ' + (error?.response?.data?.detail || error?.message || 'Unknown error'));
+            alert(t.members.errorDeleting.replace('{error}', error?.response?.data?.detail || error?.message || 'Unknown'));
             setDeleteTarget(null);
         },
     });
@@ -84,13 +86,13 @@ export const MembersList: React.FC = () => {
     return (
         <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">Members</Typography>
+                <Typography variant="h4">{t.members.title}</Typography>
                 <Button
                     variant="contained"
                     startIcon={<AddIcon />}
                     onClick={() => navigate('/members/new')}
                 >
-                    Add Member
+                    {t.members.addMember}
                 </Button>
             </Box>
 
@@ -98,7 +100,7 @@ export const MembersList: React.FC = () => {
                 <CardContent>
                     <TextField
                         fullWidth
-                        placeholder="Search by name, email, or ID..."
+                        placeholder={t.members.search}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         InputProps={{
@@ -115,26 +117,26 @@ export const MembersList: React.FC = () => {
                         <Table>
                             <TableHead>
                                 <TableRow>
-                                    <TableCell>Name</TableCell>
-                                    <TableCell>ID</TableCell>
-                                    <TableCell>Email</TableCell>
-                                    <TableCell>Phone</TableCell>
-                                    <TableCell>Status</TableCell>
-                                    <TableCell>Enrolled</TableCell>
-                                    <TableCell align="right">Actions</TableCell>
+                                    <TableCell>{t.members.name}</TableCell>
+                                    <TableCell>{t.members.idNumber}</TableCell>
+                                    <TableCell>{t.members.email}</TableCell>
+                                    <TableCell>{t.members.phone}</TableCell>
+                                    <TableCell>{t.members.status}</TableCell>
+                                    <TableCell>{t.members.enrolled}</TableCell>
+                                    <TableCell align="right">{t.common.actions}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
                                         <TableCell colSpan={7} align="center">
-                                            Loading...
+                                            {t.members.loading}
                                         </TableCell>
                                     </TableRow>
                                 ) : data?.members.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={7} align="center">
-                                            No members found
+                                            {t.members.noMembersFound}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -155,7 +157,7 @@ export const MembersList: React.FC = () => {
                                             </TableCell>
                                             <TableCell>
                                                 <Chip
-                                                    label={member.facial_data_enrolled ? 'Yes' : 'No'}
+                                                    label={member.facial_data_enrolled ? t.members.yes : t.members.no}
                                                     color={member.facial_data_enrolled ? 'success' : 'default'}
                                                     size="small"
                                                 />
@@ -164,7 +166,7 @@ export const MembersList: React.FC = () => {
                                                 <IconButton
                                                     size="small"
                                                     onClick={() => navigate(`/members/${member.id}/edit`)}
-                                                    title="Edit Member"
+                                                    title={t.members.editMember}
                                                     color="primary"
                                                 >
                                                     <EditIcon />
@@ -172,7 +174,7 @@ export const MembersList: React.FC = () => {
                                                 <IconButton
                                                     size="small"
                                                     onClick={() => navigate(`/members/${member.id}/membership`)}
-                                                    title="Membership"
+                                                    title={t.members.assignMembership}
                                                     color="secondary"
                                                 >
                                                     <CardMembershipIcon />
@@ -180,12 +182,12 @@ export const MembersList: React.FC = () => {
                                                 <IconButton
                                                     size="small"
                                                     onClick={() => navigate(`/members/${member.id}/enroll`)}
-                                                    title="Face Enrollment"
+                                                    title={t.members.faceEnrollment}
                                                     color={member.facial_data_enrolled ? 'success' : 'warning'}
                                                 >
                                                     <EnrollIcon />
                                                 </IconButton>
-                                                <IconButton size="small" title="Delete" color="error" onClick={() => setDeleteTarget(member.id)}>
+                                                <IconButton size="small" title={t.members.delete} color="error" onClick={() => setDeleteTarget(member.id)}>
                                                     <DeleteIcon />
                                                 </IconButton>
                                             </TableCell>
@@ -211,21 +213,21 @@ export const MembersList: React.FC = () => {
             </Card>
             {/* Delete Confirmation Dialog */}
             <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-                <DialogTitle>Delete Member</DialogTitle>
+                <DialogTitle>{t.members.deleteMember}</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
-                        Are you sure you want to delete this member? This action cannot be undone.
+                        {t.members.deleteConfirmMsg}
                     </DialogContentText>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                    <Button onClick={() => setDeleteTarget(null)}>{t.members.cancel}</Button>
                     <Button
                         onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
                         color="error"
                         variant="contained"
                         disabled={deleteMutation.isPending}
                     >
-                        {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                        {deleteMutation.isPending ? t.members.deleting : t.members.delete}
                     </Button>
                 </DialogActions>
             </Dialog>

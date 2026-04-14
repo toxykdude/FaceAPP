@@ -30,11 +30,13 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Receipt as ReceiptIcon } from '@mui/icons-material';
 import { salesApi, SalesCreate } from '@/api/sales';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 const paymentMethods = ['cash', 'card', 'transfer'];
 
 export const SalesList: React.FC = () => {
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [openDialog, setOpenDialog] = useState(false);
@@ -72,9 +74,9 @@ export const SalesList: React.FC = () => {
     return (
         <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">Sales</Typography>
+                <Typography variant="h4">{t.sales.title}</Typography>
                 <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenDialog(true)}>
-                    New Transaction
+                    {t.sales.addTransaction}
                 </Button>
             </Box>
 
@@ -84,22 +86,22 @@ export const SalesList: React.FC = () => {
                         <Table>
                             <TableHead>
                                 <TableRow>
-                                    <TableCell>Invoice</TableCell>
-                                    <TableCell>Member</TableCell>
-                                    <TableCell>ID</TableCell>
-                                    <TableCell>Amount</TableCell>
-                                    <TableCell>Method</TableCell>
-                                    <TableCell>Date</TableCell>
+                                    <TableCell>{t.sales.invoice}</TableCell>
+                                    <TableCell>{t.sales.member}</TableCell>
+                                    <TableCell>{t.sales.id}</TableCell>
+                                    <TableCell>{t.sales.amount}</TableCell>
+                                    <TableCell>{t.sales.method}</TableCell>
+                                    <TableCell>{t.sales.date}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">Loading...</TableCell>
+                                        <TableCell colSpan={6} align="center">{t.sales.loading}</TableCell>
                                     </TableRow>
                                 ) : data?.transactions.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">No transactions found</TableCell>
+                                        <TableCell colSpan={6} align="center">{t.sales.noTransactionsFound}</TableCell>
                                     </TableRow>
                                 ) : (
                                     data?.transactions.map((tx) => (
@@ -110,7 +112,7 @@ export const SalesList: React.FC = () => {
                                                     <Typography variant="body2">{tx.invoice_number}</Typography>
                                                 </Box>
                                             </TableCell>
-                                            <TableCell>{tx.member_name || 'Unknown'}</TableCell>
+                                            <TableCell>{tx.member_name || t.sales.unknown}</TableCell>
                                             <TableCell>{tx.member_id_number || '-'}</TableCell>
                                             <TableCell>${Number(tx.amount).toLocaleString()}</TableCell>
                                             <TableCell>
@@ -146,18 +148,18 @@ export const SalesList: React.FC = () => {
 
             {/* Create Transaction Dialog */}
             <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>New Transaction</DialogTitle>
+                <DialogTitle>{t.sales.newTransactionTitle}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
-                            label="Member ID"
+                            label={t.sales.memberId}
                             fullWidth
                             value={newTransaction.member_id}
                             onChange={(e) => setNewTransaction({ ...newTransaction, member_id: e.target.value })}
-                            helperText="Enter the member UUID"
+                            helperText={t.sales.memberIdHelper}
                         />
                         <TextField
-                            label="Amount"
+                            label={t.sales.amount}
                             type="number"
                             fullWidth
                             value={newTransaction.amount}
@@ -165,10 +167,10 @@ export const SalesList: React.FC = () => {
                             InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                         />
                         <FormControl fullWidth>
-                            <InputLabel>Payment Method</InputLabel>
+                            <InputLabel>{t.sales.paymentMethod}</InputLabel>
                             <Select
                                 value={newTransaction.payment_method}
-                                label="Payment Method"
+                                label={t.sales.paymentMethod}
                                 onChange={(e) => setNewTransaction({ ...newTransaction, payment_method: e.target.value })}
                             >
                                 {paymentMethods.map((m) => (
@@ -177,7 +179,7 @@ export const SalesList: React.FC = () => {
                             </Select>
                         </FormControl>
                         <TextField
-                            label="Notes"
+                            label={t.sales.notes}
                             fullWidth
                             multiline
                             rows={2}
@@ -187,13 +189,13 @@ export const SalesList: React.FC = () => {
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+                    <Button onClick={() => setOpenDialog(false)}>{t.common.cancel}</Button>
                     <Button
                         onClick={() => createMutation.mutate(newTransaction)}
                         variant="contained"
                         disabled={!newTransaction.member_id || newTransaction.amount <= 0 || createMutation.isPending}
                     >
-                        {createMutation.isPending ? 'Creating...' : 'Create Transaction'}
+                        {createMutation.isPending ? t.sales.creating : t.sales.createTransaction}
                     </Button>
                 </DialogActions>
             </Dialog>

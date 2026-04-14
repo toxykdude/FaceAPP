@@ -24,6 +24,7 @@ import { membershipsApi, MembershipCreate } from '@/api/memberships';
 import { membersApi } from '@/api/members';
 import { membershipPlansApi } from '@/api/membershipPlans';
 import { addDays, addMonths, format } from 'date-fns';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 const membershipSchema = z.object({
     member_id: z.string().min(1, 'Member is required'),
@@ -39,6 +40,7 @@ type MembershipFormData = z.infer<typeof membershipSchema>;
 export const MembershipForm: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
 
     const { data: membersResponse, isLoading: membersLoading } = useQuery({
         queryKey: ['members-lookup'],
@@ -61,7 +63,7 @@ export const MembershipForm: React.FC = () => {
         resolver: zodResolver(membershipSchema),
         defaultValues: {
             member_id: '',
-            plan_id: '', // Empty means Custom
+            plan_id: '',
             type: '',
             start_date: format(new Date(), 'yyyy-MM-dd'),
             end_date: format(addMonths(new Date(), 1), 'yyyy-MM-dd'),
@@ -72,7 +74,6 @@ export const MembershipForm: React.FC = () => {
     const watchPlanId = watch('plan_id');
     const watchStartDate = watch('start_date');
 
-    // Auto-fill when plan is selected
     useEffect(() => {
         if (!watchPlanId) return;
         const plan = plans.find(p => p.id === watchPlanId);
@@ -96,7 +97,6 @@ export const MembershipForm: React.FC = () => {
     });
 
     const onSubmit = (data: MembershipFormData) => {
-        // Convert empty plan_id to undefined
         const submitData: MembershipCreate = {
             member_id: data.member_id,
             plan_id: data.plan_id || undefined,
@@ -119,7 +119,7 @@ export const MembershipForm: React.FC = () => {
     return (
         <Box>
             <Typography variant="h4" gutterBottom>
-                New Membership
+                {t.memberships.newMembership}
             </Typography>
 
             <Card>
@@ -138,7 +138,7 @@ export const MembershipForm: React.FC = () => {
                                             renderInput={(params) => (
                                                 <TextField
                                                     {...params}
-                                                    label="Select Member"
+                                                    label={t.memberships.member}
                                                     error={!!errors.member_id}
                                                     helperText={errors.member_id?.message}
                                                 />
@@ -157,11 +157,11 @@ export const MembershipForm: React.FC = () => {
                                             {...field}
                                             fullWidth
                                             select
-                                            label="Select Plan (Optional)"
+                                            label={t.memberships.plan}
                                             error={!!errors.plan_id}
                                             helperText={errors.plan_id?.message}
                                         >
-                                            <MenuItem value=""><em>Custom (Manual Entry)</em></MenuItem>
+                                            <MenuItem value=""><em>Custom</em></MenuItem>
                                             {plans.map((p) => (
                                                 <MenuItem key={p.id} value={p.id}>
                                                     {p.name} - ${p.price}
@@ -180,7 +180,7 @@ export const MembershipForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Membership Name"
+                                            label={t.memberships.type}
                                             error={!!errors.type}
                                             helperText={errors.type?.message}
                                         />
@@ -196,7 +196,7 @@ export const MembershipForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Start Date"
+                                            label={t.memberships.startDate}
                                             type="date"
                                             InputLabelProps={{ shrink: true }}
                                             error={!!errors.start_date}
@@ -214,7 +214,7 @@ export const MembershipForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="End Date"
+                                            label={t.memberships.endDate}
                                             type="date"
                                             InputLabelProps={{ shrink: true }}
                                             error={!!errors.end_date}
@@ -232,7 +232,7 @@ export const MembershipForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Price"
+                                            label={t.memberships.price}
                                             type="number"
                                             InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                                             onChange={(e) => field.onChange(parseFloat(e.target.value))}
@@ -251,14 +251,14 @@ export const MembershipForm: React.FC = () => {
                                         size="large"
                                         disabled={createMutation.isPending}
                                     >
-                                        {createMutation.isPending ? 'Processing...' : 'Assign Membership'}
+                                        {t.members.assignMembershipBtn}
                                     </Button>
                                     <Button
                                         variant="outlined"
                                         size="large"
                                         onClick={() => navigate('/memberships')}
                                     >
-                                        Cancel
+                                        {t.common.cancel}
                                     </Button>
                                 </Box>
                             </Grid>

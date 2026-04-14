@@ -30,6 +30,7 @@ import { membershipsApi } from '@/api/memberships';
 import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
 import { salesApi } from '@/api/sales';
 import { addDays, format } from 'date-fns';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 const memberSchema = z.object({
     first_name: z.string().min(1, 'First name is required'),
@@ -51,6 +52,7 @@ export const MemberForm: React.FC = () => {
     const queryClient = useQueryClient();
     const isEdit = !!id;
     const [createdMemberId, setCreatedMemberId] = React.useState<string | null>(null);
+    const { t } = useLanguage();
 
     const { data: member } = useQuery({
         queryKey: ['member', id],
@@ -96,7 +98,6 @@ export const MemberForm: React.FC = () => {
         },
     });
 
-    // The effective member ID for sub-components
     const effectiveMemberId = id || createdMemberId;
     const showSubSections = isEdit || !!createdMemberId;
 
@@ -111,10 +112,9 @@ export const MemberForm: React.FC = () => {
     return (
         <Box>
             <Typography variant="h4" gutterBottom>
-                {isEdit ? 'Edit Member' : 'Add Member'}
+                {isEdit ? t.members.editMember : t.members.addMember}
             </Typography>
 
-            {/* Only show form if member hasn't been created yet */}
             {(!createdMemberId && !isEdit) && (
             <Card>
                 <CardContent>
@@ -128,7 +128,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="First Name"
+                                            label={t.members.firstName}
                                             error={!!errors.first_name}
                                             helperText={errors.first_name?.message}
                                         />
@@ -144,7 +144,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Last Name"
+                                            label={t.members.lastName}
                                             error={!!errors.last_name}
                                             helperText={errors.last_name?.message}
                                         />
@@ -160,7 +160,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Cedula / ID Number"
+                                            label={t.members.idNumber}
                                             placeholder="e.g. 12345678"
                                         />
                                     )}
@@ -175,7 +175,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Email (optional)"
+                                            label={t.members.emailOptional}
                                             placeholder="email@example.com"
                                             error={!!errors.email}
                                             helperText={errors.email?.message}
@@ -192,7 +192,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Phone"
+                                            label={t.members.phone}
                                             error={!!errors.phone}
                                             helperText={errors.phone?.message}
                                         />
@@ -208,7 +208,7 @@ export const MemberForm: React.FC = () => {
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Date of Birth"
+                                            label={t.members.dateOfBirth}
                                             type="date"
                                             InputLabelProps={{ shrink: true }}
                                         />
@@ -222,10 +222,10 @@ export const MemberForm: React.FC = () => {
                                         name="status"
                                         control={control}
                                         render={({ field }) => (
-                                            <TextField {...field} fullWidth select label="Status">
-                                                <MenuItem value="active">Active</MenuItem>
-                                                <MenuItem value="inactive">Inactive</MenuItem>
-                                                <MenuItem value="suspended">Suspended</MenuItem>
+                                            <TextField {...field} fullWidth select label={t.members.status}>
+                                                <MenuItem value="active">{t.members.active}</MenuItem>
+                                                <MenuItem value="inactive">{t.members.inactive}</MenuItem>
+                                                <MenuItem value="suspended">{t.members.suspended}</MenuItem>
                                             </TextField>
                                         )}
                                     />
@@ -237,7 +237,7 @@ export const MemberForm: React.FC = () => {
                                     name="address"
                                     control={control}
                                     render={({ field }) => (
-                                        <TextField {...field} fullWidth label="Address" multiline rows={2} />
+                                        <TextField {...field} fullWidth label={t.members.address} multiline rows={2} />
                                     )}
                                 />
                             </Grid>
@@ -249,7 +249,7 @@ export const MemberForm: React.FC = () => {
                                     render={({ field }) => (
                                         <FormControlLabel
                                             control={<Checkbox {...field} checked={field.value} />}
-                                            label="Consent given for biometric data collection"
+                                            label={t.members.consentLabel}
                                         />
                                     )}
                                 />
@@ -258,14 +258,14 @@ export const MemberForm: React.FC = () => {
                             <Grid item xs={12}>
                                 <Box display="flex" gap={2}>
                                     <Button type="submit" variant="contained" size="large">
-                                        {isEdit ? 'Update' : 'Create'}
+                                        {isEdit ? t.members.update : t.members.create}
                                     </Button>
                                     <Button
                                         variant="outlined"
                                         size="large"
                                         onClick={() => navigate('/members')}
                                     >
-                                        Cancel
+                                        {t.members.cancel}
                                     </Button>
                                 </Box>
                             </Grid>
@@ -278,24 +278,20 @@ export const MemberForm: React.FC = () => {
             {/* Success message after creation */}
             {createdMemberId && !isEdit && (
                 <Paper sx={{ p: 3, mb: 3, bgcolor: 'success.lighter', borderRadius: 2 }}>
-                    <Typography variant="h6" color="success.main">✅ Member created successfully!</Typography>
+                    <Typography variant="h6" color="success.main">✅ {t.members.memberCreated}</Typography>
                     <Typography variant="body2" color="textSecondary">
-                        Now you can assign a membership and enroll their face below.
+                        {t.members.memberCreatedSub}
                     </Typography>
-                    <Button sx={{ mt: 1 }} onClick={() => navigate('/members')}>Skip - Go to Members List</Button>
+                    <Button sx={{ mt: 1 }} onClick={() => navigate('/members')}>{t.members.skipToMembers}</Button>
                 </Paper>
             )}
 
-            {/* Membership Section - shown after creation or in edit mode */}
             {showSubSections && effectiveMemberId && <MembershipSection memberId={effectiveMemberId} />}
-
-            {/* Face Enrollment Section - shown after creation or in edit mode */}
             {showSubSections && effectiveMemberId && <FaceEnrollmentSection memberId={effectiveMemberId} />}
         </Box>
     );
 };
 
-// Sub-component for Membership Section - inline, no dialog
 interface MembershipHistoryItem {
     id: string;
     member_id: string;
@@ -312,6 +308,7 @@ interface MembershipHistoryItem {
 
 const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
 
     const [showForm, setShowForm] = React.useState(false);
     const [renewFromMembership, setRenewFromMembership] = React.useState<MembershipHistoryItem | null>(null);
@@ -320,13 +317,11 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
     const [paymentAmount, setPaymentAmount] = React.useState<string>('');
 
-    // Fetch existing memberships for this member
     const { data: memberships, isLoading: membershipsLoading } = useQuery({
         queryKey: ['memberships', 'member', memberId],
         queryFn: () => membershipsApi.getMemberships(0, 50, memberId),
     });
 
-    // Sort by end_date descending (most recent first)
     const sortedMemberships = React.useMemo(() => {
         if (!memberships) return [];
         return [...memberships].sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime());
@@ -340,7 +335,6 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
     const selectedPlan = plans.find((p: MembershipPlan) => p.id === selectedPlanId);
 
-    // Auto-calculate end date from plan duration
     const endDate = React.useMemo(() => {
         if (!selectedPlan || !startDate) return '';
         const start = new Date(startDate);
@@ -348,7 +342,6 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         return format(end, 'yyyy-MM-dd');
     }, [selectedPlanId, startDate, selectedPlan]);
 
-    // Auto-fill payment amount when plan changes
     React.useEffect(() => {
         if (selectedPlan) {
             setPaymentAmount(String(selectedPlan.price));
@@ -363,9 +356,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
     const createMutation = useMutation({
         mutationFn: async (data: any) => {
-            // 1. Create membership
             const membership = await membershipsApi.createMembership(data.membership);
-            // 2. Create payment transaction if amount > 0
             if (data.payment.amount > 0) {
                 await salesApi.createTransaction({
                     member_id: data.membership.member_id,
@@ -416,7 +407,6 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         if (membership.plan_id) {
             setSelectedPlanId(membership.plan_id);
         }
-        // Start date = day after the membership ends
         const nextDay = addDays(new Date(membership.end_date), 1);
         setStartDate(format(nextDay, 'yyyy-MM-dd'));
         setPaymentMethod('cash');
@@ -446,7 +436,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         if (plan.duration_months) durationParts.push(`${plan.duration_months}m`);
         if (plan.duration_days) durationParts.push(`${plan.duration_days}d`);
         const durationStr = durationParts.join(' ') || '0d';
-        return `${plan.name} \u2014 $${Number(plan.price).toLocaleString()} (${durationStr})`;
+        return `${plan.name} — $${Number(plan.price).toLocaleString()} (${durationStr})`;
     };
 
     const formatDate = (dateStr: string) => {
@@ -460,13 +450,13 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const getStatusChip = (status: string) => {
         switch (status) {
             case 'active':
-                return <Chip label="Active" color="success" size="small" icon={<span>{'\u2705'}</span>} />;
+                return <Chip label={t.members.active} color="success" size="small" icon={<span>{'\u2705'}</span>} />;
             case 'expired':
-                return <Chip label="Expired" color="error" size="small" icon={<span>{'\u26d4'}</span>} />;
+                return <Chip label={t.members.expired} color="error" size="small" icon={<span>{'\u26d4'}</span>} />;
             case 'cancelled':
-                return <Chip label="Cancelled" color="default" size="small" icon={<span>{'\ud83d\udeab'}</span>} />;
+                return <Chip label={t.memberships.cancelled} color="default" size="small" icon={<span>{'\ud83d\udeab'}</span>} />;
             case 'suspended':
-                return <Chip label="Suspended" color="warning" size="small" icon={<span>{'\u23f8\ufe0f'}</span>} />;
+                return <Chip label={t.members.suspended} color="warning" size="small" icon={<span>{'\u23f8\ufe0f'}</span>} />;
             default:
                 return <Chip label={status} size="small" />;
         }
@@ -475,7 +465,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     return (
         <Card sx={{ mt: 3 }}>
             <CardContent>
-                <Typography variant="h6" gutterBottom>Membership History</Typography>
+                <Typography variant="h6" gutterBottom>{t.members.membershipHistory}</Typography>
 
                 {membershipsLoading && (
                     <Box display="flex" justifyContent="center" p={3}>
@@ -487,7 +477,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                     <>
                         {sortedMemberships.length === 0 ? (
                             <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
-                                No memberships found for this member.
+                                {t.members.noMembershipsFound}
                             </Typography>
                         ) : (
                             <Box display="flex" flexDirection="column" gap={1.5}>
@@ -511,7 +501,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                                 {getStatusChip(m.status)}
                                             </Box>
                                             <Typography variant="body2" color="textSecondary">
-                                                {formatDate(m.start_date)} {'\u2192'} {formatDate(m.end_date)}
+                                                {formatDate(m.start_date)} {'→'} {formatDate(m.end_date)}
                                             </Typography>
                                             <Typography variant="body2" fontWeight="500">
                                                 ${Number(m.price).toLocaleString()}
@@ -523,7 +513,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                             color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
                                             onClick={() => handleRenew(m)}
                                         >
-                                            Renew
+                                            {t.members.renew}
                                         </Button>
                                     </Paper>
                                 ))}
@@ -536,7 +526,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                             onClick={handleAddNew}
                             sx={{ mt: 2 }}
                         >
-                            Add New Membership
+                            {t.members.addNew}
                         </Button>
                     </>
                 )}
@@ -545,28 +535,28 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                     <>
                         <Box display="flex" alignItems="center" gap={1} mb={2}>
                             <Typography variant="subtitle1" fontWeight="bold">
-                                {renewFromMembership ? 'Renew Membership' : 'Assign New Membership'}
+                                {renewFromMembership ? t.members.renewMembership : t.members.assignNew}
                             </Typography>
                             {renewFromMembership && getStatusChip(renewFromMembership.status)}
                         </Box>
 
                         {renewFromMembership && (
                             <Alert severity="info" sx={{ mb: 2 }}>
-                                Renewing <strong>{renewFromMembership.plan_name || renewFromMembership.type}</strong> {'\u2014'}
-                                {' '}Previous: {formatDate(renewFromMembership.start_date)} {'\u2192'} {formatDate(renewFromMembership.end_date)}
+                                {t.members.renewingFrom} <strong>{renewFromMembership.plan_name || renewFromMembership.type}</strong> —
+                                {' '}{t.members.previousMembership}: {formatDate(renewFromMembership.start_date)} → {formatDate(renewFromMembership.end_date)}
                             </Alert>
                         )}
 
                         <Box display="flex" flexDirection="column" gap={2}>
                             <TextField
                                 select
-                                label="Select Plan"
+                                label={t.members.selectPlan}
                                 value={selectedPlanId}
                                 onChange={(e) => setSelectedPlanId(e.target.value)}
                                 fullWidth
                                 required
                             >
-                                <MenuItem value=""><em>Choose a plan...</em></MenuItem>
+                                <MenuItem value=""><em>{t.members.choosePlan}</em></MenuItem>
                                 {plans.map((plan: MembershipPlan) => (
                                     <MenuItem key={plan.id} value={plan.id}>
                                         {formatPlanLabel(plan)}
@@ -577,7 +567,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                             <Grid container spacing={2}>
                                 <Grid item xs={6}>
                                     <TextField
-                                        label="Start Date"
+                                        label={t.members.startDate}
                                         type="date"
                                         value={startDate}
                                         onChange={(e) => setStartDate(e.target.value)}
@@ -587,13 +577,13 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                 </Grid>
                                 <Grid item xs={6}>
                                     <TextField
-                                        label="End Date"
+                                        label={t.members.endDate}
                                         type="date"
                                         value={endDate}
                                         fullWidth
                                         InputLabelProps={{ shrink: true }}
                                         InputProps={{ readOnly: true }}
-                                        helperText="Auto-calculated from plan"
+                                        helperText={t.members.endAutoCalc}
                                         sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
                                     />
                                 </Grid>
@@ -601,7 +591,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
                             {selectedPlan && (
                                 <TextField
-                                    label="Plan Price"
+                                    label={t.members.planPrice}
                                     value={`$${price.toLocaleString()}`}
                                     fullWidth
                                     InputProps={{ readOnly: true }}
@@ -613,17 +603,17 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                 <>
                                     <TextField
                                         select
-                                        label="Payment Method"
+                                        label={t.members.paymentMethod}
                                         value={paymentMethod}
                                         onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'transfer')}
                                         fullWidth
                                     >
-                                        <MenuItem value="cash">{'\ud83d\udcb5'} Efectivo (Cash)</MenuItem>
-                                        <MenuItem value="transfer">{'\ud83c\udfe6'} Transferencia (Transfer)</MenuItem>
+                                        <MenuItem value="cash">{'\ud83d\udcb5'} {t.members.cash}</MenuItem>
+                                        <MenuItem value="transfer">{'\ud83c\udfe6'} {t.members.transfer}</MenuItem>
                                     </TextField>
 
                                     <TextField
-                                        label="Payment Amount"
+                                        label={t.members.paymentAmount}
                                         type="number"
                                         value={paymentAmount}
                                         onChange={(e) => setPaymentAmount(e.target.value)}
@@ -632,16 +622,16 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                             startAdornment: <InputAdornment position="start">$</InputAdornment>,
                                         }}
                                         helperText={
-                                            isPaid ? "\u2705 Pago completo" :
-                                            isPartial ? `\u26a0\ufe0f Pago parcial \u2014 Falta: $${(price - paidAmount).toLocaleString()}` :
-                                            "\u274c Sin pago (pendiente)"
+                                            isPaid ? "✅ " + t.members.paymentComplete :
+                                            isPartial ? "⚠️ " + t.members.paymentPartial.replace('${amount}', `$${(price - paidAmount).toLocaleString()}`) :
+                                            "❌ " + t.members.noPayment
                                         }
                                     />
 
                                     <Box>
-                                        {isPaid && <Chip label="Pagado" color="success" />}
-                                        {isPartial && <Chip label={`Parcial: $${paidAmount.toLocaleString()} de $${price.toLocaleString()}`} color="warning" />}
-                                        {isPending && <Chip label="Pendiente" color="error" />}
+                                        {isPaid && <Chip label={t.members.paid} color="success" />}
+                                        {isPartial && <Chip label={`${t.members.partial}: $${paidAmount.toLocaleString()} de $${price.toLocaleString()}`} color="warning" />}
+                                        {isPending && <Chip label={t.members.pending} color="error" />}
                                     </Box>
                                 </>
                             )}
@@ -654,7 +644,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                     disabled={!selectedPlanId || createMutation.isPending}
                                     fullWidth
                                 >
-                                    {createMutation.isPending ? "Assigning..." : "Assign Membership"}
+                                    {createMutation.isPending ? t.members.assigning : t.members.assignMembershipBtn}
                                 </Button>
                                 <Button
                                     onClick={handleCancelForm}
@@ -662,7 +652,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                     size="large"
                                     fullWidth
                                 >
-                                    Cancel
+                                    {t.members.cancel}
                                 </Button>
                             </Box>
                         </Box>
@@ -673,8 +663,8 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     );
 };
 
-// Sub-component for Face Enrollment
 const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => {
+    const { t } = useLanguage();
     const [enrollmentStatus, setEnrollmentStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const [qualityScore, setQualityScore] = React.useState<number | null>(null);
     const [errorMsg, setErrorMsg] = React.useState<string>('');
@@ -712,7 +702,6 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
             setStream(mediaStream);
             setCameraActive(true);
             setErrorMsg('');
-            // Attach stream to video element after render
             setTimeout(() => {
                 if (videoRef.current) {
                     videoRef.current.srcObject = mediaStream;
@@ -745,7 +734,6 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
         ctx.drawImage(video, 0, 0);
         stopCamera();
 
-        // Convert canvas to File
         canvas.toBlob(async (blob) => {
             if (!blob) return;
             const file = new File([blob], 'webcam-capture.jpg', { type: 'image/jpeg' });
@@ -753,7 +741,6 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
         }, 'image/jpeg', 0.92);
     };
 
-    // Cleanup camera on unmount
     React.useEffect(() => {
         return () => {
             if (stream) stream.getTracks().forEach(t => t.stop());
@@ -763,19 +750,18 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
     return (
         <Card sx={{ mt: 3 }}>
             <CardContent>
-                <Typography variant="h6" gutterBottom>Face Enrollment</Typography>
+                <Typography variant="h6" gutterBottom>{t.members.faceEnrollment}</Typography>
 
                 {enrollmentStatus === 'success' ? (
                     <Alert severity="success">
-                        Face enrolled successfully! Quality score: {qualityScore?.toFixed(2)}
+                        {t.members.enrolledSuccess} Quality score: {qualityScore?.toFixed(2)}
                     </Alert>
                 ) : (
                     <Box>
                         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                            Enroll this member's face using a webcam or by uploading a photo.
+                            {t.members.enrollBiometric}
                         </Typography>
 
-                        {/* Webcam Preview */}
                         {cameraActive && (
                             <Box sx={{ mb: 2, position: 'relative' }}>
                                 <video
@@ -798,16 +784,15 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                                         onClick={captureAndEnroll}
                                         disabled={enrollmentStatus === 'uploading'}
                                     >
-                                        {enrollmentStatus === 'uploading' ? 'Processing...' : '📸 Capture & Enroll'}
+                                        {enrollmentStatus === 'uploading' ? t.members.processing : `📸 ${t.members.captureEnroll}`}
                                     </Button>
                                     <Button variant="outlined" color="error" onClick={stopCamera}>
-                                        Cancel
+                                        {t.members.cancel}
                                     </Button>
                                 </Box>
                             </Box>
                         )}
 
-                        {/* Action Buttons */}
                         {!cameraActive && (
                             <Box display="flex" gap={2} flexWrap="wrap">
                                 <Button
@@ -816,7 +801,7 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                                     onClick={startCamera}
                                     disabled={enrollmentStatus === 'uploading'}
                                 >
-                                    Use Webcam
+                                    {t.members.useWebcam}
                                 </Button>
                                 <Button
                                     variant="outlined"
@@ -824,7 +809,7 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={enrollmentStatus === 'uploading'}
                                 >
-                                    {enrollmentStatus === 'uploading' ? 'Processing...' : 'Upload Photo'}
+                                    {enrollmentStatus === 'uploading' ? t.members.processing : t.members.uploadPhoto}
                                 </Button>
                                 <input
                                     type="file"
@@ -836,7 +821,6 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                             </Box>
                         )}
 
-                        {/* Hidden canvas for webcam capture */}
                         <canvas ref={canvasRef} style={{ display: 'none' }} />
 
                         {enrollmentStatus === 'error' && errorMsg && (
@@ -848,7 +832,7 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                         {enrollmentStatus === 'uploading' && !cameraActive && (
                             <Box display="flex" alignItems="center" gap={1} mt={2}>
                                 <CircularProgress size={20} />
-                                <Typography variant="body2">Processing face enrollment...</Typography>
+                                <Typography variant="body2">{t.members.processingEnrollment}</Typography>
                             </Box>
                         )}
                     </Box>

@@ -14,10 +14,12 @@ import {
     Container,
 } from '@mui/material';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 export const LoginPage: React.FC = () => {
     const navigate = useNavigate();
     const { login } = useAuth();
+    const { t } = useLanguage();
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -33,7 +35,7 @@ export const LoginPage: React.FC = () => {
             await login({ username, password });
             navigate('/');
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Login failed. Please try again.');
+            setError(err.response?.data?.detail || t.login.loginFailed);
         } finally {
             setIsLoading(false);
         }
@@ -54,7 +56,7 @@ export const LoginPage: React.FC = () => {
                             PowerHouse
                         </Typography>
                         <Typography variant="body2" color="text.secondary" align="center" mb={3}>
-                            Membership Platform
+                            {t.login.membershipPlatform}
                         </Typography>
 
                         {error && (
@@ -66,7 +68,7 @@ export const LoginPage: React.FC = () => {
                         <form onSubmit={handleSubmit}>
                             <TextField
                                 fullWidth
-                                label="Username"
+                                label={t.login.username}
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 margin="normal"
@@ -77,7 +79,7 @@ export const LoginPage: React.FC = () => {
 
                             <TextField
                                 fullWidth
-                                label="Password"
+                                label={t.login.password}
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
@@ -94,7 +96,7 @@ export const LoginPage: React.FC = () => {
                                 sx={{ mt: 3 }}
                                 disabled={isLoading}
                             >
-                                {isLoading ? 'Logging in...' : 'Login'}
+                                {isLoading ? t.login.loggingIn : t.login.signIn}
                             </Button>
                         </form>
 
@@ -104,7 +106,7 @@ export const LoginPage: React.FC = () => {
                             sx={{ mt: 1 }}
                             onClick={() => navigate("/forgot-password")}
                         >
-                            Forgot Password?
+                            {t.login.forgotPassword}
                         </Button>
 
                     </CardContent>

@@ -31,6 +31,7 @@ import {
 import { eventsApi } from "@/api/events";
 import { membersApi } from "@/api/members";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { format } from "date-fns";
 import {
     Select,
@@ -52,9 +53,7 @@ import { cvServiceApi } from "@/api/cvService";
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
-
-    // Note: Member count query removed - using hardcoded stats for now
-    // In production, fetch from a dedicated stats endpoint
+    const { t } = useLanguage();
 
     const { data: recentEvents } = useQuery({
         queryKey: ["recent-events"],
@@ -99,7 +98,6 @@ export const Dashboard: React.FC = () => {
         queryFn: () => camerasApi.getCameras(),
     });
 
-    // Auto-select first camera (cameras are auto-started by CV service on startup)
     useEffect(() => {
         if (camerasData?.length && !selectedCam) {
             setSelectedCam(camerasData[0].id);
@@ -122,8 +120,6 @@ export const Dashboard: React.FC = () => {
 
     const currentDate = format(new Date(), "EEE, MMMM d");
 
-
-    // Member hover tooltip component
     const MemberTooltip: React.FC<{ member: any; children: React.ReactElement }> = ({ member, children }) => {
         const [photoUrl, setPhotoUrl] = React.useState<string | null>(null);
 
@@ -175,11 +171,11 @@ export const Dashboard: React.FC = () => {
                                 <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
                                     {isActive ? (
                                         <Typography variant="caption" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
-                                            ✅ Active until {format(new Date(member.membership_end), 'MMM d, yyyy')}
+                                            ✅ {t.dashboard.activeUntil} {format(new Date(member.membership_end), 'MMM d, yyyy')}
                                         </Typography>
                                     ) : (
                                         <Typography variant="caption" sx={{ color: '#f44336', fontWeight: 'bold' }}>
-                                            ❌ Expired {format(new Date(member.membership_end), 'MMM d, yyyy')}
+                                            ❌ {t.dashboard.expiredOn} {format(new Date(member.membership_end), 'MMM d, yyyy')}
                                         </Typography>
                                     )}
                                 </Box>
@@ -221,7 +217,7 @@ export const Dashboard: React.FC = () => {
                         mb: 0.5,
                     }}
                 >
-                    Hello, {user?.username || "Admin"}
+                    {t.dashboard.title.replace('{name}', user?.username || 'Admin')}
                 </Typography>
                 <Typography
                     variant="h4"
@@ -230,7 +226,7 @@ export const Dashboard: React.FC = () => {
                         fontWeight: 700,
                     }}
                 >
-                    How can I help you today?
+                    {t.dashboard.subtitle}
                 </Typography>
             </Box>
 
@@ -248,7 +244,7 @@ export const Dashboard: React.FC = () => {
                         }}
                     >
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-                            Quick Actions
+                            {t.dashboard.quickActions}
                         </Typography>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                             <Button
@@ -263,7 +259,7 @@ export const Dashboard: React.FC = () => {
                                     borderColor: "var(--border-color)",
                                 }}
                             >
-                                Add Member
+                                {t.dashboard.addMember}
                             </Button>
                             <Button
                                 variant="outlined"
@@ -277,7 +273,7 @@ export const Dashboard: React.FC = () => {
                                     borderColor: "var(--border-color)",
                                 }}
                             >
-                                View Cameras
+                                {t.dashboard.viewCameras}
                             </Button>
                             <Button
                                 variant="outlined"
@@ -291,7 +287,7 @@ export const Dashboard: React.FC = () => {
                                     borderColor: "var(--border-color)",
                                 }}
                             >
-                                View Reports
+                                {t.dashboard.viewReports}
                             </Button>
                         </Box>
                     </Paper>
@@ -310,18 +306,18 @@ export const Dashboard: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
                                 <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600 }}>Expired Memberships</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>{t.dashboard.expiredMemberships}</Typography>
                             </Box>
-                            <Button size="small" onClick={() => navigate("/memberships")}>View All</Button>
+                            <Button size="small" onClick={() => navigate("/memberships")}>{t.dashboard.viewAll}</Button>
                         </Box>
                         <TableContainer>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>Member</TableCell>
-                                        <TableCell>ID</TableCell>
-                                        <TableCell>Plan</TableCell>
-                                        <TableCell>Expired</TableCell>
+                                        <TableCell>{t.dashboard.member}</TableCell>
+                                        <TableCell>{t.dashboard.id}</TableCell>
+                                        <TableCell>{t.dashboard.plan}</TableCell>
+                                        <TableCell>{t.dashboard.expired}</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -341,7 +337,7 @@ export const Dashboard: React.FC = () => {
                                                 onClick={() => navigate(`/members/${m.member_id}`)}
                                                 sx={{ cursor: "pointer" }}
                                             >
-                                                <TableCell>{m.member_name || "Unknown"}</TableCell>
+                                                <TableCell>{m.member_name || t.dashboard.unknown}</TableCell>
                                                 <TableCell>{m.member_id_number || "-"}</TableCell>
                                                 <TableCell>{m.plan_name || m.type}</TableCell>
                                                 <TableCell>{format(new Date(m.end_date), "MMM d, yyyy")}</TableCell>
@@ -350,7 +346,7 @@ export const Dashboard: React.FC = () => {
                                         ))}
                                     {(!expiredMemberships || expiredMemberships.length === 0) && (
                                         <TableRow>
-                                            <TableCell colSpan={4} align="center">No expired memberships</TableCell>
+                                            <TableCell colSpan={4} align="center">{t.dashboard.noExpired}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -372,7 +368,7 @@ export const Dashboard: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
                                 <CheckCircleIcon sx={{ mr: 1.5, color: "#4caf50" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600 }}>Today Check-ins — Active</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>{t.dashboard.todayCheckinsActive}</Typography>
                             </Box>
                             <Chip label={recognizedActive.length} color="success" size="small" />
                         </Box>
@@ -380,11 +376,11 @@ export const Dashboard: React.FC = () => {
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>Member</TableCell>
-                                        <TableCell>ID</TableCell>
-                                        <TableCell>Plan</TableCell>
-                                        <TableCell>Expires</TableCell>
-                                        <TableCell>Last Seen</TableCell>
+                                        <TableCell>{t.dashboard.member}</TableCell>
+                                        <TableCell>{t.dashboard.id}</TableCell>
+                                        <TableCell>{t.dashboard.plan}</TableCell>
+                                        <TableCell>{t.dashboard.expires}</TableCell>
+                                        <TableCell>{t.dashboard.lastSeen}</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -409,7 +405,7 @@ export const Dashboard: React.FC = () => {
                                     ))}
                                     {recognizedActive.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} align="center">No active member check-ins today</TableCell>
+                                            <TableCell colSpan={5} align="center">{t.dashboard.noActive}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -432,7 +428,7 @@ export const Dashboard: React.FC = () => {
                             <Box display="flex" alignItems="center">
                                 <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
                                 <Typography variant="h6" sx={{ fontWeight: 600, color: "#e65100" }}>
-                                    Today Check-ins — Expired
+                                    {t.dashboard.todayCheckinsExpired}
                                 </Typography>
                             </Box>
                             <Chip label={recognizedExpired.length} color="error" size="small" />
@@ -441,11 +437,11 @@ export const Dashboard: React.FC = () => {
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>Member</TableCell>
-                                        <TableCell>ID</TableCell>
-                                        <TableCell>Plan</TableCell>
-                                        <TableCell>Expired</TableCell>
-                                        <TableCell>Last Seen</TableCell>
+                                        <TableCell>{t.dashboard.member}</TableCell>
+                                        <TableCell>{t.dashboard.id}</TableCell>
+                                        <TableCell>{t.dashboard.plan}</TableCell>
+                                        <TableCell>{t.dashboard.expired}</TableCell>
+                                        <TableCell>{t.dashboard.lastSeen}</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -470,7 +466,7 @@ export const Dashboard: React.FC = () => {
                                     ))}
                                     {recognizedExpired.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} align="center">No expired member check-ins today</TableCell>
+                                            <TableCell colSpan={5} align="center">{t.dashboard.noActiveCheckins}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -484,7 +480,7 @@ export const Dashboard: React.FC = () => {
                     {/* Live Feed Widget */}
                     <Card sx={{ mb: 3, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-color)" }}>
                         <CardHeader
-                            title="Live Access Monitor"
+                            title={t.dashboard.liveAccessMonitor}
                             avatar={<VideocamIcon color="primary" />}
                             action={
                                 <IconButton onClick={handleOpenKiosk} title="Detach Window">
@@ -494,8 +490,8 @@ export const Dashboard: React.FC = () => {
                         />
                         <CardContent>
                             <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                                <InputLabel>Camera</InputLabel>
-                                <Select value={selectedCam} label="Camera" onChange={handleCamChange}>
+                                <InputLabel>{t.dashboard.camera}</InputLabel>
+                                <Select value={selectedCam} label={t.dashboard.camera} onChange={handleCamChange}>
                                     {camerasData?.map((cam: any) => (
                                         <MenuItem key={cam.id} value={cam.id}>{cam.name}</MenuItem>
                                     ))}
@@ -521,7 +517,7 @@ export const Dashboard: React.FC = () => {
                                         alt="Live Feed"
                                     />
                                 ) : (
-                                    <Typography variant="body2" color="grey.500">Select a camera</Typography>
+                                    <Typography variant="body2" color="grey.500">{t.dashboard.selectCamera}</Typography>
                                 )}
                             </Box>
                         </CardContent>
@@ -553,12 +549,12 @@ export const Dashboard: React.FC = () => {
                             }}
                         />
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, position: "relative" }}>
-                            Quick Stats
+                            {t.dashboard.quickStats}
                         </Typography>
                         <Box sx={{ position: "relative" }}>
                             <Box sx={{ mb: 2 }}>
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    Active Members
+                                    {t.dashboard.activeMembers}
                                 </Typography>
                                 <Typography variant="h4" sx={{ fontWeight: 700 }}>
                                     {stats.activeMembers}
@@ -566,7 +562,7 @@ export const Dashboard: React.FC = () => {
                             </Box>
                             <Box sx={{ mb: 2 }}>
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    Today Check-ins
+                                    {t.dashboard.todayCheckins}
                                 </Typography>
                                 <Typography variant="h4" sx={{ fontWeight: 700 }}>
                                     {stats.todayCheckIns}
@@ -574,7 +570,7 @@ export const Dashboard: React.FC = () => {
                             </Box>
                             <Box>
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    Monthly Revenue
+                                    {t.dashboard.monthlyRevenue}
                                 </Typography>
                                 <Typography variant="h4" sx={{ fontWeight: 700 }}>
                                     ${stats.monthlyRevenue.toLocaleString()}
@@ -596,7 +592,7 @@ export const Dashboard: React.FC = () => {
                         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                             <ScheduleIcon sx={{ mr: 1.5, color: "var(--accent-cyan)" }} />
                             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                                Recent Activity
+                                {t.dashboard.recentActivity}
                             </Typography>
                         </Box>
                         <Box>
@@ -622,7 +618,7 @@ export const Dashboard: React.FC = () => {
                                     </Avatar>
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                            {event.member_name || (event?.member_id ? `Member ${event.member_id.substring(0, 8)}` : "Unknown")}
+                                            {event.member_name || (event?.member_id ? `${t.dashboard.member} ${event.member_id.substring(0, 8)}` : t.dashboard.unknown)}
                                         </Typography>
                                         <Typography variant="caption" sx={{ color: "var(--text-secondary)" }}>
                                             {event.event_type} • {event.timestamp ? format(new Date(event.timestamp), "h:mm a") : ""}
@@ -641,7 +637,7 @@ export const Dashboard: React.FC = () => {
                             ))}
                             {(!recentEvents || recentEvents.length === 0) && (
                                 <Typography variant="body2" sx={{ color: "var(--text-secondary)", py: 2 }}>
-                                    No recent activity
+                                    {t.dashboard.noActivity}
                                 </Typography>
                             )}
                         </Box>

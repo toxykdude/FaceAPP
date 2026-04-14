@@ -36,15 +36,16 @@ import {
     Edit as EditIcon,
 } from '@mui/icons-material';
 import { camerasApi, CameraCreate, VideoDevice } from '@/api/cameras';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 export const CamerasList: React.FC = () => {
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
     const [openAddDialog, setOpenAddDialog] = useState(false);
     const [newCamera, setNewCamera] = useState<CameraCreate>({
         name: '',
         location: '',
         rtsp_url: '',
-
         enabled: true,
         description: '',
     });
@@ -64,19 +65,12 @@ export const CamerasList: React.FC = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['cameras'] });
             setOpenAddDialog(false);
-            setNewCamera({
-                name: '',
-                location: '',
-                rtsp_url: '',
-
-                enabled: true,
-                description: '',
-            });
+            setNewCamera({ name: '', location: '', rtsp_url: '', enabled: true, description: '' });
             setIsUsbMode(false);
             setError(null);
         },
         onError: (err: any) => {
-            setError(err.response?.data?.detail || 'Failed to create camera');
+            setError(err.response?.data?.detail || t.cameras.errorCreating);
         },
     });
 
@@ -88,19 +82,12 @@ export const CamerasList: React.FC = () => {
             resetForm();
         },
         onError: (err: any) => {
-            setError(err.response?.data?.detail || 'Failed to update camera');
+            setError(err.response?.data?.detail || t.cameras.errorUpdating);
         },
     });
 
     const resetForm = () => {
-        setNewCamera({
-            name: '',
-            location: '',
-            rtsp_url: '',
-
-            enabled: true,
-            description: '',
-        });
+        setNewCamera({ name: '', location: '', rtsp_url: '', enabled: true, description: '' });
         setEditingId(null);
         setIsUsbMode(false);
         setError(null);
@@ -120,110 +107,59 @@ export const CamerasList: React.FC = () => {
         },
     });
 
-
-
     const detectDevices = async () => {
         setIsDetecting(true);
         const allDevices: VideoDevice[] = [];
-
-        // 1. Detect Browser/Client Devices
         try {
             if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-                try {
-                    // Request permission first to get labels
-                    await navigator.mediaDevices.getUserMedia({ video: true });
-                } catch (e) {
-                    console.warn('Permission denied for local camera access');
-                }
+                try { await navigator.mediaDevices.getUserMedia({ video: true }); } catch (e) { console.warn('Permission denied'); }
                 const clientDevs = await navigator.mediaDevices.enumerateDevices();
                 const videoInputs = clientDevs.filter(d => d.kind === 'videoinput');
-
                 videoInputs.forEach((d, i) => {
-                    allDevices.push({
-                        path: `client:${d.deviceId}`,
-                        name: `Local: ${d.label || `Camera ${i + 1}`}`
-                    });
+                    allDevices.push({ path: `client:${d.deviceId}`, name: `Local: ${d.label || `Camera ${i + 1}`}` });
                 });
             }
-        } catch (err) {
-            console.warn('Local device detection failed:', err);
-        }
-
-        // 2. Detect Server Devices
+        } catch (err) { console.warn('Local device detection failed:', err); }
         try {
             const serverDevices = await camerasApi.detectDevices();
-            // Prefix server devices to distinguish
-            const serverDevsMapped = serverDevices.map(d => ({
-                ...d,
-                name: `Server: ${d.name}`
-            }));
-            allDevices.push(...serverDevsMapped);
-        } catch (err: any) {
-            console.error('Failed to detect server devices', err);
-        }
-
+            allDevices.push(...serverDevices.map(d => ({ ...d, name: `Server: ${d.name}` })));
+        } catch (err: any) { console.error('Failed to detect server devices', err); }
         setDetectedDevices(allDevices);
         setIsDetecting(false);
     };
 
     const handleAddSubmit = () => {
         if (!newCamera.name || (!newCamera.rtsp_url && !editingId)) {
-            setError('Name and RTSP URL are required');
+            setError(t.cameras.nameRequired);
             return;
         }
-
-        if (editingId) {
-            updateMutation.mutate(newCamera);
-        } else {
-            createMutation.mutate(newCamera);
-        }
+        if (editingId) { updateMutation.mutate(newCamera); } else { createMutation.mutate(newCamera); }
     };
 
     const handleEditClick = async (camera: any) => {
         try {
             const { rtsp_url } = await camerasApi.getRtspUrl(camera.id);
-            setNewCamera({
-                name: camera.name,
-                location: camera.location,
-                rtsp_url: rtsp_url,
-                enabled: camera.enabled,
-                description: camera.description
-            });
+            setNewCamera({ name: camera.name, location: camera.location, rtsp_url, enabled: camera.enabled, description: camera.description });
             setEditingId(camera.id);
             setIsUsbMode(rtsp_url.startsWith('/') || /^\d+$/.test(rtsp_url));
             setOpenAddDialog(true);
-        } catch (e) {
-            alert('Failed to fetch RTSP URL for editing');
-        }
+        } catch (e) { alert('Failed to fetch RTSP URL'); }
     };
 
-    const handleOpenAdd = () => {
-        resetForm();
-        setOpenAddDialog(true);
-    };
+    const handleOpenAdd = () => { resetForm(); setOpenAddDialog(true); };
 
     if (isLoading) {
-        return (
-            <Box display="flex" justifyContent="center" p={5}>
-                <CircularProgress />
-            </Box>
-        );
+        return <Box display="flex" justifyContent="center" p={5}><CircularProgress /></Box>;
     }
 
     return (
         <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">Cameras</Typography>
+                <Typography variant="h4">{t.cameras.title}</Typography>
                 <Box>
-                    <IconButton onClick={() => refetch()} sx={{ mr: 1 }}>
-                        <RefreshIcon />
-                    </IconButton>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenAdd}
-                    >
-                        Add Camera
+                    <IconButton onClick={() => refetch()} sx={{ mr: 1 }}><RefreshIcon /></IconButton>
+                    <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
+                        {t.cameras.addCamera}
                     </Button>
                 </Box>
             </Box>
@@ -232,11 +168,11 @@ export const CamerasList: React.FC = () => {
                 <Table>
                     <TableHead>
                         <TableRow>
-                            <TableCell>Name</TableCell>
-                            <TableCell>Location</TableCell>
-                            <TableCell>RTSP URL</TableCell>
-                            <TableCell>Status</TableCell>
-                            <TableCell align="right">Actions</TableCell>
+                            <TableCell>{t.cameras.name}</TableCell>
+                            <TableCell>{t.cameras.location}</TableCell>
+                            <TableCell>{t.cameras.rtspUrl}</TableCell>
+                            <TableCell>{t.cameras.status}</TableCell>
+                            <TableCell align="right">{t.common.actions}</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -248,170 +184,76 @@ export const CamerasList: React.FC = () => {
                                     {camera.rtsp_url ? (
                                         (camera.rtsp_url.startsWith('/') || /^\d+$/.test(camera.rtsp_url)) ?
                                             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>USB</Typography>
+                                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>{t.cameras.usb}</Typography>
                                                 {camera.rtsp_url}
                                             </Box>
                                             : camera.rtsp_url
                                     ) : (
-                                        <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                                            Hidden (Security)
-                                        </Typography>
+                                        <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>{t.cameras.hidden}</Typography>
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                    <Chip
-                                        label={camera.enabled ? 'Active' : 'Inactive'}
-                                        color={camera.enabled ? 'success' : 'default'}
-                                        size="small"
-                                    />
+                                    <Chip label={camera.enabled ? t.cameras.active : t.members.inactive} color={camera.enabled ? 'success' : 'default'} size="small" />
                                 </TableCell>
                                 <TableCell align="right">
-                                    <Tooltip title="Test Connection">
-                                        <IconButton size="small" onClick={() => testMutation.mutate(camera.id)}>
-                                            <TestIcon />
-                                        </IconButton>
-                                    </Tooltip>
-                                    <IconButton size="small" onClick={() => handleEditClick(camera)}>
-                                        <EditIcon />
-                                    </IconButton>
-                                    <IconButton size="small" color="error" onClick={() => {
-                                        if (window.confirm('Are you sure you want to delete this camera?')) {
-                                            deleteMutation.mutate(camera.id);
-                                        }
-                                    }}>
-                                        <DeleteIcon />
-                                    </IconButton>
+                                    <Tooltip title={t.cameras.testConnection}><IconButton size="small" onClick={() => testMutation.mutate(camera.id)}><TestIcon /></IconButton></Tooltip>
+                                    <IconButton size="small" onClick={() => handleEditClick(camera)}><EditIcon /></IconButton>
+                                    <IconButton size="small" color="error" onClick={() => { if (window.confirm(t.cameras.deleteConfirm)) { deleteMutation.mutate(camera.id); } }}><DeleteIcon /></IconButton>
                                 </TableCell>
                             </TableRow>
                         ))}
                         {(!cameras || cameras.length === 0) && (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center">
-                                    No cameras found.
-                                </TableCell>
-                            </TableRow>
+                            <TableRow><TableCell colSpan={5} align="center">{t.cameras.noCameras}</TableCell></TableRow>
                         )}
                     </TableBody>
                 </Table>
             </TableContainer>
 
-            {/* Add Camera Dialog */}
-            <Dialog
-                open={openAddDialog}
-                onClose={() => setOpenAddDialog(false)}
-                maxWidth="sm"
-                fullWidth
-            >
-                <DialogTitle>{editingId ? 'Edit Camera' : 'Add New Camera'}</DialogTitle>
+            <Dialog open={openAddDialog} onClose={() => setOpenAddDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>{editingId ? t.cameras.editCamera : t.cameras.addNewCamera}</DialogTitle>
                 <DialogContent>
                     <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {error && <Alert severity="error">{error}</Alert>}
-
-                        <TextField
-                            label="Name"
-                            fullWidth
-                            required
-                            value={newCamera.name}
-                            onChange={(e) => setNewCamera({ ...newCamera, name: e.target.value })}
-                            autoFocus
-                        />
-
+                        <TextField label={t.cameras.name} fullWidth required value={newCamera.name} onChange={(e) => setNewCamera({ ...newCamera, name: e.target.value })} autoFocus />
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                            <Typography variant="body2" sx={{ mr: 2, fontWeight: 500 }}>
-                                Source Type:
-                            </Typography>
+                            <Typography variant="body2" sx={{ mr: 2, fontWeight: 500 }}>{t.cameras.sourceType}</Typography>
                             <FormControlLabel
-                                control={
-                                    <Switch
-                                        checked={isUsbMode}
-                                        onChange={(e) => {
-                                            setIsUsbMode(e.target.checked);
-                                            setNewCamera({ ...newCamera, rtsp_url: '' });
-                                            if (e.target.checked) {
-                                                detectDevices();
-                                            }
-                                        }}
-                                        color="secondary"
-                                    />
-                                }
-                                label={isUsbMode ? "USB Webcam" : "RTSP Stream"}
+                                control={<Switch checked={isUsbMode} onChange={(e) => { setIsUsbMode(e.target.checked); setNewCamera({ ...newCamera, rtsp_url: '' }); if (e.target.checked) { detectDevices(); } }} color="secondary" />}
+                                label={isUsbMode ? t.cameras.usbWebcam : t.cameras.rtspStream}
                             />
                             {isUsbMode && (
                                 <Button size="small" onClick={detectDevices} disabled={isDetecting} sx={{ ml: 1 }}>
-                                    {isDetecting ? 'Detecting...' : 'Refresh'}
+                                    {isDetecting ? t.cameras.detecting : t.common.search}
                                 </Button>
                             )}
                         </Box>
-
                         {isUsbMode && detectedDevices.length > 0 ? (
                             <FormControl fullWidth required>
-                                <InputLabel>Video Device</InputLabel>
-                                <Select
-                                    value={newCamera.rtsp_url}
-                                    label="Video Device"
-                                    onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
-                                >
-                                    {detectedDevices.map((dev) => (
-                                        <MenuItem key={dev.path} value={dev.path}>
-                                            {dev.name}
-                                        </MenuItem>
-                                    ))}
-                                    <MenuItem value="manual">
-                                        <em>Enter Manual Path...</em>
-                                    </MenuItem>
+                                <InputLabel>{t.cameras.videoDevice}</InputLabel>
+                                <Select value={newCamera.rtsp_url} label={t.cameras.videoDevice} onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}>
+                                    {detectedDevices.map((dev) => (<MenuItem key={dev.path} value={dev.path}>{dev.name}</MenuItem>))}
+                                    <MenuItem value="manual"><em>{t.cameras.enterManualPath}</em></MenuItem>
                                 </Select>
                             </FormControl>
                         ) : (
                             <TextField
-                                label={isUsbMode ? "Device Path / Index" : "RTSP URL"}
-                                fullWidth
-                                required
-                                value={newCamera.rtsp_url}
-                                onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
-                                helperText={
-                                    isUsbMode
-                                        ? "e.g., /dev/video0 (Linux), 0 (Default Webcam)"
-                                        : "e.g., rtsp://user:pass@IP:554/stream"
-                                }
+                                label={isUsbMode ? t.cameras.devicePath : t.cameras.rtspUrl}
+                                fullWidth required value={newCamera.rtsp_url} onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
+                                helperText={isUsbMode ? t.cameras.devicePathHelper : t.cameras.rtspHelper}
                             />
                         )}
-
-                        <TextField
-                            label="Location"
-                            fullWidth
-                            value={newCamera.location || ''}
-                            onChange={(e) => setNewCamera({ ...newCamera, location: e.target.value })}
-                        />
-
-                        <TextField
-                            label="Description"
-                            fullWidth
-                            multiline
-                            rows={2}
-                            value={newCamera.description || ''}
-                            onChange={(e) => setNewCamera({ ...newCamera, description: e.target.value })}
-                        />
-
+                        <TextField label={t.cameras.location} fullWidth value={newCamera.location || ''} onChange={(e) => setNewCamera({ ...newCamera, location: e.target.value })} />
+                        <TextField label={t.cameras.description} fullWidth multiline rows={2} value={newCamera.description || ''} onChange={(e) => setNewCamera({ ...newCamera, description: e.target.value })} />
                         <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={newCamera.enabled ?? true}
-                                    onChange={(e) => setNewCamera({ ...newCamera, enabled: e.target.checked })}
-                                    color="primary"
-                                />
-                            }
-                            label="Active"
+                            control={<Switch checked={newCamera.enabled ?? true} onChange={(e) => setNewCamera({ ...newCamera, enabled: e.target.checked })} color="primary" />}
+                            label={t.cameras.active}
                         />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenAddDialog(false)}>Cancel</Button>
-                    <Button
-                        onClick={handleAddSubmit}
-                        variant="contained"
-                        disabled={createMutation.isPending || updateMutation.isPending}
-                    >
-                        {createMutation.isPending || updateMutation.isPending ? 'Saving...' : (editingId ? 'Update' : 'Add Camera')}
+                    <Button onClick={() => setOpenAddDialog(false)}>{t.common.cancel}</Button>
+                    <Button onClick={handleAddSubmit} variant="contained" disabled={createMutation.isPending || updateMutation.isPending}>
+                        {createMutation.isPending || updateMutation.isPending ? t.cameras.saving : (editingId ? t.cameras.update : t.cameras.addCamera)}
                     </Button>
                 </DialogActions>
             </Dialog>

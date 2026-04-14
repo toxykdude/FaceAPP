@@ -24,32 +24,29 @@ import {
 } from '@mui/icons-material';
 import { settingsApi } from '@/api/settings';
 import { UserManagement } from '@/components/UserManagement';
+import { useLanguage } from '@/i18n/LanguageContext';
+import { useThemeMode } from '@/contexts/ThemeContext';
 
 interface SettingsProps { }
 
 const DEFAULT_SETTINGS = [
-    // General
     { key: 'business_name', value: 'PowerHouse Gym', category: 'general', description: 'Name of the business' },
     { key: 'business_address', value: '', category: 'general', description: 'Physical address' },
     { key: 'contact_email', value: '', category: 'general', description: 'Contact email' },
-
-    // Access
     { key: 'min_confidence', value: 0.75, category: 'access', description: 'Minimum face recognition confidence (0.0 - 1.0)' },
     { key: 'door_open_duration', value: 5, category: 'access', description: 'Seconds to keep door open' },
     { key: 'passback_cooldown', value: 60, category: 'access', description: 'Anti-passback cooldown in seconds' },
     { key: 'deny_unknown', value: true, category: 'access', description: 'Deny access to unknown faces automatically' },
-
-    // Membership
     { key: 'currency', value: 'USD', category: 'membership', description: 'Currency symbol or code' },
     { key: 'payment_grace_period', value: 3, category: 'membership', description: 'Days before suspending overdue members' },
-
-    // System
     { key: 'data_retention_days', value: 90, category: 'system', description: 'Days to keep access logs' },
     { key: 'debug_mode', value: false, category: 'system', description: 'Enable debug logging' },
 ];
 
 export const SettingsPage: React.FC<SettingsProps> = () => {
     const queryClient = useQueryClient();
+    const { lang, setLang, t } = useLanguage();
+    const { mode, toggleTheme } = useThemeMode();
     const [activeTab, setActiveTab] = useState(0);
     const [localValues, setLocalValues] = useState<Record<string, any>>({});
     const [hasChanges, setHasChanges] = useState(false);
@@ -59,28 +56,21 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
         queryFn: settingsApi.getAll,
     });
 
-    // Merge server settings with defaults
     const mergedSettings = React.useMemo(() => {
         const merged = [...DEFAULT_SETTINGS];
         if (serverSettings) {
             serverSettings.forEach(s => {
                 const index = merged.findIndex(d => d.key === s.key);
-                if (index >= 0) {
-                    merged[index] = { ...merged[index], ...s };
-                } else {
-                    merged.push(s as any);
-                }
+                if (index >= 0) { merged[index] = { ...merged[index], ...s }; }
+                else { merged.push(s as any); }
             });
         }
         return merged;
     }, [serverSettings]);
 
-    // Initialize local values
     useEffect(() => {
         const values: Record<string, any> = {};
-        mergedSettings.forEach(s => {
-            values[s.key] = s.value;
-        });
+        mergedSettings.forEach(s => { values[s.key] = s.value; });
         setLocalValues(values);
         setHasChanges(false);
     }, [mergedSettings]);
@@ -89,22 +79,17 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
         mutationFn: async (values: Record<string, any>) => {
             const updates = Object.entries(values).map(([key, value]) => {
                 const def = DEFAULT_SETTINGS.find(d => d.key === key);
-                return {
-                    key,
-                    value,
-                    category: def?.category || 'general',
-                    description: def?.description
-                };
+                return { key, value, category: def?.category || 'general', description: def?.description };
             });
             await settingsApi.bulkUpdate(updates);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['settings'] });
             setHasChanges(false);
-            alert('Settings saved successfully');
+            alert(t.settings.saved);
         },
         onError: (err) => {
-            alert('Failed to save settings: ' + err);
+            alert(t.settings.saveFailed.replace('{error}', String(err)));
         }
     });
 
@@ -115,39 +100,22 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
 
     const renderField = (setting: any) => {
         const value = localValues[setting.key] ?? setting.value;
-
         if (typeof setting.value === 'boolean') {
             return (
                 <FormControlLabel
-                    control={
-                        <Switch
-                            checked={!!value}
-                            onChange={(e) => handleChange(setting.key, e.target.checked)}
-                        />
-                    }
+                    control={<Switch checked={!!value} onChange={(e) => handleChange(setting.key, e.target.checked)} />}
                     label={setting.key.replace(/_/g, ' ').toUpperCase()}
                 />
             );
         }
-
         if (setting.key === 'min_confidence') {
             return (
                 <Box>
-                    <Typography gutterBottom>
-                        Minimum Confidence: {(value * 100).toFixed(0)}%
-                    </Typography>
-                    <Slider
-                        value={value}
-                        min={0.5}
-                        max={1.0}
-                        step={0.01}
-                        onChange={(_, val) => handleChange(setting.key, val)}
-                        valueLabelDisplay="auto"
-                    />
+                    <Typography gutterBottom>Minimum Confidence: {(value * 100).toFixed(0)}%</Typography>
+                    <Slider value={value} min={0.5} max={1.0} step={0.01} onChange={(_, val) => handleChange(setting.key, val)} valueLabelDisplay="auto" />
                 </Box>
             );
         }
-
         return (
             <TextField
                 fullWidth
@@ -178,14 +146,14 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     return (
         <Box sx={{ maxWidth: 1200, mx: 'auto', p: 4 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 4 }}>
-                <Typography variant="h4" fontWeight="bold">Settings</Typography>
+                <Typography variant="h4" fontWeight="bold">{t.settings.title}</Typography>
                 <Button
                     variant="contained"
                     startIcon={<SaveIcon />}
                     disabled={!hasChanges || saveMutation.isPending}
                     onClick={() => saveMutation.mutate(localValues)}
                 >
-                    {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
+                    {saveMutation.isPending ? t.settings.saving : t.settings.saveChanges}
                 </Button>
             </Box>
 
@@ -197,15 +165,47 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     textColor="primary"
                     sx={{ borderBottom: 1, borderColor: 'divider' }}
                 >
-                    <Tab icon={<BusinessIcon />} label="General" />
-                    <Tab icon={<SecurityIcon />} label="Access Control" />
-                    <Tab icon={<MembershipIcon />} label="Membership" />
-                    <Tab icon={<StorageIcon />} label="System" />
-                    <Tab icon={<PeopleIcon />} label="Users" />
+                    <Tab icon={<BusinessIcon />} label={t.settings.general} />
+                    <Tab icon={<SecurityIcon />} label={t.settings.accessControl} />
+                    <Tab icon={<MembershipIcon />} label={t.settings.membership} />
+                    <Tab icon={<StorageIcon />} label={t.settings.system} />
+                    <Tab icon={<PeopleIcon />} label={t.settings.users} />
                 </Tabs>
 
                 <Box sx={{ p: 4 }}>
-                    {activeTab === 0 && renderCategory('general')}
+                    {activeTab === 0 && (
+                        <Box>
+                            {/* Language Section */}
+                            <Paper sx={{ p: 3, mb: 3 }}>
+                                <Typography variant="h6">{t.settings.language}</Typography>
+                                <Box display="flex" gap={2} mt={2}>
+                                    <Button
+                                        variant={lang === 'es' ? 'contained' : 'outlined'}
+                                        onClick={() => setLang('es')}
+                                    >
+                                        🇪🇸 {t.settings.spanish}
+                                    </Button>
+                                    <Button
+                                        variant={lang === 'en' ? 'contained' : 'outlined'}
+                                        onClick={() => setLang('en')}
+                                    >
+                                        🇺🇸 {t.settings.english}
+                                    </Button>
+                                </Box>
+                            </Paper>
+
+                            {/* Theme Section */}
+                            <Paper sx={{ p: 3, mb: 3 }}>
+                                <Typography variant="h6">{t.settings.theme}</Typography>
+                                <Box display="flex" alignItems="center" gap={2} mt={2}>
+                                    <Typography>{mode === 'dark' ? t.settings.darkMode : t.settings.lightMode}</Typography>
+                                    <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+                                </Box>
+                            </Paper>
+
+                            {renderCategory('general')}
+                        </Box>
+                    )}
                     {activeTab === 1 && renderCategory('access')}
                     {activeTab === 2 && renderCategory('membership')}
                     {activeTab === 3 && renderCategory('system')}

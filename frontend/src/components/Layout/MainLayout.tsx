@@ -29,24 +29,14 @@ import {
     KeyboardArrowDown as ArrowDownIcon,
     Logout,
     Add as AddIcon,
+    DarkMode as DarkModeIcon,
+    LightMode as LightModeIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
-// Logo is served from /logo.png (Vite public directory)
+import { useThemeMode } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 const drawerWidth = 280;
-
-const menuItems = [
-    { text: 'Home', icon: <HomeIcon />, path: '/', page: 'dashboard' },
-    { text: 'Members', icon: <PeopleIcon />, path: '/members', page: 'members' },
-    { text: 'Reports & Analytics', icon: <ReportsIcon />, path: '/reports', page: 'reports' },
-];
-
-const projectItems = [
-    { text: 'Members', icon: '🟣', color: '#8b5cf6', path: '/members', page: 'members' },
-    { text: 'Memberships', icon: '🔵', color: '#3b82f6', path: '/memberships', page: 'memberships' },
-    { text: 'Cameras', icon: '🔷', color: '#06b6d4', path: '/cameras', page: 'cameras' },
-    { text: 'Sales', icon: '🟢', color: '#22c55e', path: '/sales', page: 'sales' },
-];
 
 export const MainLayout: React.FC = () => {
     const theme = useTheme();
@@ -54,6 +44,8 @@ export const MainLayout: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuth();
+    const { mode, toggleTheme } = useThemeMode();
+    const { t } = useLanguage();
 
     const canAccess = (page: string): boolean => {
         if (!user) return false;
@@ -61,6 +53,19 @@ export const MainLayout: React.FC = () => {
         const pages = (user as any).permissions?.pages || [];
         return pages.includes('all') || pages.includes(page);
     };
+
+    const menuItems = [
+        { text: t.nav.home, icon: <HomeIcon />, path: '/', page: 'dashboard' },
+        { text: t.nav.members, icon: <PeopleIcon />, path: '/members', page: 'members' },
+        { text: t.nav.reports, icon: <ReportsIcon />, path: '/reports', page: 'reports' },
+    ];
+
+    const projectItems = [
+        { text: t.nav.members, icon: '🟣', color: '#8b5cf6', path: '/members', page: 'members' },
+        { text: t.nav.memberships, icon: '🔵', color: '#3b82f6', path: '/memberships', page: 'memberships' },
+        { text: t.nav.cameras, icon: '🔷', color: '#06b6d4', path: '/cameras', page: 'cameras' },
+        { text: t.nav.sales, icon: '🟢', color: '#22c55e', path: '/sales', page: 'sales' },
+    ];
 
     const filteredMenuItems = menuItems.filter(item => canAccess(item.page));
     const filteredProjectItems = projectItems.filter(item => canAccess(item.page));
@@ -146,7 +151,7 @@ export const MainLayout: React.FC = () => {
                             {user?.username || 'Admin'}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'var(--text-secondary)' }}>
-                            Online
+                            {t.dashboard.online}
                         </Typography>
                     </Box>
                     <ArrowDownIcon sx={{ color: 'var(--text-muted)', fontSize: 20 }} />
@@ -186,7 +191,6 @@ export const MainLayout: React.FC = () => {
                                         color: isActivePath(item.path) ? 'var(--text-primary)' : 'var(--text-secondary)',
                                     }}
                                 />
-
                             </ListItemButton>
                         </ListItem>
                     ))}
@@ -212,7 +216,7 @@ export const MainLayout: React.FC = () => {
                                 letterSpacing: '0.5px',
                             }}
                         >
-                            My Projects
+                            {t.common.add}
                         </Typography>
                         <IconButton
                             size="small"
@@ -267,35 +271,49 @@ export const MainLayout: React.FC = () => {
 
             {/* Settings at Bottom */}
             <Box sx={{ p: 2, borderTop: '1px solid var(--border-color)' }}>
-                <ListItemButton
-                    onClick={() => handleMenuClick('/settings')}
-                    sx={{
-                        borderRadius: 'var(--radius-md)',
-                        py: 1.25,
-                        px: 2,
-                        background: isActivePath('/settings') ? 'var(--bg-primary)' : 'transparent',
-                        '&:hover': {
-                            background: 'var(--bg-primary)',
-                        },
-                    }}
-                >
-                    <ListItemIcon
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <ListItemButton
+                        onClick={() => handleMenuClick('/settings')}
                         sx={{
-                            minWidth: 40,
-                            color: isActivePath('/settings') ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            borderRadius: 'var(--radius-md)',
+                            py: 1.25,
+                            px: 2,
+                            flex: 1,
+                            background: isActivePath('/settings') ? 'var(--bg-primary)' : 'transparent',
+                            '&:hover': {
+                                background: 'var(--bg-primary)',
+                            },
                         }}
                     >
-                        <SettingsIcon />
-                    </ListItemIcon>
-                    <ListItemText
-                        primary="Settings"
-                        primaryTypographyProps={{
-                            fontSize: '0.95rem',
-                            fontWeight: isActivePath('/settings') ? 600 : 500,
-                            color: isActivePath('/settings') ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        <ListItemIcon
+                            sx={{
+                                minWidth: 40,
+                                color: isActivePath('/settings') ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            }}
+                        >
+                            <SettingsIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                            primary={t.nav.settings}
+                            primaryTypographyProps={{
+                                fontSize: '0.95rem',
+                                fontWeight: isActivePath('/settings') ? 600 : 500,
+                                color: isActivePath('/settings') ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            }}
+                        />
+                    </ListItemButton>
+                    <IconButton
+                        onClick={toggleTheme}
+                        sx={{
+                            color: 'var(--text-secondary)',
+                            alignSelf: 'center',
+                            '&:hover': { background: 'var(--bg-primary)' },
                         }}
-                    />
-                </ListItemButton>
+                        title={mode === 'dark' ? t.settings.lightMode : t.settings.darkMode}
+                    >
+                        {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+                    </IconButton>
+                </Box>
             </Box>
 
             {/* User Menu */}
@@ -322,7 +340,7 @@ export const MainLayout: React.FC = () => {
                     <ListItemIcon>
                         <Logout fontSize="small" />
                     </ListItemIcon>
-                    Logout
+                    {t.nav.logout}
                 </MenuItem>
             </Menu>
         </Box>
@@ -360,6 +378,14 @@ export const MainLayout: React.FC = () => {
                             PowerHouse
                         </Typography>
                     </Box>
+                    <Box sx={{ flex: 1 }} />
+                    <IconButton
+                        onClick={toggleTheme}
+                        sx={{ color: 'var(--text-secondary)' }}
+                        title={mode === 'dark' ? t.settings.lightMode : t.settings.darkMode}
+                    >
+                        {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+                    </IconButton>
                 </Box>
             )}
 

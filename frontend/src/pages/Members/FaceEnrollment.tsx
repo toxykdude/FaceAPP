@@ -23,29 +23,27 @@ import {
 import { CameraAlt as CameraIcon, PhotoLibrary as PhotoIcon, CheckCircle as CheckIcon, Videocam as VideoIcon, ConnectedTv as SystemIcon } from '@mui/icons-material';
 import { membersApi } from '@/api/members';
 import { camerasApi } from '@/api/cameras';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 export const FaceEnrollment: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
 
     const [tabValue, setTabValue] = useState(0);
 
-    // File Upload State
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Webcam State
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [isWebcamActive, setIsWebcamActive] = useState(false);
 
-    // System Camera State
     const [selectedCameraId, setSelectedCameraId] = useState('');
 
-    // Queries
     const { data: member, isLoading: memberLoading } = useQuery({
         queryKey: ['member', id],
         queryFn: () => membersApi.getMember(id!),
@@ -61,7 +59,6 @@ export const FaceEnrollment: React.FC = () => {
         queryFn: () => camerasApi.getCameras(),
     });
 
-    // Mutations
     const enrollMutation = useMutation({
         mutationFn: (file: File) => membersApi.enrollBiometric(id!, file),
         onSuccess: () => {
@@ -80,16 +77,15 @@ export const FaceEnrollment: React.FC = () => {
 
     function handleSuccess() {
         queryClient.invalidateQueries({ queryKey: ['biometric-status', id] });
-        alert('Face enrollment successful!');
+        alert(t.members.enrolledSuccess);
         stopWebcam();
         navigate('/members');
     }
 
     function handleError(error: any) {
-        alert(`Enrollment failed: ${error.response?.data?.detail || error.message}`);
+        alert(`${t.members.enrollmentFailed}: ${error.response?.data?.detail || error.message}`);
     }
 
-    // Webcam Logic
     React.useEffect(() => {
         return () => {
             stopWebcam();
@@ -136,7 +132,6 @@ export const FaceEnrollment: React.FC = () => {
         }
     };
 
-    // UI Handlers
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -156,25 +151,25 @@ export const FaceEnrollment: React.FC = () => {
     return (
         <Box>
             <Typography variant="h4" gutterBottom>
-                Face Enrollment: {member?.first_name} {member?.last_name}
+                {t.members.faceEnrollmentTitle.replace('{first}', member?.first_name || '').replace('{last}', member?.last_name || '')}
             </Typography>
 
             <Grid container spacing={3}>
                 <Grid item xs={12} md={5}>
                     <Card>
                         <CardContent>
-                            <Typography variant="h6" gutterBottom>Current Status</Typography>
+                            <Typography variant="h6" gutterBottom>{t.members.currentStatus}</Typography>
                             {status?.enrolled ? (
                                 <Alert icon={<CheckIcon fontSize="inherit" />} severity="success">
-                                    Enrolled ({status.template_count} templates).
+                                    {t.members.enrolledTemplates.replace('{count}', String(status.template_count || 0))}
                                 </Alert>
                             ) : (
-                                <Alert severity="warning">Not enrolled yet.</Alert>
+                                <Alert severity="warning">{t.members.notEnrolledYet}</Alert>
                             )}
 
                             <Box mt={2}>
                                 <Typography variant="caption" color="text.secondary">
-                                    Choose an enrollment method on the right. Ensure good lighting and a clear view of the face.
+                                    {t.members.chooseMethod}
                                 </Typography>
                             </Box>
                         </CardContent>
@@ -185,14 +180,13 @@ export const FaceEnrollment: React.FC = () => {
                     <Card>
                         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                             <Tabs value={tabValue} onChange={(_, v) => { setTabValue(v); if (v !== 1) stopWebcam(); }} variant="fullWidth">
-                                <Tab icon={<PhotoIcon />} label="Upload Photo" />
-                                <Tab icon={<VideoIcon />} label="Webcam" />
-                                <Tab icon={<SystemIcon />} label="System Camera" />
+                                <Tab icon={<PhotoIcon />} label={t.members.uploadPhotoTab} />
+                                <Tab icon={<VideoIcon />} label={t.members.webcamTab} />
+                                <Tab icon={<SystemIcon />} label={t.members.systemCameraTab} />
                             </Tabs>
                         </Box>
 
                         <CardContent>
-                            {/* TAB 0: Upload */}
                             {tabValue === 0 && (
                                 <Box textAlign="center">
                                     <Box
@@ -210,7 +204,7 @@ export const FaceEnrollment: React.FC = () => {
                                         {previewUrl ? (
                                             <img src={previewUrl} alt="Preview" style={{ maxWidth: '100%', maxHeight: '100%' }} />
                                         ) : (
-                                            <Typography color="text.secondary">Select a photo</Typography>
+                                            <Typography color="text.secondary">{t.members.selectPhoto}</Typography>
                                         )}
                                     </Box>
                                     <input
@@ -221,19 +215,18 @@ export const FaceEnrollment: React.FC = () => {
                                         onChange={handleFileChange}
                                     />
                                     <Button variant="outlined" startIcon={<PhotoIcon />} onClick={() => fileInputRef.current?.click()} sx={{ mr: 2 }}>
-                                        Choose File
+                                        {t.members.chooseFile}
                                     </Button>
                                     <Button
                                         variant="contained"
                                         disabled={!selectedFile || enrollMutation.isPending}
                                         onClick={() => selectedFile && enrollMutation.mutate(selectedFile)}
                                     >
-                                        {enrollMutation.isPending ? 'Enrolling...' : 'Upload & Enroll'}
+                                        {enrollMutation.isPending ? t.members.enrolling : t.members.uploadEnroll}
                                     </Button>
                                 </Box>
                             )}
 
-                            {/* TAB 1: Webcam */}
                             {tabValue === 1 && (
                                 <Box textAlign="center">
                                     <Box
@@ -248,7 +241,7 @@ export const FaceEnrollment: React.FC = () => {
                                         }}
                                     >
                                         {!isWebcamActive && (
-                                            <Button variant="contained" onClick={startWebcam}>Start Camera</Button>
+                                            <Button variant="contained" onClick={startWebcam}>{t.members.startCamera}</Button>
                                         )}
                                         <video
                                             ref={videoRef}
@@ -270,27 +263,26 @@ export const FaceEnrollment: React.FC = () => {
                                         disabled={!isWebcamActive || enrollMutation.isPending}
                                         onClick={captureWebcam}
                                     >
-                                        {enrollMutation.isPending ? 'Processing...' : 'Capture & Enroll'}
+                                        {enrollMutation.isPending ? t.members.processing : t.members.captureEnroll}
                                     </Button>
                                 </Box>
                             )}
 
-                            {/* TAB 2: System Camera */}
                             {tabValue === 2 && (
                                 <Box>
                                     <Typography gutterBottom>
-                                        Select a connected system camera (RTSP/Server USB) to capture a frame.
+                                        {t.members.selectSystemCamera}
                                     </Typography>
                                     <FormControl fullWidth sx={{ mb: 3 }}>
-                                        <InputLabel>Select Camera</InputLabel>
+                                        <InputLabel>{t.members.selectCameraLabel}</InputLabel>
                                         <Select
                                             value={selectedCameraId}
-                                            label="Select Camera"
+                                            label={t.members.selectCameraLabel}
                                             onChange={(e) => setSelectedCameraId(e.target.value)}
                                         >
                                             {systemCameras?.map((cam) => (
                                                 <MenuItem key={cam.id} value={cam.id}>
-                                                    {cam.name} ({cam.enabled ? 'Active' : 'Inactive'})
+                                                    {cam.name} ({cam.enabled ? t.cameras.active : t.members.inactive})
                                                 </MenuItem>
                                             ))}
                                         </Select>
@@ -301,7 +293,7 @@ export const FaceEnrollment: React.FC = () => {
                                         disabled={!selectedCameraId || enrollCameraMutation.isPending}
                                         onClick={() => enrollCameraMutation.mutate(selectedCameraId)}
                                     >
-                                        {enrollCameraMutation.isPending ? 'Capturing...' : 'Capture from Camera'}
+                                        {enrollCameraMutation.isPending ? t.members.capturing : t.members.captureFromCamera}
                                     </Button>
                                 </Box>
                             )}

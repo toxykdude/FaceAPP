@@ -37,7 +37,8 @@ import {
     Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { usersApi, User, UserCreate, UserUpdate, PasswordChange } from '@/api/users';
-import { format } from 'date-fns';
+// date-fns removed - unused
+import { useLanguage } from '@/i18n/LanguageContext';
 
 const PERMISSION_PAGES = [
     { key: 'dashboard', label: 'Dashboard' },
@@ -50,6 +51,7 @@ const PERMISSION_PAGES = [
 
 export const UserManagement: React.FC = () => {
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
     const [openDialog, setOpenDialog] = useState(false);
     const [openPasswordDialog, setOpenPasswordDialog] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -71,73 +73,38 @@ export const UserManagement: React.FC = () => {
         new_password: '',
     });
 
-    // Fetch users
     const { data: users, isLoading, refetch } = useQuery({
         queryKey: ['users'],
         queryFn: () => usersApi.getUsers(),
     });
 
-    // Create mutation
     const createMutation = useMutation({
         mutationFn: (data: UserCreate) => usersApi.createUser(data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['users'] });
-            handleCloseDialog();
-            setError(null);
-        },
-        onError: (err: any) => {
-            setError(err.response?.data?.detail || 'Failed to create user');
-        },
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); handleCloseDialog(); setError(null); },
+        onError: (err: any) => { setError(err.response?.data?.detail || t.settings.errorCreating); },
     });
 
-    // Update mutation
     const updateMutation = useMutation({
-        mutationFn: ({ id, data }: { id: string; data: UserUpdate }) =>
-            usersApi.updateUser(id, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['users'] });
-            handleCloseDialog();
-            setError(null);
-        },
-        onError: (err: any) => {
-            setError(err.response?.data?.detail || 'Failed to update user');
-        },
+        mutationFn: ({ id, data }: { id: string; data: UserUpdate }) => usersApi.updateUser(id, data),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); handleCloseDialog(); setError(null); },
+        onError: (err: any) => { setError(err.response?.data?.detail || t.settings.errorUpdating); },
     });
 
-    // Delete mutation
     const deleteMutation = useMutation({
         mutationFn: (id: string) => usersApi.deleteUser(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['users'] });
-        },
-        onError: (err: any) => {
-            alert(err.response?.data?.detail || 'Failed to delete user');
-        },
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); },
+        onError: (err: any) => { alert(err.response?.data?.detail || 'Failed to delete user'); },
     });
 
-    // Password change mutation
     const passwordMutation = useMutation({
-        mutationFn: ({ id, data }: { id: string; data: PasswordChange }) =>
-            usersApi.changePassword(id, data),
-        onSuccess: () => {
-            handleClosePasswordDialog();
-            alert('Password changed successfully');
-        },
-        onError: (err: any) => {
-            setError(err.response?.data?.detail || 'Failed to change password');
-        },
+        mutationFn: ({ id, data }: { id: string; data: PasswordChange }) => usersApi.changePassword(id, data),
+        onSuccess: () => { handleClosePasswordDialog(); alert(t.settings.passwordChanged); },
+        onError: (err: any) => { setError(err.response?.data?.detail || t.settings.errorChangingPassword); },
     });
 
     const handleOpenCreate = () => {
         setEditingUser(null);
-        setFormData({
-            username: '',
-            email: '',
-            full_name: '',
-            password: '',
-            role: 'staff',
-            is_active: true,
-        });
+        setFormData({ username: '', email: '', full_name: '', password: '', role: 'staff', is_active: true });
         setPermissions(['all']);
         setError(null);
         setOpenDialog(true);
@@ -145,120 +112,61 @@ export const UserManagement: React.FC = () => {
 
     const handleOpenEdit = (user: User) => {
         setEditingUser(user);
-        setFormData({
-            username: user.username,
-            email: user.email || '',
-            full_name: user.full_name || '',
-            password: '', // Don't populate password
-            role: user.role,
-            is_active: user.is_active,
-        });
+        setFormData({ username: user.username, email: user.email || '', full_name: user.full_name || '', password: '', role: user.role, is_active: user.is_active });
         setPermissions((user as any).permissions?.pages || ['all']);
         setError(null);
         setOpenDialog(true);
     };
 
-    const handleCloseDialog = () => {
-        setOpenDialog(false);
-        setEditingUser(null);
-        setError(null);
-    };
+    const handleCloseDialog = () => { setOpenDialog(false); setEditingUser(null); setError(null); };
 
     const handleOpenPasswordDialog = (userId: string) => {
         setPasswordUserId(userId);
-        setPasswordData({
-            current_password: '',
-            new_password: '',
-        });
+        setPasswordData({ current_password: '', new_password: '' });
         setError(null);
         setOpenPasswordDialog(true);
     };
 
-    const handleClosePasswordDialog = () => {
-        setOpenPasswordDialog(false);
-        setPasswordUserId(null);
-        setError(null);
-    };
+    const handleClosePasswordDialog = () => { setOpenPasswordDialog(false); setPasswordUserId(null); setError(null); };
 
     const handleSubmit = () => {
-        if (!formData.username) {
-            setError('Username is required');
-            return;
-        }
-
-        if (!editingUser && !formData.password) {
-            setError('Password is required for new users');
-            return;
-        }
-
+        if (!formData.username) { setError(t.settings.usernameRequired); return; }
+        if (!editingUser && !formData.password) { setError(t.settings.passwordRequired); return; }
         if (editingUser) {
-            // Update user
-            const updateData: UserUpdate = {
-                username: formData.username,
-                email: formData.email || undefined,
-                full_name: formData.full_name || undefined,
-                role: formData.role,
-                is_active: formData.is_active,
-                permissions: { pages: permissions },
-            };
+            const updateData: UserUpdate = { username: formData.username, email: formData.email || undefined, full_name: formData.full_name || undefined, role: formData.role, is_active: formData.is_active, permissions: { pages: permissions } };
             updateMutation.mutate({ id: editingUser.id, data: updateData });
         } else {
-            // Create user
-            createMutation.mutate({
-                ...formData,
-                permissions: { pages: permissions },
-            });
+            createMutation.mutate({ ...formData, permissions: { pages: permissions } });
         }
     };
 
     const handlePasswordSubmit = () => {
-        if (!passwordData.new_password) {
-            setError('New password is required');
-            return;
-        }
-
+        if (!passwordData.new_password) { setError(t.settings.newPasswordHelper); return; }
         if (passwordUserId) {
-            // Only include current_password if it has a value
-            const submitData: PasswordChange = {
-                new_password: passwordData.new_password,
-            };
-
-            // Only add current_password if it's not empty
-            if (passwordData.current_password) {
-                submitData.current_password = passwordData.current_password;
-            }
-
+            const submitData: PasswordChange = { new_password: passwordData.new_password };
+            if (passwordData.current_password) { submitData.current_password = passwordData.current_password; }
             passwordMutation.mutate({ id: passwordUserId, data: submitData });
         }
     };
 
     const handleDelete = (user: User) => {
-        if (window.confirm(`Are you sure you want to delete user "${user.username}"?`)) {
+        if (window.confirm(t.settings.deleteUserConfirm.replace('?', `"${user.username}"?`))) {
             deleteMutation.mutate(user.id);
         }
     };
 
     if (isLoading) {
-        return <Typography>Loading users...</Typography>;
+        return <Typography>{t.settings.loadingUsers}</Typography>;
     }
 
     return (
         <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h6" fontWeight="600">
-                    User Management
-                </Typography>
+                <Typography variant="h6" fontWeight="600">{t.settings.userManagement}</Typography>
                 <Box display="flex" gap={1}>
-                    <IconButton onClick={() => refetch()} size="small">
-                        <RefreshIcon />
-                    </IconButton>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenCreate}
-                        sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}
-                    >
-                        Add User
+                    <IconButton onClick={() => refetch()} size="small"><RefreshIcon /></IconButton>
+                    <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate} sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}>
+                        {t.settings.addNewUser}
                     </Button>
                 </Box>
             </Box>
@@ -267,14 +175,13 @@ export const UserManagement: React.FC = () => {
                 <Table>
                     <TableHead>
                         <TableRow>
-                            <TableCell>Username</TableCell>
-                            <TableCell>Full Name</TableCell>
-                            <TableCell>Email</TableCell>
-                            <TableCell>Role</TableCell>
-                            <TableCell>Status</TableCell>
-                            <TableCell>Permissions</TableCell>
-                            <TableCell>Last Login</TableCell>
-                            <TableCell align="right">Actions</TableCell>
+                            <TableCell>{t.settings.username}</TableCell>
+                            <TableCell>{t.settings.fullName}</TableCell>
+                            <TableCell>{t.settings.email}</TableCell>
+                            <TableCell>{t.settings.role}</TableCell>
+                            <TableCell>{t.settings.status}</TableCell>
+                            <TableCell>{t.settings.permissions}</TableCell>
+                            <TableCell>{t.common.actions}</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -283,180 +190,58 @@ export const UserManagement: React.FC = () => {
                                 <TableCell>{user.username}</TableCell>
                                 <TableCell>{user.full_name || '-'}</TableCell>
                                 <TableCell>{user.email || '-'}</TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={user.role.toUpperCase()}
-                                        color={user.role === 'admin' ? 'error' : 'primary'}
-                                        size="small"
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={user.is_active ? 'Active' : 'Inactive'}
-                                        color={user.is_active ? 'success' : 'default'}
-                                        size="small"
-                                    />
-                                </TableCell>
+                                <TableCell><Chip label={user.role.toUpperCase()} color={user.role === 'admin' ? 'error' : 'primary'} size="small" /></TableCell>
+                                <TableCell><Chip label={user.is_active ? t.settings.isActive : t.members.inactive} color={user.is_active ? 'success' : 'default'} size="small" /></TableCell>
                                 <TableCell>
                                     {user.role === 'admin' ? (
                                         <Chip label="All" size="small" color="info" />
                                     ) : (
                                         <Tooltip title={((user as any).permissions?.pages || []).join(', ')}>
-                                            <Chip
-                                                label={((user as any).permissions?.pages || []).includes('all')
-                                                    ? 'All'
-                                                    : `${((user as any).permissions?.pages || []).length} pages`}
-                                                size="small"
-                                                variant="outlined"
-                                            />
+                                            <Chip label={((user as any).permissions?.pages || []).includes('all') ? 'All' : `${((user as any).permissions?.pages || []).length} pages`} size="small" variant="outlined" />
                                         </Tooltip>
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                    {user.last_login
-                                        ? format(new Date(user.last_login), 'MMM dd, yyyy HH:mm')
-                                        : 'Never'}
-                                </TableCell>
-                                <TableCell align="right">
-                                    <Tooltip title="Change Password">
-                                        <IconButton
-                                            size="small"
-                                            onClick={() => handleOpenPasswordDialog(user.id)}
-                                        >
-                                            <KeyIcon />
-                                        </IconButton>
-                                    </Tooltip>
-                                    <Tooltip title="Edit User">
-                                        <IconButton size="small" onClick={() => handleOpenEdit(user)}>
-                                            <EditIcon />
-                                        </IconButton>
-                                    </Tooltip>
-                                    <Tooltip title="Delete User">
-                                        <IconButton
-                                            size="small"
-                                            color="error"
-                                            onClick={() => handleDelete(user)}
-                                        >
-                                            <DeleteIcon />
-                                        </IconButton>
-                                    </Tooltip>
+                                    <Tooltip title={t.settings.changePassword}><IconButton size="small" onClick={() => handleOpenPasswordDialog(user.id)}><KeyIcon /></IconButton></Tooltip>
+                                    <Tooltip title={t.settings.edit}><IconButton size="small" onClick={() => handleOpenEdit(user)}><EditIcon /></IconButton></Tooltip>
+                                    <Tooltip title={t.settings.deleteUser}><IconButton size="small" color="error" onClick={() => handleDelete(user)}><DeleteIcon /></IconButton></Tooltip>
                                 </TableCell>
                             </TableRow>
                         ))}
                         {(!users || users.length === 0) && (
-                            <TableRow>
-                                <TableCell colSpan={8} align="center">
-                                    No users found
-                                </TableCell>
-                            </TableRow>
+                            <TableRow><TableCell colSpan={8} align="center">{t.settings.noUsersFound}</TableCell></TableRow>
                         )}
                     </TableBody>
                 </Table>
             </TableContainer>
 
-            {/* Create/Edit User Dialog */}
             <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-                <DialogTitle>{editingUser ? 'Edit User' : 'Create New User'}</DialogTitle>
+                <DialogTitle>{editingUser ? t.settings.editUser : t.settings.createUser}</DialogTitle>
                 <DialogContent>
                     <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {error && <Alert severity="error">{error}</Alert>}
-
-                        <TextField
-                            label="Username"
-                            fullWidth
-                            required
-                            value={formData.username}
-                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                        />
-
-                        <TextField
-                            label="Full Name"
-                            fullWidth
-                            value={formData.full_name}
-                            onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                        />
-
-                        <TextField
-                            label="Email"
-                            type="email"
-                            fullWidth
-                            value={formData.email}
-                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        />
-
+                        <TextField label={t.settings.username} fullWidth required value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
+                        <TextField label={t.settings.fullName} fullWidth value={formData.full_name} onChange={(e) => setFormData({ ...formData, full_name: e.target.value })} />
+                        <TextField label={t.settings.email} type="email" fullWidth value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                         {!editingUser && (
-                            <TextField
-                                label="Password"
-                                type="password"
-                                fullWidth
-                                required
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                helperText="Minimum 8 characters"
-                            />
+                            <TextField label="Password" type="password" fullWidth required value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} helperText={t.settings.newPasswordHelper} />
                         )}
-
                         <FormControl fullWidth>
-                            <InputLabel>Role</InputLabel>
-                            <Select
-                                value={formData.role}
-                                label="Role"
-                                onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'staff' })}
-                            >
-                                <MenuItem value="staff">Staff</MenuItem>
-                                <MenuItem value="admin">Admin</MenuItem>
+                            <InputLabel>{t.settings.role}</InputLabel>
+                            <Select value={formData.role} label={t.settings.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'staff' })}>
+                                <MenuItem value="staff">{t.settings.staff}</MenuItem>
+                                <MenuItem value="admin">{t.settings.admin}</MenuItem>
                             </Select>
                         </FormControl>
-
-                        <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={formData.is_active}
-                                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                                />
-                            }
-                            label="Active"
-                        />
-
+                        <FormControlLabel control={<Switch checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} />} label={t.settings.isActive} />
                         {formData.role !== 'admin' && (
                             <Box sx={{ mt: 1 }}>
-                                <Typography variant="subtitle2" gutterBottom>
-                                    Page Permissions
-                                </Typography>
-                                <FormControlLabel
-                                    control={
-                                        <Checkbox
-                                            checked={permissions.includes('all')}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setPermissions(['all']);
-                                                } else {
-                                                    setPermissions([]);
-                                                }
-                                            }}
-                                        />
-                                    }
-                                    label="All Pages"
-                                />
+                                <Typography variant="subtitle2" gutterBottom>{t.settings.pagePermissions}</Typography>
+                                <FormControlLabel control={<Checkbox checked={permissions.includes('all')} onChange={(e) => { if (e.target.checked) { setPermissions(['all']); } else { setPermissions([]); } }} />} label={t.settings.allPages} />
                                 {!permissions.includes('all') && (
                                     <FormGroup sx={{ ml: 2 }}>
                                         {PERMISSION_PAGES.map((p) => (
-                                            <FormControlLabel
-                                                key={p.key}
-                                                control={
-                                                    <Checkbox
-                                                        checked={permissions.includes(p.key)}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) {
-                                                                setPermissions([...permissions, p.key]);
-                                                            } else {
-                                                                setPermissions(permissions.filter(k => k !== p.key));
-                                                            }
-                                                        }}
-                                                    />
-                                                }
-                                                label={p.label}
-                                            />
+                                            <FormControlLabel key={p.key} control={<Checkbox checked={permissions.includes(p.key)} onChange={(e) => { if (e.target.checked) { setPermissions([...permissions, p.key]); } else { setPermissions(permissions.filter(k => k !== p.key)); } }} />} label={p.label} />
                                         ))}
                                     </FormGroup>
                                 )}
@@ -465,47 +250,25 @@ export const UserManagement: React.FC = () => {
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleCloseDialog}>Cancel</Button>
-                    <Button
-                        onClick={handleSubmit}
-                        variant="contained"
-                        disabled={createMutation.isPending || updateMutation.isPending}
-                    >
-                        {createMutation.isPending || updateMutation.isPending
-                            ? 'Saving...'
-                            : editingUser
-                                ? 'Update'
-                                : 'Create'}
+                    <Button onClick={handleCloseDialog}>{t.common.cancel}</Button>
+                    <Button onClick={handleSubmit} variant="contained" disabled={createMutation.isPending || updateMutation.isPending}>
+                        {createMutation.isPending || updateMutation.isPending ? t.settings.saving : editingUser ? t.common.edit : t.common.create}
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Change Password Dialog */}
             <Dialog open={openPasswordDialog} onClose={handleClosePasswordDialog} maxWidth="sm" fullWidth>
-                <DialogTitle>Change Password</DialogTitle>
+                <DialogTitle>{t.settings.changePassword}</DialogTitle>
                 <DialogContent>
                     <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {error && <Alert severity="error">{error}</Alert>}
-
-                        <TextField
-                            label="New Password"
-                            type="password"
-                            fullWidth
-                            required
-                            value={passwordData.new_password}
-                            onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
-                            helperText="Minimum 8 characters"
-                        />
+                        <TextField label={t.settings.newPassword} type="password" fullWidth required value={passwordData.new_password} onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })} helperText={t.settings.newPasswordHelper} />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleClosePasswordDialog}>Cancel</Button>
-                    <Button
-                        onClick={handlePasswordSubmit}
-                        variant="contained"
-                        disabled={passwordMutation.isPending}
-                    >
-                        {passwordMutation.isPending ? 'Changing...' : 'Change Password'}
+                    <Button onClick={handleClosePasswordDialog}>{t.common.cancel}</Button>
+                    <Button onClick={handlePasswordSubmit} variant="contained" disabled={passwordMutation.isPending}>
+                        {passwordMutation.isPending ? t.settings.saving : t.settings.changePassword}
                     </Button>
                 </DialogActions>
             </Dialog>

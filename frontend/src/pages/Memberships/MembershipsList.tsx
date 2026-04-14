@@ -34,6 +34,7 @@ import { Add as AddIcon, Refresh as RefreshIcon, Visibility as ViewIcon, Delete 
 import { membershipsApi } from '@/api/memberships';
 import { membershipPlansApi } from '@/api/membershipPlans';
 import { format } from 'date-fns';
+import { useLanguage } from '@/i18n/LanguageContext';
 
 interface CreatePlanDTO {
     name: string;
@@ -47,10 +48,10 @@ interface CreatePlanDTO {
 export const MembershipsList: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { t } = useLanguage();
     const [tabValue, setTabValue] = useState(0);
     const [openPlanDialog, setOpenPlanDialog] = useState(false);
 
-    // New Plan Form State
     const [newPlan, setNewPlan] = useState<CreatePlanDTO>({
         name: '',
         duration_days: 30,
@@ -60,7 +61,6 @@ export const MembershipsList: React.FC = () => {
         is_active: true
     });
 
-    // Edit Plan State
     const [editPlan, setEditPlan] = useState<any>(null);
     const [editFormData, setEditFormData] = useState<CreatePlanDTO>({
         name: '',
@@ -71,7 +71,6 @@ export const MembershipsList: React.FC = () => {
         is_active: true
     });
 
-    // Queries
     const { data: memberships, isLoading: loadingMemberships, refetch: refetchMemberships } = useQuery({
         queryKey: ['memberships'],
         queryFn: () => membershipsApi.getMemberships(),
@@ -83,20 +82,12 @@ export const MembershipsList: React.FC = () => {
     });
     const plans = plansData?.plans || [];
 
-    // Mutations
     const createPlanMutation = useMutation({
         mutationFn: (data: CreatePlanDTO) => membershipPlansApi.createPlan(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
             setOpenPlanDialog(false);
-            setNewPlan({
-                name: '',
-                duration_days: 30,
-                duration_months: 0,
-                price: 0,
-                description: '',
-                is_active: true
-            });
+            setNewPlan({ name: '', duration_days: 30, duration_months: 0, price: 0, description: '', is_active: true });
         }
     });
 
@@ -104,7 +95,6 @@ export const MembershipsList: React.FC = () => {
         createPlanMutation.mutate(newPlan);
     };
 
-    // Edit Plan Mutation
     const updatePlanMutation = useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) => membershipPlansApi.updatePlan(id, data),
         onSuccess: () => {
@@ -113,18 +103,16 @@ export const MembershipsList: React.FC = () => {
         },
     });
 
-    // Delete Plan Mutation
     const deletePlanMutation = useMutation({
         mutationFn: (id: string) => membershipPlansApi.deletePlan(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
         },
         onError: (error: any) => {
-            alert('Error deleting plan: ' + (error?.response?.data?.detail || error?.message || 'Unknown error'));
+            alert('Error: ' + (error?.response?.data?.detail || error?.message || 'Unknown error'));
         },
     });
 
-    // Sync edit form data when editPlan changes
     React.useEffect(() => {
         if (editPlan) {
             setEditFormData({
@@ -150,9 +138,9 @@ export const MembershipsList: React.FC = () => {
 
     const getStatusChip = (status: string) => {
         switch (status) {
-            case 'active': return <Chip label="Active" color="success" size="small" />;
-            case 'expired': return <Chip label="Expired" color="error" size="small" />;
-            case 'cancelled': return <Chip label="Cancelled" color="warning" size="small" />;
+            case 'active': return <Chip label={t.memberships.active} color="success" size="small" />;
+            case 'expired': return <Chip label={t.memberships.expired} color="error" size="small" />;
+            case 'cancelled': return <Chip label={t.memberships.cancelled} color="warning" size="small" />;
             default: return <Chip label={status} size="small" />;
         }
     };
@@ -160,7 +148,7 @@ export const MembershipsList: React.FC = () => {
     return (
         <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">Memberships</Typography>
+                <Typography variant="h4">{t.memberships.title}</Typography>
                 <Box>
                     <IconButton onClick={() => { refetchMemberships(); refetchPlans(); }} sx={{ mr: 1 }}>
                         <RefreshIcon />
@@ -169,70 +157,68 @@ export const MembershipsList: React.FC = () => {
                         variant="contained"
                         startIcon={<AddIcon />}
                         onClick={() => {
-                            if (tabValue === 0) navigate('/memberships/new'); // Existing manual add
+                            if (tabValue === 0) navigate('/memberships/new');
                             else setOpenPlanDialog(true);
                         }}
                     >
-                        {tabValue === 0 ? "New Membership" : "New Plan"}
+                        {tabValue === 0 ? t.memberships.newMembership : t.memberships.addPlan}
                     </Button>
                 </Box>
             </Box>
 
             <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 3 }}>
-                <Tab icon={<AssignIcon />} iconPosition="start" label="Active Memberships" />
-                <Tab icon={<PlanIcon />} iconPosition="start" label="Membership Plans" />
+                <Tab icon={<AssignIcon />} iconPosition="start" label={t.memberships.activePlans} />
+                <Tab icon={<PlanIcon />} iconPosition="start" label={t.memberships.plans} />
             </Tabs>
 
-            {/* TAB 0: Memberships List */}
             {tabValue === 0 && (
                 <TableContainer component={Paper}>
                     <Table>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Member</TableCell>
-                                <TableCell>Type / Plan</TableCell>
-                                <TableCell>Start Date</TableCell>
-                                <TableCell>End Date</TableCell>
-                                <TableCell>Status</TableCell>
-                                <TableCell align="right">Actions</TableCell>
+                                <TableCell>{t.memberships.member}</TableCell>
+                                <TableCell>{t.memberships.type} / {t.memberships.plan}</TableCell>
+                                <TableCell>{t.memberships.startDate}</TableCell>
+                                <TableCell>{t.memberships.endDate}</TableCell>
+                                <TableCell>{t.memberships.status}</TableCell>
+                                <TableCell align="right">{t.common.actions}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {memberships?.map((m) => (
                                 <TableRow key={m.id}>
                                     <TableCell>
-                                        <Typography variant="body2" fontWeight="bold">{m.member_name || 'Unknown'}</Typography>
-                                        <Typography variant="caption" color="textSecondary">{m.member_id_number || 'No ID'}</Typography>
+                                        <Typography variant="body2" fontWeight="bold">{m.member_name || t.dashboard.unknown}</Typography>
+                                        <Typography variant="caption" color="textSecondary">{m.member_id_number || t.memberships.noId}</Typography>
                                     </TableCell>
                                     <TableCell>{m.plan_name || m.type}</TableCell>
                                     <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>
                                     <TableCell>{format(new Date(m.end_date), 'PPP')}</TableCell>
                                     <TableCell>{getStatusChip(m.status)}</TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title="View Member"><ViewIcon /></IconButton>
+                                        <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title={t.memberships.viewMember}><ViewIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {(!memberships || memberships.length === 0) && (
-                                <TableRow><TableCell colSpan={6} align="center">No memberships found.</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} align="center">{t.memberships.noMembershipsFound}</TableCell></TableRow>
                             )}
                         </TableBody>
                     </Table>
                 </TableContainer>
             )}
 
-            {/* TAB 1: Plans List */}
             {tabValue === 1 && (
                 <TableContainer component={Paper}>
                     <Table>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Plan Name</TableCell>
-                                <TableCell>Duration</TableCell>
-                                <TableCell>Price</TableCell>
-                                <TableCell>Description</TableCell>
-                                <TableCell>Status</TableCell>
-                                <TableCell align="right">Actions</TableCell>
+                                <TableCell>{t.memberships.planName}</TableCell>
+                                <TableCell>{t.memberships.duration}</TableCell>
+                                <TableCell>{t.memberships.price}</TableCell>
+                                <TableCell>{t.memberships.description}</TableCell>
+                                <TableCell>{t.memberships.status}</TableCell>
+                                <TableCell align="right">{t.common.actions}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -240,22 +226,22 @@ export const MembershipsList: React.FC = () => {
                                 <TableRow key={p.id}>
                                     <TableCell sx={{ fontWeight: 'bold' }}>{p.name}</TableCell>
                                     <TableCell>
-                                        {p.duration_months && p.duration_months > 0 ? `${p.duration_months} Months ` : ''}
-                                        {p.duration_days > 0 ? `${p.duration_days} Days` : ''}
+                                        {p.duration_months && p.duration_months > 0 ? `${p.duration_months} ${t.memberships.durationMonths} ` : ''}
+                                        {p.duration_days > 0 ? `${p.duration_days} ${t.memberships.durationDays}` : ''}
                                     </TableCell>
                                     <TableCell>${p.price}</TableCell>
                                     <TableCell>{p.description || '-'}</TableCell>
                                     <TableCell>
-                                        <Chip label={p.is_active ? "Active" : "Inactive"} color={p.is_active ? "success" : "default"} size="small" />
+                                        <Chip label={p.is_active ? t.memberships.active : t.members.inactive} color={p.is_active ? "success" : "default"} size="small" />
                                     </TableCell>
                                     <TableCell align="right">
                                         <IconButton size="small" onClick={() => setEditPlan(p)}><EditIcon /></IconButton>
-                                        <IconButton size="small" color="error" onClick={() => { console.log('Deleting plan:', p.id, p.name); if (confirm(`Delete plan "${p.name}"?`)) { console.log('Confirmed, calling deletePlanMutation...'); deletePlanMutation.mutate(p.id); } else { console.log('Cancelled'); } }}><DeleteIcon /></IconButton>
+                                        <IconButton size="small" color="error" onClick={() => { if (confirm(`${t.memberships.deleteConfirm}`)) { deletePlanMutation.mutate(p.id); } }}><DeleteIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {plans.length === 0 && (
-                                <TableRow><TableCell colSpan={6} align="center">No plans found. Create one to get started.</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} align="center">{t.memberships.noPlansFound}</TableCell></TableRow>
                             )}
                         </TableBody>
                     </Table>
@@ -264,11 +250,11 @@ export const MembershipsList: React.FC = () => {
 
             {/* Create Plan Dialog */}
             <Dialog open={openPlanDialog} onClose={() => setOpenPlanDialog(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>Create Membership Plan</DialogTitle>
+                <DialogTitle>{t.memberships.createMembershipPlan}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
-                            label="Plan Name"
+                            label={t.memberships.planName}
                             fullWidth
                             value={newPlan.name}
                             onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
@@ -277,7 +263,7 @@ export const MembershipsList: React.FC = () => {
                         <Grid container spacing={2}>
                             <Grid item xs={6}>
                                 <TextField
-                                    label="Duration (Months)"
+                                    label={t.memberships.durationMonths}
                                     type="number"
                                     fullWidth
                                     value={newPlan.duration_months}
@@ -286,17 +272,17 @@ export const MembershipsList: React.FC = () => {
                             </Grid>
                             <Grid item xs={6}>
                                 <TextField
-                                    label="Duration (Days)"
+                                    label={t.memberships.durationDays}
                                     type="number"
                                     fullWidth
                                     value={newPlan.duration_days}
                                     onChange={(e) => setNewPlan({ ...newPlan, duration_days: Number(e.target.value) })}
-                                    helperText="Additional days"
+                                    helperText={t.memberships.additionalDays}
                                 />
                             </Grid>
                         </Grid>
                         <TextField
-                            label="Price"
+                            label={t.memberships.price}
                             type="number"
                             fullWidth
                             value={newPlan.price}
@@ -304,7 +290,7 @@ export const MembershipsList: React.FC = () => {
                             InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                         />
                         <TextField
-                            label="Description"
+                            label={t.memberships.description}
                             fullWidth
                             multiline
                             rows={3}
@@ -313,29 +299,29 @@ export const MembershipsList: React.FC = () => {
                         />
                         <FormControlLabel
                             control={<Switch checked={newPlan.is_active} onChange={(e) => setNewPlan({ ...newPlan, is_active: e.target.checked })} />}
-                            label="Active (Available for assignment)"
+                            label={t.memberships.activeAvailable}
                         />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenPlanDialog(false)}>Cancel</Button>
+                    <Button onClick={() => setOpenPlanDialog(false)}>{t.memberships.cancel}</Button>
                     <Button
                         onClick={handleCreatePlan}
                         variant="contained"
                         disabled={!newPlan.name || createPlanMutation.isPending}
                     >
-                        {createPlanMutation.isPending ? "Creating..." : "Create Plan"}
+                        {createPlanMutation.isPending ? t.memberships.creating : t.memberships.createPlan}
                     </Button>
                 </DialogActions>
             </Dialog>
 
             {/* Edit Plan Dialog */}
             <Dialog open={!!editPlan} onClose={() => setEditPlan(null)} maxWidth="sm" fullWidth>
-                <DialogTitle>Edit Membership Plan</DialogTitle>
+                <DialogTitle>{t.memberships.editMembershipPlan}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
-                            label="Plan Name"
+                            label={t.memberships.planName}
                             fullWidth
                             value={editFormData.name}
                             onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
@@ -344,7 +330,7 @@ export const MembershipsList: React.FC = () => {
                         <Grid container spacing={2}>
                             <Grid item xs={6}>
                                 <TextField
-                                    label="Duration (Months)"
+                                    label={t.memberships.durationMonths}
                                     type="number"
                                     fullWidth
                                     value={editFormData.duration_months}
@@ -353,17 +339,17 @@ export const MembershipsList: React.FC = () => {
                             </Grid>
                             <Grid item xs={6}>
                                 <TextField
-                                    label="Duration (Days)"
+                                    label={t.memberships.durationDays}
                                     type="number"
                                     fullWidth
                                     value={editFormData.duration_days}
                                     onChange={(e) => setEditFormData({ ...editFormData, duration_days: Number(e.target.value) })}
-                                    helperText="Additional days"
+                                    helperText={t.memberships.additionalDays}
                                 />
                             </Grid>
                         </Grid>
                         <TextField
-                            label="Price"
+                            label={t.memberships.price}
                             type="number"
                             fullWidth
                             value={editFormData.price}
@@ -371,7 +357,7 @@ export const MembershipsList: React.FC = () => {
                             InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                         />
                         <TextField
-                            label="Description"
+                            label={t.memberships.description}
                             fullWidth
                             multiline
                             rows={3}
@@ -380,18 +366,18 @@ export const MembershipsList: React.FC = () => {
                         />
                         <FormControlLabel
                             control={<Switch checked={editFormData.is_active} onChange={(e) => setEditFormData({ ...editFormData, is_active: e.target.checked })} />}
-                            label="Active (Available for assignment)"
+                            label={t.memberships.activeAvailable}
                         />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setEditPlan(null)}>Cancel</Button>
+                    <Button onClick={() => setEditPlan(null)}>{t.memberships.cancel}</Button>
                     <Button
                         onClick={handleUpdatePlan}
                         variant="contained"
                         disabled={!editFormData.name || updatePlanMutation.isPending}
                     >
-                        {updatePlanMutation.isPending ? "Saving..." : "Save Changes"}
+                        {updatePlanMutation.isPending ? t.memberships.saving : t.memberships.saveChanges}
                     </Button>
                 </DialogActions>
             </Dialog>
