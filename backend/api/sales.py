@@ -5,7 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
+from collections import defaultdict
 from decimal import Decimal
 
 from api.deps import get_db, require_staff
@@ -146,6 +147,158 @@ def create_transaction(
     
     return db_transaction
 
+
+
+
+@router.get("/dashboard")
+def get_dashboard_report(
+    days: int = Query(30, ge=7, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """
+    Get aggregated dashboard data for the Reports page.
+    Returns revenue trends, member growth, membership distribution,
+    peak hours, checkin trends, and key metrics.
+    """
+    from models.event import AccessEvent
+    from sqlalchemy import extract
+
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # 1. Revenue Trend - daily sales for last N days
+    period_start = now - timedelta(days=days)
+    sales = db.query(SalesTransaction).filter(
+        SalesTransaction.transaction_date >= period_start
+    ).all()
+
+    daily_revenue = defaultdict(float)
+    for s in sales:
+        key = s.transaction_date.strftime("%Y-%m-%d")
+        daily_revenue[key] += float(s.amount)
+
+    revenue_trend = []
+    for i in range(days):
+        d = (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+        revenue_trend.append({"date": d, "amount": daily_revenue.get(d, 0)})
+
+    # 2. Member Growth - monthly new members for last 6 months
+    member_growth = []
+    for i in range(5, -1, -1):
+        m = now.month - i
+        y = now.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        m_start = now.replace(year=y, month=m, day=1, hour=0, minute=0, second=0, microsecond=0)
+        if i == 0:
+            m_end = now
+        else:
+            nm = m + 1
+            ny = y
+            if nm > 12:
+                nm = 1
+                ny += 1
+            m_end = m_start.replace(month=nm, year=ny)
+
+        count = db.query(Member).filter(
+            Member.created_at >= m_start,
+            Member.created_at < m_end
+        ).count()
+        member_growth.append({"month": m_start.strftime("%b %Y"), "count": count})
+
+    # 3. Membership Distribution - count by plan type
+    memberships = db.query(
+        Membership.type, func.count(Membership.id)
+    ).filter(
+        Membership.status == "active"
+    ).group_by(Membership.type).all()
+
+    membership_distribution = [{"plan": name or "Unknown", "count": count} for name, count in memberships]
+
+    # 4. Peak Hours - all-time check-ins by hour
+    all_events = db.query(AccessEvent).filter(
+        AccessEvent.access_granted == True,
+    ).all()
+
+    hourly = defaultdict(int)
+    for e in all_events:
+        hour = e.timestamp.hour if e.timestamp else 0
+        hourly[hour] += 1
+
+    peak_hours = []
+    for h in range(6, 23):
+        label = f"{h % 12 or 12}{'AM' if h < 12 else 'PM'}"
+        peak_hours.append({"hour": h, "label": label, "checkins": hourly.get(h, 0)})
+
+    # 5. Checkin Trend - daily check-ins for the period
+    daily_checkins_events = db.query(AccessEvent).filter(
+        AccessEvent.access_granted == True,
+        AccessEvent.timestamp >= period_start
+    ).all()
+
+    daily_checkins = defaultdict(int)
+    for e in daily_checkins_events:
+        key = e.timestamp.strftime("%Y-%m-%d")
+        daily_checkins[key] += 1
+
+    checkin_trend = []
+    for i in range(days):
+        d = (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+        checkin_trend.append({"date": d, "count": daily_checkins.get(d, 0)})
+
+    # 6. New signups this month vs last month
+    last_month_start = (month_start - timedelta(days=1)).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+
+    new_this_month = db.query(Member).filter(Member.created_at >= month_start).count()
+    new_last_month = db.query(Member).filter(
+        Member.created_at >= last_month_start,
+        Member.created_at < month_start
+    ).count()
+
+    signup_change = ((new_this_month - new_last_month) / new_last_month * 100) if new_last_month > 0 else 0
+
+    # 7. Active vs Expired memberships
+    active_count = db.query(Membership).filter(Membership.status == "active").count()
+    expired_count = db.query(Membership).filter(Membership.status == "expired").count()
+
+    # 8. Check-ins today and this week
+    checkins_today = db.query(AccessEvent).filter(
+        AccessEvent.access_granted == True,
+        AccessEvent.timestamp >= today_start
+    ).count()
+
+    checkins_week = db.query(AccessEvent).filter(
+        AccessEvent.access_granted == True,
+        AccessEvent.timestamp >= week_start
+    ).count()
+
+    # 9. Revenue change (this month vs last month)
+    rev_this_month = sum(float(s.amount) for s in sales if s.transaction_date >= month_start)
+    rev_last_month_sales = db.query(SalesTransaction).filter(
+        SalesTransaction.transaction_date >= last_month_start,
+        SalesTransaction.transaction_date < month_start
+    ).all()
+    rev_last_month = sum(float(s.amount) for s in rev_last_month_sales)
+    revenue_change = ((rev_this_month - rev_last_month) / rev_last_month * 100) if rev_last_month > 0 else 0
+
+    return {
+        "revenue_trend": revenue_trend,
+        "member_growth": member_growth,
+        "membership_distribution": membership_distribution,
+        "peak_hours": peak_hours,
+        "checkin_trend": checkin_trend,
+        "new_signups": {"this_month": new_this_month, "last_month": new_last_month, "change_pct": round(signup_change, 1)},
+        "active_vs_expired": {"active": active_count, "expired": expired_count},
+        "checkins_today": checkins_today,
+        "checkins_week": checkins_week,
+        "revenue_change_pct": round(revenue_change, 1),
+    }
 
 @router.get("/{transaction_id}", response_model=SalesTransactionResponse)
 def get_transaction(

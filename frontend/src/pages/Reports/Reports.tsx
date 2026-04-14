@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '@/api/sales';
-import { eventsApi } from '@/api/events';
 import { membersApi } from '@/api/members';
 import {
     Box,
@@ -16,6 +15,8 @@ import {
     InputLabel,
     Paper,
     Avatar,
+    CircularProgress,
+
 } from '@mui/material';
 import {
     TrendingUp as TrendingUpIcon,
@@ -42,7 +43,7 @@ import {
     Filler,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { format, subDays } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 // Register ChartJS components
 ChartJS.register(
@@ -125,87 +126,160 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, changeLab
     );
 };
 
+// Green color palette for doughnut charts
+const GREEN_PALETTE = ['#1b5e20', '#2e7d32', '#388e3c', '#43a047', '#4caf50', '#66bb6a', '#81c784', '#a5d6a7'];
+
 export const Reports: React.FC = () => {
     const queryClient = useQueryClient();
     const [timeRange, setTimeRange] = useState('30days');
 
+    const daysMap: Record<string, number> = {
+        '7days': 7,
+        '30days': 30,
+        '90days': 90,
+        'year': 365,
+    };
+
+    // Dashboard report from new endpoint
+    const { data: reportData, isLoading: loadingReport } = useQuery({
+        queryKey: ['dashboard-report', timeRange],
+        queryFn: () => salesApi.getDashboardReport(daysMap[timeRange] || 30),
+    });
+
+    // Sales report summary (for payment method breakdown + total revenue)
     const { data: salesReport } = useQuery({
         queryKey: ['sales-report'],
         queryFn: () => salesApi.getReportSummary(),
     });
 
+    // Members total count
     const { data: membersData } = useQuery({
         queryKey: ['members-count'],
         queryFn: () => membersApi.getMembers({ limit: 1 }),
     });
 
-    const { data: eventsStats } = useQuery({
-        queryKey: ['events-stats'],
-        queryFn: () => eventsApi.getEvents(0, 1000),
+    // Recent transactions
+    const { data: recentSales } = useQuery({
+        queryKey: ['recent-sales'],
+        queryFn: () => salesApi.getTransactions({ skip: 0, limit: 10 }),
     });
 
-    const totalCheckins = eventsStats?.events?.filter((e: any) => e.access_granted || e.event_type === 'check_in').length || 0;
+    // Derived metrics from real data
+    const totalMembers = membersData?.total || 0;
+    const totalRevenue = salesReport?.total_revenue || 0;
+    const activeMembers = reportData?.active_vs_expired?.active || 0;
+    const expiredMembers = reportData?.active_vs_expired?.expired || 0;
+    const totalMemberships = activeMembers + expiredMembers;
+    const retentionRate = totalMemberships > 0 ? ((activeMembers / totalMemberships) * 100) : 0;
+
     const metrics = {
-        totalRevenue: { value: `$${(salesReport?.total_revenue || 0).toLocaleString()}`, change: 0, label: 'this period' },
-        activeMembers: { value: (membersData?.total || 0).toLocaleString(), change: 0, label: 'total registered' },
-        newSignups: { value: '0', change: 0, label: 'this period' },
-        checkIns: { value: totalCheckins.toLocaleString(), change: 0, label: 'this period' },
-        avgRevPerMember: { value: membersData?.total ? `$${((salesReport?.total_revenue || 0) / membersData.total).toFixed(2)}` : '$0', change: 0, label: 'average' },
-        retention: { value: '0%', change: 0, label: 'this period' },
+        totalRevenue: {
+            value: `$${Number(totalRevenue).toLocaleString()}`,
+            change: reportData?.revenue_change_pct || 0,
+            label: 'vs last month',
+        },
+        activeMembers: {
+            value: activeMembers.toLocaleString(),
+            change: 0,
+            label: 'active memberships',
+        },
+        newSignups: {
+            value: (reportData?.new_signups?.this_month || 0).toLocaleString(),
+            change: reportData?.new_signups?.change_pct || 0,
+            label: 'vs last month',
+        },
+        checkIns: {
+            value: (reportData?.checkins_today || 0).toLocaleString(),
+            change: 0,
+            label: `${reportData?.checkins_week || 0} this week`,
+        },
+        avgRevPerMember: {
+            value: totalMembers > 0
+                ? `$${(Number(totalRevenue) / totalMembers).toFixed(2)}`
+                : '$0',
+            change: 0,
+            label: 'per member',
+        },
+        retention: {
+            value: `${retentionRate.toFixed(1)}%`,
+            change: 0,
+            label: `${activeMembers}/${totalMemberships} active`,
+        },
     };
 
-    // Revenue Chart Data
+    // Revenue Chart Data — from API
     const revenueChartData = {
-        labels: Array.from({ length: 30 }, (_, i) => format(subDays(new Date(), 29 - i), 'MMM dd')),
+        labels: (reportData?.revenue_trend || []).map((d: any) => {
+            try { return format(parseISO(d.date), 'MMM dd'); } catch { return d.date; }
+        }),
         datasets: [
             {
                 label: 'Revenue',
-                data: Array.from({ length: 30 }, () => 0),
+                data: (reportData?.revenue_trend || []).map((d: any) => d.amount),
                 borderColor: '#2e7d32',
                 backgroundColor: 'rgba(46, 125, 50, 0.1)',
                 fill: true,
                 tension: 0.4,
+                pointRadius: 2,
+                pointHoverRadius: 5,
             },
         ],
     };
 
-    // Member Growth Chart
+    // Check-in Trend Chart Data — from API
+    const checkinTrendData = {
+        labels: (reportData?.checkin_trend || []).map((d: any) => {
+            try { return format(parseISO(d.date), 'MMM dd'); } catch { return d.date; }
+        }),
+        datasets: [
+            {
+                label: 'Check-ins',
+                data: (reportData?.checkin_trend || []).map((d: any) => d.count),
+                borderColor: '#1976d2',
+                backgroundColor: 'rgba(25, 118, 210, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+            },
+        ],
+    };
+
+    // Member Growth Chart — from API
     const memberGrowthData = {
-        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+        labels: (reportData?.member_growth || []).map((d: any) => d.month),
         datasets: [
             {
                 label: 'New Members',
-                data: [65, 78, 90, 81, 96, 87],
+                data: (reportData?.member_growth || []).map((d: any) => d.count),
                 backgroundColor: '#2e7d32',
-            },
-            {
-                label: 'Cancelled',
-                data: [12, 15, 8, 10, 7, 9],
-                backgroundColor: '#d32f2f',
+                borderRadius: 6,
             },
         ],
     };
 
-    // Membership Distribution
+    // Membership Distribution — from API
+    const distData = reportData?.membership_distribution || [];
     const membershipDistribution = {
-        labels: ['Basic', 'Premium', 'VIP', 'Student'],
+        labels: distData.map((d: any) => d.plan),
         datasets: [
             {
-                data: [320, 450, 180, 284],
-                backgroundColor: ['#2e7d32', '#388e3c', '#43a047', '#4caf50'],
+                data: distData.map((d: any) => d.count),
+                backgroundColor: distData.map((_: any, i: number) => GREEN_PALETTE[i % GREEN_PALETTE.length]),
                 borderWidth: 0,
             },
         ],
     };
 
-    // Peak Hours Data
+    // Peak Hours Data — from API
     const peakHoursData = {
-        labels: ['6AM', '8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM', '10PM'],
+        labels: (reportData?.peak_hours || []).map((d: any) => d.label),
         datasets: [
             {
                 label: 'Check-ins',
-                data: [45, 120, 85, 95, 110, 180, 250, 190, 80],
+                data: (reportData?.peak_hours || []).map((d: any) => d.checkins),
                 backgroundColor: 'rgba(46, 125, 50, 0.8)',
+                borderRadius: 6,
             },
         ],
     };
@@ -224,6 +298,23 @@ export const Reports: React.FC = () => {
                 beginAtZero: true,
             },
         },
+    };
+
+    const doughnutOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom' as const,
+            },
+        },
+    };
+
+    const handleRefresh = () => {
+        queryClient.invalidateQueries({ queryKey: ['dashboard-report'] });
+        queryClient.invalidateQueries({ queryKey: ['sales-report'] });
+        queryClient.invalidateQueries({ queryKey: ['members-count'] });
+        queryClient.invalidateQueries({ queryKey: ['recent-sales'] });
     };
 
     return (
@@ -256,11 +347,7 @@ export const Reports: React.FC = () => {
                         variant="outlined"
                         startIcon={<RefreshIcon />}
                         sx={{ borderColor: '#2e7d32', color: '#2e7d32' }}
-                        onClick={() => {
-                            queryClient.invalidateQueries({ queryKey: ['sales-report'] });
-                            queryClient.invalidateQueries({ queryKey: ['events-stats'] });
-                            queryClient.invalidateQueries({ queryKey: ['members-count'] });
-                        }}
+                        onClick={handleRefresh}
                     >
                         Refresh
                     </Button>
@@ -311,7 +398,7 @@ export const Reports: React.FC = () => {
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
                     <MetricCard
-                        title="Total Check-ins"
+                        title="Check-ins Today"
                         value={metrics.checkIns.value}
                         change={metrics.checkIns.change}
                         changeLabel={metrics.checkIns.label}
@@ -341,7 +428,7 @@ export const Reports: React.FC = () => {
                 </Grid>
             </Grid>
 
-            {/* Charts Row 1 */}
+            {/* Charts Row 1: Revenue Trend + Membership Distribution */}
             <Grid container spacing={3} mb={4}>
                 <Grid item xs={12} lg={8}>
                     <Paper sx={{ p: 3, height: 400 }}>
@@ -349,7 +436,13 @@ export const Reports: React.FC = () => {
                             Revenue Trend
                         </Typography>
                         <Box sx={{ height: 320 }}>
-                            <Line data={revenueChartData} options={chartOptions} />
+                            {loadingReport ? (
+                                <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                                    <CircularProgress />
+                                </Box>
+                            ) : (
+                                <Line data={revenueChartData} options={chartOptions} />
+                            )}
                         </Box>
                     </Paper>
                 </Grid>
@@ -359,23 +452,19 @@ export const Reports: React.FC = () => {
                             Membership Distribution
                         </Typography>
                         <Box sx={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Doughnut
-                                data={membershipDistribution}
-                                options={{
-                                    ...chartOptions,
-                                    plugins: {
-                                        legend: {
-                                            position: 'bottom',
-                                        },
-                                    },
-                                }}
-                            />
+                            {loadingReport ? (
+                                <CircularProgress />
+                            ) : distData.length > 0 ? (
+                                <Doughnut data={membershipDistribution} options={doughnutOptions} />
+                            ) : (
+                                <Typography color="text.secondary">No active memberships</Typography>
+                            )}
                         </Box>
                     </Paper>
                 </Grid>
             </Grid>
 
-            {/* Charts Row 2 */}
+            {/* Charts Row 2: Member Growth + Peak Hours */}
             <Grid container spacing={3} mb={4}>
                 <Grid item xs={12} md={6}>
                     <Paper sx={{ p: 3, height: 400 }}>
@@ -383,7 +472,13 @@ export const Reports: React.FC = () => {
                             Member Growth
                         </Typography>
                         <Box sx={{ height: 320 }}>
-                            <Bar data={memberGrowthData} options={chartOptions} />
+                            {loadingReport ? (
+                                <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                                    <CircularProgress />
+                                </Box>
+                            ) : (
+                                <Bar data={memberGrowthData} options={chartOptions} />
+                            )}
                         </Box>
                     </Paper>
                 </Grid>
@@ -393,13 +488,39 @@ export const Reports: React.FC = () => {
                             Peak Hours Analysis
                         </Typography>
                         <Box sx={{ height: 320 }}>
-                            <Bar data={peakHoursData} options={chartOptions} />
+                            {loadingReport ? (
+                                <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                                    <CircularProgress />
+                                </Box>
+                            ) : (
+                                <Bar data={peakHoursData} options={chartOptions} />
+                            )}
                         </Box>
                     </Paper>
                 </Grid>
             </Grid>
 
-            {/* Sales by Payment Method & Recent Activity */}
+            {/* Charts Row 3: Check-in Trend */}
+            <Grid container spacing={3} mb={4}>
+                <Grid item xs={12}>
+                    <Paper sx={{ p: 3, height: 400 }}>
+                        <Typography variant="h6" fontWeight="600" gutterBottom>
+                            Check-in Trend
+                        </Typography>
+                        <Box sx={{ height: 320 }}>
+                            {loadingReport ? (
+                                <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                                    <CircularProgress />
+                                </Box>
+                            ) : (
+                                <Line data={checkinTrendData} options={chartOptions} />
+                            )}
+                        </Box>
+                    </Paper>
+                </Grid>
+            </Grid>
+
+            {/* Sales by Payment Method & Recent Transactions */}
             <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                     <Paper sx={{ p: 3 }}>
@@ -413,7 +534,7 @@ export const Reports: React.FC = () => {
                                         <Typography variant="subtitle1" fontWeight="600">{method.toUpperCase()}</Typography>
                                         <Typography variant="body2" color="text.secondary">{salesReport?.transactions_by_method?.[method] || 0} transactions</Typography>
                                     </Box>
-                                    <Typography variant="h6" fontWeight="bold" color="#2e7d32">${(revenue as number).toLocaleString()}</Typography>
+                                    <Typography variant="h6" fontWeight="bold" color="#2e7d32">${Number(revenue).toLocaleString()}</Typography>
                                 </Box>
                             ))}
                             {Object.keys(salesReport?.revenue_by_method || {}).length === 0 && (
@@ -427,8 +548,29 @@ export const Reports: React.FC = () => {
                         <Typography variant="h6" fontWeight="600" gutterBottom>
                             Recent Transactions
                         </Typography>
-                        <Box sx={{ mt: 2 }}>
-                            {salesReport?.total_transactions === 0 && (
+                        <Box sx={{ mt: 2, maxHeight: 400, overflow: 'auto' }}>
+                            {recentSales?.transactions?.map((tx: any) => (
+                                <Box key={tx.id} sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 2 }}>
+                                    <Box display="flex" justifyContent="space-between">
+                                        <Typography variant="subtitle2" fontWeight="600">
+                                            {tx.member_name || 'Unknown'}
+                                        </Typography>
+                                        <Typography variant="subtitle2" fontWeight="bold" color="#2e7d32">
+                                            ${Number(tx.amount).toLocaleString()}
+                                        </Typography>
+                                    </Box>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {(() => {
+                                            try {
+                                                return format(new Date(tx.transaction_date), 'MMM d, yyyy h:mm a');
+                                            } catch {
+                                                return tx.transaction_date;
+                                            }
+                                        })()} &bull; {tx.payment_method}
+                                    </Typography>
+                                </Box>
+                            ))}
+                            {recentSales?.transactions?.length === 0 && (
                                 <Typography textAlign="center" color="text.secondary" py={4}>No transactions yet</Typography>
                             )}
                         </Box>

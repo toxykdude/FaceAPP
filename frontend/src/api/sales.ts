@@ -70,6 +70,14 @@ export const salesApi = {
     },
 
     /**
+     * Get dashboard report with aggregated data for Reports page.
+     */
+    getDashboardReport: async (days = 30): Promise<any> => {
+        const response = await apiClient.get('/sales/dashboard', { params: { days } });
+        return response.data;
+    },
+
+    /**
      * Get sales report summary.
      */
     getReportSummary: async (params?: {
