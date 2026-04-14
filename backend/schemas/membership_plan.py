@@ -9,7 +9,7 @@ from decimal import Decimal
 class MembershipPlanBase(BaseModel):
     name: str
     duration_days: int = Field(..., description="Duration in days")
-    duration_months: int = Field(0, description="Duration in months (added to days logic if needed)")
+    duration_months: Optional[int] = Field(None, description="Duration in months (added to days logic if needed)")
     price: Decimal = Field(..., ge=0, decimal_places=2)
     description: Optional[str] = None
     is_active: bool = True

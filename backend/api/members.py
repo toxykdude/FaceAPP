@@ -61,7 +61,8 @@ def list_members(
         query = query.filter(
             (Member.first_name.ilike(search_term)) |
             (Member.last_name.ilike(search_term)) |
-            (Member.email.ilike(search_term))
+            (Member.email.ilike(search_term)) |
+            (Member.id_number.ilike(search_term))
         )
     
     # Get total count
@@ -102,6 +103,7 @@ def create_member(
         last_name=member.last_name,
         email=member.email,
         phone=member.phone,
+        id_number=member.id_number,
         status=MemberStatus.ACTIVE.value,
         consent_given_at=datetime.now(timezone.utc) if member.consent_given else None
     )

@@ -14,6 +14,9 @@ export interface Membership {
     status: 'active' | 'expired' | 'cancelled' | 'suspended';
     created_at: string;
     updated_at: string;
+    member_name?: string;
+    member_id_number?: string;
+    plan_name?: string;
 }
 
 export interface MembershipCreate {
@@ -29,13 +32,13 @@ export const membershipsApi = {
     /**
      * Get all memberships with pagination.
      */
-    getMemberships: async (skip = 0, limit = 100): Promise<Membership[]> => {
+    getMemberships: async (skip = 0, limit = 100, memberId?: string, status?: string): Promise<Membership[]> => {
         // Handle backend response format {total, memberships} or legacy array?
         // Backend `list_memberships` returns {total, memberships}.
         // Frontend expects array currently in `useQuery` but `apiClient.get<Membership[]>` assumes array?
         // Let's check backend response schema `MembershipListResponse`.
         const response = await apiClient.get<any>('/memberships', {
-            params: { skip, limit },
+            params: { skip, limit, member_id: memberId, status },
         });
         return response.data.memberships || response.data; // Flexible
     },

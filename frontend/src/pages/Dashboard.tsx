@@ -12,12 +12,19 @@ import {
     IconButton,
     Avatar,
     Button,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
 } from '@mui/material';
 import {
     PersonAdd as PersonAddIcon,
     Videocam as VideocamIcon,
     Assessment as AssessmentIcon,
     Schedule as ScheduleIcon,
+    Warning as WarningIcon,
 } from '@mui/icons-material';
 import { eventsApi } from '@/api/events';
 import { membersApi } from '@/api/members';
@@ -36,6 +43,7 @@ import {
     OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { camerasApi } from '@/api/cameras';
+import { membershipsApi } from '@/api/memberships';
 import { cvServiceApi } from '@/api/cvService';
 
 export const Dashboard: React.FC = () => {
@@ -54,6 +62,15 @@ export const Dashboard: React.FC = () => {
     const { data: membersData } = useQuery({
         queryKey: ['members-stats'],
         queryFn: () => membersApi.getMembers({ limit: 1 }),
+    });
+
+    const { data: expiredMemberships } = useQuery({
+        queryKey: ['expired-memberships'],
+        queryFn: async () => {
+            const response = await membershipsApi.getMemberships(0, 20, undefined, 'expired');
+            return response;
+        },
+        staleTime: 1000 * 60 * 60,
     });
 
 
@@ -196,6 +213,58 @@ const stats = {
                                 View Reports
                             </Button>
                         </Box>
+                    </Paper>
+
+                    {/* Expired Memberships Widget */}
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            p: 3,
+                            mt: 3,
+                            borderRadius: 'var(--radius-xl)',
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-secondary)',
+                        }}
+                    >
+                        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                            <Box display="flex" alignItems="center">
+                                <WarningIcon sx={{ mr: 1.5, color: '#f44336' }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>Expired Memberships</Typography>
+                            </Box>
+                            <Button size="small" onClick={() => navigate('/memberships')}>View All</Button>
+                        </Box>
+                        <TableContainer>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Member</TableCell>
+                                        <TableCell>ID</TableCell>
+                                        <TableCell>Plan</TableCell>
+                                        <TableCell>Expired</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {expiredMemberships?.slice(0, 20).map((m: any) => (
+                                        <TableRow
+                                            key={m.id}
+                                            hover
+                                            onClick={() => navigate(`/members/${m.member_id}`)}
+                                            sx={{ cursor: 'pointer' }}
+                                        >
+                                            <TableCell>{m.member_name || 'Unknown'}</TableCell>
+                                            <TableCell>{m.member_id_number || '-'}</TableCell>
+                                            <TableCell>{m.plan_name || m.type}</TableCell>
+                                            <TableCell>{format(new Date(m.end_date), 'MMM d, yyyy')}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {(!expiredMemberships || expiredMemberships.length === 0) && (
+                                        <TableRow>
+                                            <TableCell colSpan={4} align="center">No expired memberships</TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
                     </Paper>
                 </Box>
 

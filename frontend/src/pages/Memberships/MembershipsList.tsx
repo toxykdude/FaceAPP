@@ -186,7 +186,7 @@ export const MembershipsList: React.FC = () => {
                     <Table>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Member ID</TableCell>
+                                <TableCell>Member</TableCell>
                                 <TableCell>Type / Plan</TableCell>
                                 <TableCell>Start Date</TableCell>
                                 <TableCell>End Date</TableCell>
@@ -197,13 +197,16 @@ export const MembershipsList: React.FC = () => {
                         <TableBody>
                             {memberships?.map((m) => (
                                 <TableRow key={m.id}>
-                                    <TableCell>{m.member_id.substring(0, 8)}...</TableCell>
-                                    <TableCell>{m.type}</TableCell>
+                                    <TableCell>
+                                        <Typography variant="body2" fontWeight="bold">{m.member_name || 'Unknown'}</Typography>
+                                        <Typography variant="caption" color="textSecondary">{m.member_id_number || 'No ID'}</Typography>
+                                    </TableCell>
+                                    <TableCell>{m.plan_name || m.type}</TableCell>
                                     <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>
                                     <TableCell>{format(new Date(m.end_date), 'PPP')}</TableCell>
                                     <TableCell>{getStatusChip(m.status)}</TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small"><ViewIcon /></IconButton>
+                                        <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title="View Member"><ViewIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
@@ -234,7 +237,7 @@ export const MembershipsList: React.FC = () => {
                                 <TableRow key={p.id}>
                                     <TableCell sx={{ fontWeight: 'bold' }}>{p.name}</TableCell>
                                     <TableCell>
-                                        {p.duration_months > 0 ? `${p.duration_months} Months ` : ''}
+                                        {p.duration_months && p.duration_months > 0 ? `${p.duration_months} Months ` : ''}
                                         {p.duration_days > 0 ? `${p.duration_days} Days` : ''}
                                     </TableCell>
                                     <TableCell>${p.price}</TableCell>

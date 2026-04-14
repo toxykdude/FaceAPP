@@ -18,18 +18,24 @@ import {
     FormControlLabel,
     Checkbox,
     MenuItem,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
+    Alert,
+    Paper,
+    Chip,
+    InputAdornment,
 } from '@mui/material';
+import { PhotoCamera } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
+import { membershipsApi } from '@/api/memberships';
+import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
+import { salesApi } from '@/api/sales';
+import { addDays, format } from 'date-fns';
 
 const memberSchema = z.object({
     first_name: z.string().min(1, 'First name is required'),
     last_name: z.string().min(1, 'Last name is required'),
-    email: z.string().email('Invalid email address'),
-    phone: z.string().min(1, 'Phone is required'),
+    email: z.string().optional().transform(v => v === '' ? undefined : v).pipe(z.string().email('Invalid email address').optional()),
+    phone: z.string().optional(),
+    id_number: z.string().optional(),
     date_of_birth: z.string().optional(),
     address: z.string().optional(),
     consent_given: z.boolean(),
@@ -43,6 +49,7 @@ export const MemberForm: React.FC = () => {
     const { id } = useParams();
     const queryClient = useQueryClient();
     const isEdit = !!id;
+    const [createdMemberId, setCreatedMemberId] = React.useState<string | null>(null);
 
     const { data: member } = useQuery({
         queryKey: ['member', id],
@@ -61,6 +68,7 @@ export const MemberForm: React.FC = () => {
             last_name: '',
             email: '',
             phone: '',
+            id_number: '',
             consent_given: false,
             status: 'active',
         },
@@ -68,9 +76,13 @@ export const MemberForm: React.FC = () => {
 
     const createMutation = useMutation({
         mutationFn: (data: MemberCreate) => membersApi.createMember(data),
-        onSuccess: () => {
+        onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['members'] });
-            navigate('/members');
+            setCreatedMemberId(data.id);
+        },
+        onError: (error: any) => {
+            const detail = error?.response?.data?.detail || error?.message || 'Failed to create member';
+            alert('Error creating member: ' + detail);
         },
     });
 
@@ -82,6 +94,10 @@ export const MemberForm: React.FC = () => {
             navigate('/members');
         },
     });
+
+    // The effective member ID for sub-components
+    const effectiveMemberId = id || createdMemberId;
+    const showSubSections = isEdit || !!createdMemberId;
 
     const onSubmit = (data: MemberFormData) => {
         if (isEdit) {
@@ -97,6 +113,8 @@ export const MemberForm: React.FC = () => {
                 {isEdit ? 'Edit Member' : 'Add Member'}
             </Typography>
 
+            {/* Only show form if member hasn't been created yet */}
+            {(!createdMemberId && !isEdit) && (
             <Card>
                 <CardContent>
                     <form onSubmit={handleSubmit(onSubmit)}>
@@ -135,14 +153,29 @@ export const MemberForm: React.FC = () => {
 
                             <Grid item xs={12} sm={6}>
                                 <Controller
+                                    name="id_number"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <TextField
+                                            {...field}
+                                            fullWidth
+                                            label="Cedula / ID Number"
+                                            placeholder="e.g. 12345678"
+                                        />
+                                    )}
+                                />
+                            </Grid>
+
+                            <Grid item xs={12} sm={6}>
+                                <Controller
                                     name="email"
                                     control={control}
                                     render={({ field }) => (
                                         <TextField
                                             {...field}
                                             fullWidth
-                                            label="Email"
-                                            type="email"
+                                            label="Email (optional)"
+                                            placeholder="email@example.com"
                                             error={!!errors.email}
                                             helperText={errors.email?.message}
                                         />
@@ -239,27 +272,36 @@ export const MemberForm: React.FC = () => {
                     </form>
                 </CardContent>
             </Card>
+            )}
 
-            {isEdit && <MembershipSection memberId={id!} />}
+            {/* Success message after creation */}
+            {createdMemberId && !isEdit && (
+                <Paper sx={{ p: 3, mb: 3, bgcolor: 'success.lighter', borderRadius: 2 }}>
+                    <Typography variant="h6" color="success.main">✅ Member created successfully!</Typography>
+                    <Typography variant="body2" color="textSecondary">
+                        Now you can assign a membership and enroll their face below.
+                    </Typography>
+                    <Button sx={{ mt: 1 }} onClick={() => navigate('/members')}>Skip - Go to Members List</Button>
+                </Paper>
+            )}
+
+            {/* Membership Section - shown after creation or in edit mode */}
+            {showSubSections && effectiveMemberId && <MembershipSection memberId={effectiveMemberId} />}
+
+            {/* Face Enrollment Section - shown after creation or in edit mode */}
+            {showSubSections && effectiveMemberId && <FaceEnrollmentSection memberId={effectiveMemberId} />}
         </Box>
     );
 };
 
-// Sub-component for Membership Section to keep main form clean
-import { membershipsApi } from '@/api/memberships';
-import { membershipPlansApi } from '@/api/membershipPlans';
-import { addDays, addMonths, format } from 'date-fns';
-
+// Sub-component for Membership Section — inline, no dialog
 const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const queryClient = useQueryClient();
-    const [openDialog, setOpenDialog] = React.useState(false);
+
     const [selectedPlanId, setSelectedPlanId] = React.useState('');
-    const [formData, setFormData] = React.useState({
-        type: '',
-        start_date: format(new Date(), 'yyyy-MM-dd'),
-        end_date: format(addMonths(new Date(), 1), 'yyyy-MM-dd'),
-        price: 0
-    });
+    const [startDate, setStartDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
+    const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
+    const [paymentAmount, setPaymentAmount] = React.useState<string>('');
 
     const { data: plansData } = useQuery({
         queryKey: ['membershipPlans', 'active'],
@@ -267,126 +309,259 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     });
     const plans = plansData?.plans || [];
 
-    const createMembershipMutation = useMutation({
-        mutationFn: (data: any) => membershipsApi.createMembership(data),
+    const selectedPlan = plans.find((p: MembershipPlan) => p.id === selectedPlanId);
+
+    // Auto-calculate end date from plan duration
+    const endDate = React.useMemo(() => {
+        if (!selectedPlan || !startDate) return '';
+        const start = new Date(startDate);
+        const end = addDays(start, selectedPlan.duration_days || 0);
+        return format(end, 'yyyy-MM-dd');
+    }, [selectedPlanId, startDate, selectedPlan]);
+
+    // Auto-fill payment amount when plan changes
+    React.useEffect(() => {
+        if (selectedPlan) {
+            setPaymentAmount(String(selectedPlan.price));
+        }
+    }, [selectedPlanId, selectedPlan]);
+
+    const price = selectedPlan ? Number(selectedPlan.price) : 0;
+    const paidAmount = Number(paymentAmount) || 0;
+    const isPartial = paidAmount < price && paidAmount > 0;
+    const isPending = paidAmount === 0;
+    const isPaid = paidAmount >= price;
+
+    const createMutation = useMutation({
+        mutationFn: async (data: any) => {
+            // 1. Create membership
+            const membership = await membershipsApi.createMembership(data.membership);
+            // 2. Create payment transaction if amount > 0
+            if (data.payment.amount > 0) {
+                await salesApi.createTransaction({
+                    member_id: data.membership.member_id,
+                    membership_id: membership.id,
+                    amount: data.payment.amount,
+                    payment_method: data.payment.method,
+                    notes: data.payment.notes || undefined,
+                });
+            }
+            return membership;
+        },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['memberships'] }); // If we list them here
-            setOpenDialog(false);
-            alert('Membership assigned successfully!');
+            queryClient.invalidateQueries({ queryKey: ['memberships'] });
+            setSelectedPlanId('');
+            setPaymentAmount('');
+            setPaymentMethod('cash');
+            setStartDate(format(new Date(), 'yyyy-MM-dd'));
         },
         onError: (error: any) => {
-            console.error('Membership assignment error:', error);
-            alert(`Failed to assign membership: ${error.response?.data?.detail || error.message}`);
+            alert(`Error: ${error.response?.data?.detail || error.message}`);
         }
     });
 
-    const handlePlanChange = (planId: string) => {
-        setSelectedPlanId(planId);
-        const plan = plans.find(p => p.id === planId);
-        if (plan) {
-            const start = new Date();
-            let end = start;
-            if (plan.duration_months) end = addMonths(end, plan.duration_months);
-            if (plan.duration_days) end = addDays(end, plan.duration_days);
-
-            setFormData({
-                type: plan.name,
-                start_date: format(start, 'yyyy-MM-dd'),
-                end_date: format(end, 'yyyy-MM-dd'),
-                price: Number(plan.price)
-            });
-        }
+    const handleAssign = () => {
+        if (!selectedPlan) return;
+        createMutation.mutate({
+            membership: {
+                member_id: memberId,
+                plan_id: selectedPlanId,
+                type: selectedPlan.name,
+                start_date: startDate,
+                end_date: endDate,
+                price: price,
+            },
+            payment: {
+                amount: paidAmount,
+                method: paymentMethod,
+                notes: isPartial ? `Pago parcial. Pendiente: $${price - paidAmount}` : 'Pago completo',
+            }
+        });
     };
 
-    const handleAssign = () => {
-        createMembershipMutation.mutate({
-            member_id: memberId,
-            plan_id: selectedPlanId || undefined,
-            type: formData.type,
-            start_date: formData.start_date,
-            end_date: formData.end_date,
-            price: formData.price
-        });
+    const formatPlanLabel = (plan: MembershipPlan) => {
+        const durationParts: string[] = [];
+        if (plan.duration_months) durationParts.push(`${plan.duration_months}m`);
+        if (plan.duration_days) durationParts.push(`${plan.duration_days}d`);
+        const durationStr = durationParts.join(' ') || '0d';
+        return `${plan.name} — $${Number(plan.price).toLocaleString()} (${durationStr})`;
     };
 
     return (
         <Card sx={{ mt: 3 }}>
             <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                    <Typography variant="h6">Membership</Typography>
-                    <Button variant="contained" onClick={() => setOpenDialog(true)}>
-                        Add Membership
-                    </Button>
-                </Box>
-                <Typography variant="body2" color="textSecondary">
-                    Manage memberships for this user.
-                </Typography>
+                <Typography variant="h6" gutterBottom>Assign Membership</Typography>
 
-                <Dialog open={openDialog} onClose={() => setOpenDialog(false)} fullWidth maxWidth="sm">
-                    <DialogTitle>Assign Membership</DialogTitle>
-                    <DialogContent>
-                        <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                <Box display="flex" flexDirection="column" gap={2} mt={1}>
+                    {/* Plan Selection */}
+                    <TextField
+                        select
+                        label="Select Plan"
+                        value={selectedPlanId}
+                        onChange={(e) => setSelectedPlanId(e.target.value)}
+                        fullWidth
+                        required
+                    >
+                        <MenuItem value=""><em>Choose a plan...</em></MenuItem>
+                        {plans.map((plan: MembershipPlan) => (
+                            <MenuItem key={plan.id} value={plan.id}>
+                                {formatPlanLabel(plan)}
+                            </MenuItem>
+                        ))}
+                    </TextField>
+
+                    {/* Dates Row */}
+                    <Grid container spacing={2}>
+                        <Grid item xs={6}>
+                            <TextField
+                                label="Start Date"
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                fullWidth
+                                InputLabelProps={{ shrink: true }}
+                            />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField
+                                label="End Date"
+                                type="date"
+                                value={endDate}
+                                fullWidth
+                                InputLabelProps={{ shrink: true }}
+                                InputProps={{ readOnly: true }}
+                                helperText="Auto-calculated from plan"
+                                sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                            />
+                        </Grid>
+                    </Grid>
+
+                    {/* Price Display (read-only) */}
+                    {selectedPlan && (
+                        <TextField
+                            label="Plan Price"
+                            value={`$${price.toLocaleString()}`}
+                            fullWidth
+                            InputProps={{ readOnly: true }}
+                            sx={{ '& .MuiInputBase-input': { fontWeight: 'bold', fontSize: '1.1rem' } }}
+                        />
+                    )}
+
+                    {/* Payment Section — only shown when a plan is selected */}
+                    {selectedPlan && (
+                        <>
                             <TextField
                                 select
-                                label="Select Plan (Optional template)"
-                                value={selectedPlanId}
-                                onChange={(e) => handlePlanChange(e.target.value)}
+                                label="Payment Method"
+                                value={paymentMethod}
+                                onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'transfer')}
                                 fullWidth
                             >
-                                <MenuItem value=""><em>None (Custom)</em></MenuItem>
-                                {plans.map(plan => (
-                                    <MenuItem key={plan.id} value={plan.id}>
-                                        {plan.name} - ${plan.price} ({plan.duration_months}m {plan.duration_days}d)
-                                    </MenuItem>
-                                ))}
+                                <MenuItem value="cash">💵 Efectivo (Cash)</MenuItem>
+                                <MenuItem value="transfer">🏦 Transferencia (Transfer)</MenuItem>
                             </TextField>
 
+                            {/* Payment Amount */}
                             <TextField
-                                label="Membership Name / Type"
-                                value={formData.type}
-                                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                                fullWidth
-                            />
-
-                            <Grid container spacing={2}>
-                                <Grid item xs={6}>
-                                    <TextField
-                                        label="Start Date"
-                                        type="date"
-                                        value={formData.start_date}
-                                        onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                                        fullWidth
-                                        InputLabelProps={{ shrink: true }}
-                                    />
-                                </Grid>
-                                <Grid item xs={6}>
-                                    <TextField
-                                        label="End Date"
-                                        type="date"
-                                        value={formData.end_date}
-                                        onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                                        fullWidth
-                                        InputLabelProps={{ shrink: true }}
-                                    />
-                                </Grid>
-                            </Grid>
-
-                            <TextField
-                                label="Price"
+                                label="Payment Amount"
                                 type="number"
-                                value={formData.price}
-                                onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
+                                value={paymentAmount}
+                                onChange={(e) => setPaymentAmount(e.target.value)}
                                 fullWidth
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                }}
+                                helperText={
+                                    isPaid ? "✅ Pago completo" :
+                                    isPartial ? `⚠️ Pago parcial — Falta: $${(price - paidAmount).toLocaleString()}` :
+                                    "❌ Sin pago (pendiente)"
+                                }
                             />
-                        </Box>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-                        <Button onClick={handleAssign} variant="contained" disabled={createMembershipMutation.isPending}>
-                            {createMembershipMutation.isPending ? "Assigning..." : "Assign"}
+
+                            {/* Payment Status Badge */}
+                            <Box>
+                                {isPaid && <Chip label="Pagado" color="success" />}
+                                {isPartial && <Chip label={`Parcial: $${paidAmount.toLocaleString()} de $${price.toLocaleString()}`} color="warning" />}
+                                {isPending && <Chip label="Pendiente" color="error" />}
+                            </Box>
+                        </>
+                    )}
+
+                    {/* Assign Button */}
+                    <Button
+                        onClick={handleAssign}
+                        variant="contained"
+                        size="large"
+                        disabled={!selectedPlanId || createMutation.isPending}
+                        fullWidth
+                    >
+                        {createMutation.isPending ? "Assigning..." : "Assign Membership"}
+                    </Button>
+                </Box>
+            </CardContent>
+        </Card>
+    );
+};
+
+// Sub-component for Face Enrollment
+const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => {
+    const [enrollmentStatus, setEnrollmentStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+    const [qualityScore, setQualityScore] = React.useState<number | null>(null);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setEnrollmentStatus('uploading');
+        try {
+            const result = await membersApi.enrollBiometric(memberId, file);
+            setQualityScore(result.quality_score);
+            setEnrollmentStatus('success');
+        } catch (error: any) {
+            console.error('Enrollment failed:', error);
+            setEnrollmentStatus('error');
+        }
+    };
+
+    return (
+        <Card sx={{ mt: 3 }}>
+            <CardContent>
+                <Typography variant="h6" gutterBottom>Face Enrollment</Typography>
+
+                {enrollmentStatus === 'success' ? (
+                    <Box>
+                        <Alert severity="success" sx={{ mb: 2 }}>
+                            Face enrolled successfully! Quality score: {qualityScore?.toFixed(2)}
+                        </Alert>
+                    </Box>
+                ) : (
+                    <Box>
+                        <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                            Upload a clear photo of the member's face for biometric enrollment.
+                        </Typography>
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleFileUpload}
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                        />
+                        <Button
+                            variant="outlined"
+                            startIcon={<PhotoCamera />}
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={enrollmentStatus === 'uploading'}
+                        >
+                            {enrollmentStatus === 'uploading' ? 'Processing...' : 'Upload Face Photo'}
                         </Button>
-                    </DialogActions>
-                </Dialog>
+                        {enrollmentStatus === 'error' && (
+                            <Alert severity="error" sx={{ mt: 2 }}>
+                                Enrollment failed. Make sure the photo has a clear, single face.
+                            </Alert>
+                        )}
+                    </Box>
+                )}
             </CardContent>
         </Card>
     );

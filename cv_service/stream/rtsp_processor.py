@@ -115,7 +115,13 @@ class RTSPStreamProcessor:
             True if connected, False otherwise
         """
         try:
-            self.capture = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+            # Support both RTSP URLs and V4L2 device paths
+            if self.rtsp_url.startswith("/dev/video"):
+                device_index = int(self.rtsp_url.replace("/dev/video", ""))
+                self.capture = cv2.VideoCapture(device_index)
+                logger.info(f"Opening V4L2 device: {self.rtsp_url} (index {device_index})")
+            else:
+                self.capture = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
             self.capture.set(cv2.CAP_PROP_BUFFERSIZE, settings.FRAME_BUFFER_SIZE)
             
             if not self.capture.isOpened():

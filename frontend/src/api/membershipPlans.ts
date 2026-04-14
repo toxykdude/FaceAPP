@@ -7,7 +7,7 @@ export interface MembershipPlan {
     id: string;
     name: string;
     duration_days: number;
-    duration_months: number;
+    duration_months: number | null;
     price: number;
     description?: string;
     is_active: boolean;

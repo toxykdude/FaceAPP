@@ -44,5 +44,15 @@ export const cvServiceApi = {
     getStreamUrl: (cameraId: string) => {
         // We use the proxy path
         return `/cv/stream/${cameraId}`;
-    }
+    },
+
+    /**
+     * Get WebSocket URL for browser-pushed camera frames.
+     * Used by the Kiosk page in local USB camera mode.
+     */
+    getWebSocketUrl: (cameraId: string) => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        return `${protocol}//${host}/cv/ws/camera/${cameraId}`;
+    },
 };

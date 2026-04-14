@@ -90,7 +90,8 @@ class BackendAPIClient:
         member_id: Optional[str],
         confidence_score: Optional[float],
         access_granted: bool,
-        denial_reason: Optional[str] = None
+        denial_reason: Optional[str] = None,
+        frame_snapshot_path: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Create access event in backend."""
         try:
@@ -101,7 +102,8 @@ class BackendAPIClient:
                     "member_id": member_id,
                     "confidence_score": confidence_score,
                     "access_granted": access_granted,
-                    "denial_reason": denial_reason
+                    "denial_reason": denial_reason,
+                    "frame_snapshot_path": frame_snapshot_path
                 }
             )
             response.raise_for_status()

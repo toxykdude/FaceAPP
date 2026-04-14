@@ -9,6 +9,7 @@ export interface Member {
     last_name: string;
     email: string;
     phone: string;
+    id_number?: string;  // Cédula / personal ID
     date_of_birth?: string;
     address?: string;
     status: 'active' | 'inactive' | 'suspended';
@@ -22,6 +23,7 @@ export interface MemberCreate {
     last_name: string;
     email: string;
     phone: string;
+    id_number?: string;  // Cédula / personal ID
     date_of_birth?: string;
     address?: string;
     consent_given: boolean;

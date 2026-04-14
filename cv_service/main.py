@@ -5,12 +5,13 @@ import asyncio
 import sys
 import time
 import cv2
+import numpy as np
 import io
 from typing import Dict, Optional
 from loguru import logger
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Body, Depends, Header
+from fastapi import FastAPI, HTTPException, Body, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -52,6 +53,9 @@ class CVService:
         # Event deduplication: {member_id+camera_id: last_event_timestamp}
         self._recent_events: Dict[str, float] = {}
         self._event_cooldown = 30.0  # seconds between events for same member+camera
+        
+        # Frames from WebSocket-connected browser cameras (for MJPEG re-stream)
+        self._ws_frames: Dict[str, 'np.ndarray'] = {}
         
         # Configure logging
         logger.remove()
@@ -278,8 +282,8 @@ async def stop_camera_endpoint(request: StopCameraRequest, _: None = Depends(ver
 
 @app.get("/stream/{camera_id}")
 def video_feed(camera_id: str):
-    """MJPEG Video Feed."""
-    if camera_id not in service.processors:
+    """MJPEG Video Feed — works for both RTSP and WebSocket-sourced cameras."""
+    if camera_id not in service.processors and camera_id not in service._ws_frames:
         raise HTTPException(status_code=404, detail="Camera not running")
     
     return StreamingResponse(
@@ -289,29 +293,186 @@ def video_feed(camera_id: str):
 
 async def generate_mjpeg(camera_id: str):
     """Async generator for MJPEG stream."""
-    processor = service.processors.get(camera_id)
-    if not processor:
-        return
-
     while True:
-        if not processor.is_running:
-            break
-        
-        frame = processor.get_latest_frame()
+        frame = None
+
+        # Try RTSP processor first
+        processor = service.processors.get(camera_id)
+        if processor and processor.is_running:
+            frame = processor.get_latest_frame()
+
+        # Fall back to WebSocket-sourced frames
+        if frame is None:
+            frame = service._ws_frames.get(camera_id)
+
         if frame is None:
             await asyncio.sleep(0.05)
             continue
-        
+
         # Encode to JPEG
         ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         if not ret:
             continue
-            
+
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        
+
         # Limit stream FPS to save bandwidth
         await asyncio.sleep(0.1)
+
+
+@app.websocket("/ws/camera/{camera_id}")
+async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
+    """WebSocket endpoint for browser-pushed camera frames."""
+    await websocket.accept()
+    logger.info(f"WebSocket connected for camera {camera_id}")
+
+    # Import detection/recognition components
+    from detection.face_detector import FaceDetector
+    from detection.quality_assessor import FaceQualityAssessor
+    from detection.liveness_detector import liveness_detector
+    from recognition.face_recognizer import FaceRecognizer
+    from recognition.template_matcher import TemplateMatcher
+
+    detector = FaceDetector()
+    quality_assessor = FaceQualityAssessor()
+    recognizer = FaceRecognizer()
+    matcher = TemplateMatcher()
+
+    frame_count = 0
+    last_process_time = 0.0
+    min_frame_interval = 0.2  # 5fps max processing
+
+    try:
+        while True:
+            # Receive JPEG frame as binary
+            data = await websocket.receive_bytes()
+
+            current_time = time.time()
+
+            # Skip if processing too fast
+            if current_time - last_process_time < min_frame_interval:
+                continue
+
+            last_process_time = current_time
+            frame_count += 1
+
+            # Decode JPEG
+            nparr = np.frombuffer(data, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
+
+            # Store frame so MJPEG /stream endpoint can serve it remotely
+            service._ws_frames[camera_id] = frame
+
+            # --- Detection pipeline (mirrors RTSPStreamProcessor._process_frame) ---
+
+            # Detect faces
+            faces = detector.detect_faces(frame)
+            if not faces:
+                await websocket.send_json({
+                    "type": "status",
+                    "fps": round(1.0 / (current_time - last_process_time + 0.001), 1),
+                    "frames_processed": frame_count,
+                    "faces": 0,
+                })
+                continue
+
+            # Process largest face only
+            largest_face = detector.get_largest_face(faces)
+            if not largest_face:
+                continue
+
+            face_roi = detector.extract_face_roi(frame, largest_face)
+
+            # Quality check
+            quality_score, _ = quality_assessor.assess_quality(face_roi)
+            if quality_score < 0.5:
+                continue
+
+            # Liveness check (anti-spoofing)
+            is_live, liveness_details = liveness_detector.check_liveness(
+                frame, face_roi, largest_face
+            )
+            if not is_live:
+                logger.warning(
+                    f"Spoof detected via WS camera {camera_id}: {liveness_details}"
+                )
+                continue
+
+            # Generate embedding and match
+            embedding = recognizer.generate_embedding(face_roi)
+            member_id, confidence, member_data = matcher.find_match(embedding)
+
+            # Validate access
+            access_granted, denial_reason = await service.validator.validate_access(
+                member_id, confidence, camera_id
+            )
+
+            # Event deduplication (same logic as _process_recognition)
+            event_key = f"{member_id}:{camera_id}"
+            now = time.time()
+            last_seen = service._recent_events.get(event_key, 0)
+            is_duplicate = (now - last_seen) < service._event_cooldown
+
+            if not is_duplicate:
+                service._recent_events[event_key] = now
+
+                # Save snapshot for denied events
+                snapshot_path = None
+                if not access_granted:
+                    try:
+                        import os
+
+                        snapshot_dir = "/var/lib/powerhouse/snapshots"
+                        os.makedirs(snapshot_dir, exist_ok=True)
+                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        filename = f"denied_{camera_id[:8]}_{timestamp}.jpg"
+                        filepath = os.path.join(snapshot_dir, filename)
+                        cv2.imwrite(
+                            filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                        )
+                        snapshot_path = filepath
+                    except Exception as e:
+                        logger.error(f"Failed to save snapshot: {e}")
+
+                # Log to backend
+                await service.api_client.create_access_event(
+                    camera_id=camera_id,
+                    member_id=member_id,
+                    confidence_score=confidence,
+                    access_granted=access_granted,
+                    denial_reason=denial_reason,
+                    frame_snapshot_path=snapshot_path,
+                )
+
+            # Send recognition result back to browser
+            name = member_data["name"] if member_data else "Unknown"
+            bbox = (
+                [int(largest_face[0]), int(largest_face[1]),
+                 int(largest_face[2]), int(largest_face[3])]
+                if largest_face
+                else None
+            )
+
+            await websocket.send_json({
+                "type": "recognition",
+                "member_id": member_id,
+                "member_name": name,
+                "confidence": round(confidence, 3),
+                "access_granted": access_granted,
+                "denial_reason": denial_reason,
+                "face_bbox": bbox,
+            })
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for camera {camera_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for camera {camera_id}: {e}")
+    finally:
+        service._ws_frames.pop(camera_id, None)
+        logger.info(f"WebSocket cleanup for camera {camera_id}")
 
 @app.post("/reload")
 async def reload_templates(_: None = Depends(verify_api_key)):

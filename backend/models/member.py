@@ -28,6 +28,7 @@ class Member(Base):
     last_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=True, index=True)
     phone = Column(String(20), nullable=True)
+    id_number = Column(String(20), nullable=True, index=True)
     
     status = Column(String(20), nullable=False, default=MemberStatus.ACTIVE.value)
     facial_data_enrolled = Column(Boolean, nullable=False, default=False)
@@ -43,11 +44,12 @@ class Member(Base):
         "BiometricTemplate", 
         back_populates="member", 
         uselist=False, 
+        cascade="all, delete-orphan",
         primaryjoin="Member.id == BiometricTemplate.member_id"
     )
     memberships = relationship("Membership", back_populates="member", cascade="all, delete-orphan")
-    sales_transactions = relationship("SalesTransaction", back_populates="member")
-    access_events = relationship("AccessEvent", back_populates="member")
+    sales_transactions = relationship("SalesTransaction", back_populates="member", cascade="all, delete-orphan")
+    access_events = relationship("AccessEvent", back_populates="member", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Member {self.first_name} {self.last_name} ({self.status})>"

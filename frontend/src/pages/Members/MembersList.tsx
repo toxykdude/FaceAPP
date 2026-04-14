@@ -47,6 +47,10 @@ export const MembersList: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['members'] });
             setDeleteTarget(null);
         },
+        onError: (error: any) => {
+            alert('Error deleting member: ' + (error?.response?.data?.detail || error?.message || 'Unknown error'));
+            setDeleteTarget(null);
+        },
     });
 
     const [page, setPage] = useState(0);
@@ -93,7 +97,7 @@ export const MembersList: React.FC = () => {
                 <CardContent>
                     <TextField
                         fullWidth
-                        placeholder="Search members..."
+                        placeholder="Search by name, email, or ID..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         InputProps={{
@@ -111,6 +115,7 @@ export const MembersList: React.FC = () => {
                             <TableHead>
                                 <TableRow>
                                     <TableCell>Name</TableCell>
+                                    <TableCell>ID</TableCell>
                                     <TableCell>Email</TableCell>
                                     <TableCell>Phone</TableCell>
                                     <TableCell>Status</TableCell>
@@ -121,13 +126,13 @@ export const MembersList: React.FC = () => {
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">
+                                        <TableCell colSpan={7} align="center">
                                             Loading...
                                         </TableCell>
                                     </TableRow>
                                 ) : data?.members.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">
+                                        <TableCell colSpan={7} align="center">
                                             No members found
                                         </TableCell>
                                     </TableRow>
@@ -137,6 +142,7 @@ export const MembersList: React.FC = () => {
                                             <TableCell>
                                                 {member.first_name} {member.last_name}
                                             </TableCell>
+                                            <TableCell>{member.id_number || '—'}</TableCell>
                                             <TableCell>{member.email}</TableCell>
                                             <TableCell>{member.phone}</TableCell>
                                             <TableCell>

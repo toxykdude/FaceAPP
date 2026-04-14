@@ -17,7 +17,7 @@ class AccessRules(BaseModel):
 
 class MembershipBase(BaseModel):
     """Base membership schema."""
-    type: MembershipType = Field(..., description="Membership type")
+    type: str = Field(..., description="Membership type")
     start_date: date
     end_date: date
     price: Decimal = Field(..., ge=0, decimal_places=2)
@@ -45,6 +45,10 @@ class MembershipResponse(MembershipBase):
     status: str
     created_at: datetime
     updated_at: datetime
+    # Joined member info
+    member_name: Optional[str] = None
+    member_id_number: Optional[str] = None
+    plan_name: Optional[str] = None
     
     @field_serializer('id')
     def serialize_id(self, value: Any) -> str:

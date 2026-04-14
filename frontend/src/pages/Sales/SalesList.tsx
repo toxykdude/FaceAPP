@@ -110,7 +110,7 @@ export const SalesList: React.FC = () => {
                                                 </Box>
                                             </TableCell>
                                             <TableCell>{tx.member_id.substring(0, 8)}...</TableCell>
-                                            <TableCell>${tx.amount.toFixed(2)}</TableCell>
+                                            <TableCell>${Number(tx.amount).toLocaleString()}</TableCell>
                                             <TableCell>
                                                 <Chip
                                                     label={tx.payment_method.toUpperCase()}

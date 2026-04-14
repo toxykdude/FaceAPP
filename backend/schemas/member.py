@@ -17,6 +17,7 @@ class MemberBase(BaseModel):
 
 class MemberCreate(MemberBase):
     """Schema for creating a member."""
+    id_number: Optional[str] = Field(None, max_length=20)
     consent_given: bool = Field(False, description="Consent for biometric data collection")
 
 
@@ -26,6 +27,7 @@ class MemberUpdate(BaseModel):
     last_name: Optional[str] = Field(None, min_length=1, max_length=100)
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(None, max_length=20)
+    id_number: Optional[str] = Field(None, max_length=20)
     status: Optional[MemberStatus] = None
 
 
@@ -35,6 +37,7 @@ class MemberResponse(MemberBase):
     status: str
     facial_data_enrolled: bool
     consent_given_at: Optional[datetime] = None
+    id_number: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_seen: Optional[datetime] = None

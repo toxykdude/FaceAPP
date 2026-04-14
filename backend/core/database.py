@@ -12,7 +12,8 @@ engine = create_engine(
     pool_pre_ping=True,  # Verify connections before using
     pool_size=10,        # Connection pool size
     max_overflow=20,     # Max connections beyond pool_size
-    echo=settings.DEBUG  # Log SQL queries in debug mode
+    echo=settings.DEBUG,  # Log SQL queries in debug mode
+    connect_args={'options': '-c client_encoding=UTF8'}
 )
 
 # Create session factory

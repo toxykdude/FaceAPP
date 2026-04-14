@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta, timezone
 from api.deps import get_db, require_staff
 from models.user import User
 from models.member import Member
-from models.membership import Membership, MembershipStatus
+from models.membership import Membership, MembershipStatus, MembershipPlan
 from schemas.membership import (
     MembershipCreate,
     MembershipUpdate,
@@ -53,10 +53,31 @@ def list_memberships(
     # Get paginated results
     memberships = query.order_by(Membership.created_at.desc()).offset(skip).limit(limit).all()
     
-    return {
-        "total": total,
-        "memberships": memberships
-    }
+    # Enrich with member and plan names
+    result = []
+    for m in memberships:
+        member = db.query(Member).filter(Member.id == m.member_id).first()
+        plan = db.query(MembershipPlan).filter(MembershipPlan.id == m.plan_id).first() if m.plan_id else None
+        
+        m_dict = {
+            "id": str(m.id),
+            "member_id": str(m.member_id),
+            "plan_id": str(m.plan_id) if m.plan_id else None,
+            "type": m.type,
+            "start_date": m.start_date,
+            "end_date": m.end_date,
+            "price": m.price,
+            "status": m.status,
+            "access_rules": m.access_rules,
+            "created_at": m.created_at,
+            "updated_at": m.updated_at,
+            "member_name": f"{member.first_name} {member.last_name}" if member else "Unknown",
+            "member_id_number": member.id_number if member else None,
+            "plan_name": plan.name if plan else None,
+        }
+        result.append(m_dict)
+    
+    return {"total": total, "memberships": result}
 
 
 @router.post("", response_model=MembershipResponse, status_code=status.HTTP_201_CREATED)
