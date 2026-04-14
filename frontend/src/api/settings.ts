@@ -18,6 +18,10 @@ export const settingsApi = {
         const response = await apiClient.get<Setting[]>('/settings');
         return response.data;
     },
+    getPublic: async () => {
+        const response = await apiClient.get('/settings/public');
+        return response.data;
+    },
     getByKey: async (key: string) => {
         const response = await apiClient.get<Setting>(`/settings/${key}`);
         return response.data;
@@ -29,5 +33,13 @@ export const settingsApi = {
     bulkUpdate: async (settings: { key: string, value: any, category?: string, description?: string }[]) => {
         const response = await apiClient.post<Setting[]>('/settings/bulk', settings);
         return response.data;
-    }
+    },
+    uploadLogo: async (file: File): Promise<any> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await apiClient.post('/settings/upload-logo', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return response.data;
+    },
 };

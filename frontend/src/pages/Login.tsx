@@ -3,6 +3,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
     Box,
     Card,
@@ -13,6 +14,7 @@ import {
     Alert,
     Container,
 } from '@mui/material';
+import apiClient from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/i18n/LanguageContext';
 
@@ -25,6 +27,18 @@ export const LoginPage: React.FC = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+
+    const { data: publicSettings } = useQuery({
+        queryKey: ['public-settings'],
+        queryFn: async () => {
+            const response = await apiClient.get('/settings/public');
+            return response.data;
+        },
+        staleTime: 60000,
+    });
+
+    const orgName = publicSettings?.business_name || 'PowerHouse';
+    const orgLogo = publicSettings?.business_logo || '/logo.png';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -52,8 +66,11 @@ export const LoginPage: React.FC = () => {
             >
                 <Card sx={{ width: '100%', maxWidth: 450 }}>
                     <CardContent sx={{ p: 4 }}>
+                        <Box sx={{ textAlign: 'center', mb: 1 }}>
+                            <img src={orgLogo} alt={orgName} style={{ width: 72, height: 72, borderRadius: 16, marginBottom: 12 }} />
+                        </Box>
                         <Typography variant="h4" component="h1" gutterBottom align="center">
-                            PowerHouse
+                            {orgName}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" align="center" mb={3}>
                             {t.login.membershipPlatform}

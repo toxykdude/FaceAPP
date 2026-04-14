@@ -12,7 +12,9 @@ import {
     Switch,
     FormControlLabel,
     Slider,
-    CircularProgress
+    CircularProgress,
+    Avatar,
+    Alert,
 } from '@mui/material';
 import {
     Save as SaveIcon,
@@ -20,7 +22,8 @@ import {
     Business as BusinessIcon,
     CardMembership as MembershipIcon,
     Storage as StorageIcon,
-    People as PeopleIcon
+    People as PeopleIcon,
+    Image as ImageIcon,
 } from '@mui/icons-material';
 import { settingsApi } from '@/api/settings';
 import { UserManagement } from '@/components/UserManagement';
@@ -50,6 +53,8 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     const [activeTab, setActiveTab] = useState(0);
     const [localValues, setLocalValues] = useState<Record<string, any>>({});
     const [hasChanges, setHasChanges] = useState(false);
+    const [uploadingLogo, setUploadingLogo] = useState(false);
+    const [logoMessage, setLogoMessage] = useState('');
 
     const { data: serverSettings, isLoading } = useQuery({
         queryKey: ['settings'],
@@ -85,6 +90,7 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['settings'] });
+            queryClient.invalidateQueries({ queryKey: ['public-settings'] });
             setHasChanges(false);
             alert(t.settings.saved);
         },
@@ -96,6 +102,26 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     const handleChange = (key: string, value: any) => {
         setLocalValues(prev => ({ ...prev, [key]: value }));
         setHasChanges(true);
+    };
+
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingLogo(true);
+        setLogoMessage('');
+        try {
+            const result = await settingsApi.uploadLogo(file);
+            setLocalValues(prev => ({ ...prev, business_logo: result.url }));
+            setLogoMessage('Logo uploaded successfully');
+            queryClient.invalidateQueries({ queryKey: ['settings'] });
+            queryClient.invalidateQueries({ queryKey: ['public-settings'] });
+            setTimeout(() => setLogoMessage(''), 3000);
+        } catch (error: any) {
+            setLogoMessage('Error uploading logo: ' + (error?.response?.data?.detail || error.message));
+            setTimeout(() => setLogoMessage(''), 5000);
+        } finally {
+            setUploadingLogo(false);
+        }
     };
 
     const renderField = (setting: any) => {
@@ -175,6 +201,56 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                 <Box sx={{ p: 4 }}>
                     {activeTab === 0 && (
                         <Box>
+                            {/* Branding Section */}
+                            <Paper sx={{ p: 3, mb: 3 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                    <ImageIcon color="primary" />
+                                    <Typography variant="h6">Branding</Typography>
+                                </Box>
+                                <Grid container spacing={3}>
+                                    <Grid item xs={12} md={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Organization Name"
+                                            value={localValues['business_name'] || ''}
+                                            onChange={(e) => handleChange('business_name', e.target.value)}
+                                            helperText="This name appears in the sidebar, login page, and reports"
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} md={6}>
+                                        <Box display="flex" alignItems="center" gap={2}>
+                                            <Avatar
+                                                src={localValues['business_logo'] || '/logo.png'}
+                                                sx={{ width: 64, height: 64, borderRadius: 2 }}
+                                                variant="rounded"
+                                            >
+                                                Logo
+                                            </Avatar>
+                                            <Box>
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    style={{ display: 'none' }}
+                                                    id="logo-upload"
+                                                    onChange={handleLogoUpload}
+                                                />
+                                                <label htmlFor="logo-upload">
+                                                    <Button variant="outlined" component="span">
+                                                        Upload Logo
+                                                    </Button>
+                                                </label>
+                                                {uploadingLogo && <CircularProgress size={20} sx={{ ml: 1, mt: 1 }} />}
+                                            </Box>
+                                        </Box>
+                                        {logoMessage && (
+                                            <Alert severity={logoMessage.startsWith('Error') ? 'error' : 'success'} sx={{ mt: 1 }}>
+                                                {logoMessage}
+                                            </Alert>
+                                        )}
+                                    </Grid>
+                                </Grid>
+                            </Paper>
+
                             {/* Language Section */}
                             <Paper sx={{ p: 3, mb: 3 }}>
                                 <Typography variant="h6">{t.settings.language}</Typography>

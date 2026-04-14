@@ -3,6 +3,7 @@
  */
 import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
     Box,
     Drawer,
@@ -32,6 +33,7 @@ import {
     DarkMode as DarkModeIcon,
     LightMode as LightModeIcon,
 } from '@mui/icons-material';
+import apiClient from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -46,6 +48,18 @@ export const MainLayout: React.FC = () => {
     const { user, logout } = useAuth();
     const { mode, toggleTheme } = useThemeMode();
     const { t } = useLanguage();
+
+    const { data: publicSettings } = useQuery({
+        queryKey: ['public-settings'],
+        queryFn: async () => {
+            const response = await apiClient.get('/settings/public');
+            return response.data;
+        },
+        staleTime: 60000,
+    });
+
+    const orgName = publicSettings?.business_name || 'PowerHouse';
+    const orgLogo = publicSettings?.business_logo || '/logo.png';
 
     const canAccess = (page: string): boolean => {
         if (!user) return false;
@@ -114,9 +128,9 @@ export const MainLayout: React.FC = () => {
         >
             {/* Logo Section */}
             <Box sx={{ p: 2.5, pb: 0, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <img src="/logo.png" alt="PowerHouse" style={{ width: 36, height: 36, borderRadius: 8 }} />
+                <img src={orgLogo} alt={orgName} style={{ width: 36, height: 36, borderRadius: 8 }} />
                 <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1.1rem' }}>
-                    PowerHouse
+                    {orgName}
                 </Typography>
             </Box>
 
@@ -373,9 +387,9 @@ export const MainLayout: React.FC = () => {
                         <MenuIcon />
                     </IconButton>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <img src="/logo.png" alt="PowerHouse" style={{ width: 36, height: 36, borderRadius: 8 }} />
+                        <img src={orgLogo} alt={orgName} style={{ width: 36, height: 36, borderRadius: 8 }} />
                         <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                            PowerHouse
+                            {orgName}
                         </Typography>
                     </Box>
                     <Box sx={{ flex: 1 }} />

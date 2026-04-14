@@ -1,436 +1,256 @@
-<div align="center">
+# FaceGYM — AI-Powered Membership Management Platform
 
-# 🏋️ FaceGYM
+> Facial recognition-based gym membership management system with real-time access control, payment tracking, and automated reporting.
 
-### AI-Powered Gym Access Control with Facial Recognition
+## 🏋️ Features
 
-[![Platform](https://img.shields.io/badge/platform-Linux-blue)](https://github.com/toxykdude/FaceGYM)
-[![Backend](https://img.shields.io/badge/backend-FastAPI-009688?logo=python)](https://fastapi.tiangolo.com)
-[![Frontend](https://img.shields.io/badge/frontend-React-61DAFB?logo=react)](https://react.dev)
-[![CV](https://img.shields.io/badge/CV-FaceNet-EE4C2C?logo=pytorch)](https://github.com/timesler/facenet-pytorch)
-[![License](https://img.shields.io/badge/license-Proprietary-red)]()
+### Core
+- **Facial Recognition Access Control** — FaceNet-based recognition with configurable confidence thresholds
+- **Member Management** — Full CRUD with biometric enrollment (photo upload or webcam capture)
+- **Membership Plans** — Flexible plans with auto-calculated expiration dates
+- **Payment Tracking** — Cash/transfer payments with partial payment support
+- **Multi-Camera Support** — RTSP cameras + USB webcams via browser WebSocket streaming
+- **Automated Email Reports** — Periodic reports every 2 hours with sales, new members, and expired access alerts
 
-**FaceGYM** is a production-ready access control system that uses facial recognition to manage gym member entry. Members are identified in real-time via RTSP cameras, their membership status is validated, and access is granted or denied automatically.
+### Kiosk Terminal
+- Full-screen welcome screen with live camera feed
+- Green glow (access granted) / Red glow (access denied) recognition feedback
+- Auto-reset after 3 seconds, ready for next member
 
-[Features](#-features) · [Architecture](#-architecture) · [Tech Stack](#-tech-stack) · [Getting Started](#-getting-started) · [API](#-api-reference) · [Security](#-security)
+### Administration
+- **Role-Based Access Control (RBAC)** — Per-page permissions for staff users
+- **Dark/Light Theme** — Toggle in sidebar and settings
+- **Spanish/English i18n** — Full translation with language toggle
+- **Custom Branding** — Upload your logo and set your organization name
+- **Dashboard Analytics** — Revenue trends, member growth, peak hours, check-in tracking
+- **Reports** — Interactive charts with time range filtering (7d/30d/90d/year)
 
-</div>
-
----
-
-## ✨ Features
-
-| Category | Details |
-|----------|---------|
-| **Facial Recognition** | FaceNet 512-d embeddings, cosine similarity matching, real-time RTSP processing |
-| **Access Control** | Membership validation, time/day/location rules, automatic grant/deny |
-| **Member Management** | Full CRUD, enrollment status tracking, consent management |
-| **Membership Plans** | Plan templates with duration & pricing, auto-calculated end dates |
-| **Multi-Camera** | Multiple simultaneous RTSP streams, configurable FPS per camera |
-| **Biometric Security** | AES-256-GCM encrypted templates, key versioning, secure storage |
-| **Admin Dashboard** | React SPA with MUI, charts, member & camera management |
-| **Kiosk Mode** | Dedicated full-screen access terminal for member check-in |
-
----
-
-## 🏗 Architecture
+## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Nginx (reverse proxy)                  │
-│              ┌─────────────┬──────────────┐              │
-│              │  Frontend   │  Backend API │              │
-│              │  (React)    │  (FastAPI)   │              │
-│              └─────────────┴──────┬───────┘              │
-└──────────────────────────────────┼───────────────────────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-              ┌─────▼───┐   ┌─────▼────┐   ┌────▼─────┐
-              │PostgreSQL│   │  Redis   │   │CV Service│
-              │          │   │ (cache)  │   │ (FaceNet)│
-              │ Members  │   │ Templates│   │          │
-              │ Sales    │   │ Queue    │   │ Detect   │
-              │ Events   │   │          │   │ Recognize│
-              └──────────┘   └──────────┘   │ Validate │
-                                            └────┬─────┘
-                                                 │
-                                    ┌────────────┼────────────┐
-                                    │            │            │
-                              ┌─────▼──┐   ┌────▼───┐  ┌────▼───┐
-                              │Camera 1│   │Camera 2│  │Camera N│
-                              │ (RTSP) │   │ (RTSP) │  │ (RTSP) │
-                              └────────┘   └────────┘  └────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    Proxmox LXC Container                 │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
+│  │ Nginx    │  │ Backend  │  │ CV Service           │  │
+│  │ :80/:443 │  │ :8000    │  │ :8001                │  │
+│  │ SSL/WS   │──│ FastAPI  │  │ OpenCV + FaceNet     │  │
+│  └──────────┘  │ SQLAlchemy│  │ RTSP + WebSocket     │  │
+│                └────┬─────┘  └──────────┬───────────┘  │
+│                     │                    │              │
+│                ┌────▼─────┐              │              │
+│                │PostgreSQL│              │              │
+│                │ :5432    │              │              │
+│                └──────────┘              │              │
+└──────────────────────────────────────────┼──────────────┘
+                                           │
+              ┌────────────────────────────┼────────────────────┐
+              │                            │                    │
+    ┌─────────▼─────────┐       ┌─────────▼──────────┐         │
+    │  RTSP Camera      │       │  Kiosk PCs (LAN)   │         │
+    │  (Reception Door) │       │  USB Camera → Browser│        │
+    │  Direct stream    │       │  WebSocket → CV Svc  │        │
+    └───────────────────┘       └─────────────────────┘         │
 ```
 
-### Recognition Pipeline
+### Tech Stack
+| Component | Technology |
+|-----------|-----------|
+| Backend | Python 3.11, FastAPI, SQLAlchemy, Alembic |
+| CV Service | Python 3.11, OpenCV, FaceNet (InsightFace), FastAPI |
+| Frontend | React 18, TypeScript, Vite, MUI 6, TanStack Query |
+| Database | PostgreSQL 15 |
+| Reverse Proxy | Nginx with SSL, WebSocket proxy |
+| Container | Proxmox LXC (Ubuntu 22.04) |
 
-```
-RTSP Stream → Frame Extraction → Face Detection (Haar Cascade)
-    → Quality Assessment → FaceNet Embedding (512-d)
-    → Template Matching (cosine similarity ≥ 0.85)
-    → Access Validation (member status + membership + rules)
-    → Event Log → Access Granted / Denied
-```
-
----
-
-## 🛠 Tech Stack
-
-### Backend
-| Technology | Purpose |
-|-----------|---------|
-| **FastAPI 0.109** | REST API framework |
-| **SQLAlchemy 2.0** | ORM with PostgreSQL |
-| **Alembic** | Database migrations |
-| **Pydantic v2** | Data validation & settings |
-| **python-jose** | JWT authentication |
-| **cryptography** | AES-256-GCM biometric encryption |
-| **Redis** | Template caching & queue |
-| **OpenCV** | Image processing |
-
-### Computer Vision Service
-| Technology | Purpose |
-|-----------|---------|
-| **FaceNet (PyTorch)** | 512-d face embeddings via InceptionResnetV1 |
-| **VGGFace2** | Pretrained weights |
-| **OpenCV** | Face detection (Haar Cascade), video processing |
-| **Redis** | Template cache for real-time matching |
-| **RTSP** | Multi-camera stream processing |
-
-### Frontend
-| Technology | Purpose |
-|-----------|---------|
-| **React 18** | UI framework |
-| **TypeScript** | Type safety |
-| **MUI v5** | Material Design components |
-| **TanStack Query** | Server state management |
-| **React Hook Form + Zod** | Form validation |
-| **Recharts / Chart.js** | Analytics & charts |
-| **Vite** | Build tool |
-
-### Infrastructure
-| Technology | Purpose |
-|-----------|---------|
-| **PostgreSQL 14** | Primary database |
-| **Redis** | Cache & message queue |
-| **Nginx** | Reverse proxy & static files |
-| **Systemd** | Service management |
-| **Ubuntu Server** | Host OS |
-
----
-
-## 🚀 Getting Started
+## 🚀 Installation
 
 ### Prerequisites
-
-- Ubuntu Server 22.04+ (or similar Linux)
-- PostgreSQL 14+
-- Redis 6+
-- Python 3.10+
+- Ubuntu 22.04+ (bare metal, VM, or LXC)
+- Python 3.11+
 - Node.js 18+
+- PostgreSQL 15+
+- Nginx
+- At least 2GB RAM, 10GB disk
 
-### Environment Setup
+### Quick Install
 
-Each component needs its own `.env` file.
+```bash
+git clone https://github.com/toxykdude/FaceGYM.git
+cd FaceGYM
+chmod +x install.sh
+sudo ./install.sh
+```
 
-**Backend** (`backend/.env`):
+The installer will:
+1. Install system dependencies (Python, Node.js, PostgreSQL, Nginx)
+2. Create the database and user
+3. Install Python dependencies (backend + CV service)
+4. Build the React frontend
+5. Configure Nginx with SSL (self-signed by default)
+6. Create systemd services for auto-start
+7. Generate a `.env` file with random secrets
+
+### Post-Installation
+
+1. Access the app at `http://your-server-ip`
+2. Default login: `admin` / `admin123` — **change this immediately!**
+3. Go to Settings → General to set your organization name and upload your logo
+4. Go to Cameras to add your RTSP camera(s)
+5. Open `/kiosk` on a kiosk PC with USB camera for facial check-in
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
 ```env
-DATABASE_URL=postgresql://user:pass@localhost:5432/facegym
-REDIS_URL=redis://localhost:6379/0
-SECRET_KEY=<generate-with-openssl-rand-hex-32>
-ENCRYPTION_KEY=<generate-with-openssl-rand-hex-32>
-JWT_SECRET=<generate-with-openssl-rand-hex-32>
+# Database
+DATABASE_URL=postgresql://membership:YOUR_PASSWORD@localhost:5432/membership_db
+
+# Security
+SECRET_KEY=your-secret-key-here
+ENCRYPTION_KEY=your-32-byte-encryption-key
+JWT_SECRET=your-jwt-secret
+
+# Email (optional, for reports)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your@email.com
+SMTP_PASSWORD=your-password
+SMTP_FROM_EMAIL=noreply@yourdomain.com
+SMTP_USE_SSL=false
+
+# Admin
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<change-me>
-CORS_ORIGINS=http://yourdomain.com
+ADMIN_PASSWORD=admin123
 ```
 
-**Frontend** (`frontend/.env`):
-```env
-VITE_API_URL=http://yourdomain.com/api
-```
+## 📱 Usage Guide
 
-### Installation
+### Adding Members
+1. Navigate to **Members** → **New Member**
+2. Fill in name, ID (cédula), and contact info
+3. Click **Create Member**
+4. Assign a membership plan (auto-calculates end date)
+5. Enroll face via webcam or photo upload (minimum quality score: 0.9)
 
-#### Backend
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+### Kiosk Setup
+1. Open `http://your-server/kiosk` on a dedicated PC
+2. Select camera → toggle **USB Camera** mode
+3. Browser will request camera permission — approve
+4. The kiosk shows live feed with recognition overlay
+5. Members see green glow (granted) or red glow (expired)
 
-# Initialize database
-python init_db.py
+### Managing Memberships
+1. Go to a member's page → **Membership History**
+2. Click **Renew** to extend with same plan (start = last end date + 1 day)
+3. Or click **+ New Membership** to assign a different plan
+4. Set payment method (cash/transfer) and amount
+5. Partial payments supported — shows remaining balance
 
-# Run migrations
-alembic upgrade head
+### Email Reports
+- Automatic reports every 2 hours to admin email(s)
+- Includes: sales summary, new members, recognized expired members
+- Manual trigger: Settings → or `POST /api/reports-email/send-now`
 
-# Start server
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
+### User Roles & Permissions
+- **Admin**: Full access to all features
+- **Staff**: Configurable per-page access
+  - Go to Settings → Users → Edit user → set permissions
+  - Toggle: Dashboard, Members, Memberships, Cameras, Sales, Reports
 
-#### Frontend
-```bash
-cd frontend
-npm install
-npm run build    # Production build -> dist/
-npm run dev      # Development server -> localhost:3000
-```
+### Custom Branding
+1. Go to **Settings** → **General**
+2. Change **Organization Name** — appears in sidebar, login, reports
+3. Upload **Logo** — appears in sidebar and login page
+4. Changes apply immediately after save
 
-#### CV Service
-```bash
-cd cv_service
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+## 🔧 API Reference
 
-# Start service
-python main.py
-```
+The backend exposes a REST API at `/api/`. Full docs available at:
+- Swagger UI: `http://your-server/docs`
+- ReDoc: `http://your-server/redoc`
 
-### Systemd Services
-
-```bash
-# Start all services
-systemctl start powerhouse-backend powerhouse-cv nginx
-
-# Enable on boot
-systemctl enable powerhouse-backend powerhouse-cv nginx
-
-# Check status
-systemctl status powerhouse-backend
-systemctl status powerhouse-cv
-```
-
----
+### Key Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/login` | POST | Authenticate and get JWT |
+| `/api/members` | GET/POST | List/create members |
+| `/api/members/{id}/photo` | GET | Get member face photo |
+| `/api/members/{id}/enroll` | POST | Enroll face biometric |
+| `/api/memberships` | GET/POST | List/create memberships |
+| `/api/membership-plans` | GET/POST | Manage plans |
+| `/api/sales` | GET/POST | Sales transactions |
+| `/api/sales/dashboard` | GET | Aggregated report data |
+| `/api/events` | GET | Access events log |
+| `/api/events/today-recognized` | GET | Today's recognized members |
+| `/api/cameras` | GET/POST | Camera management |
+| `/api/settings` | GET/PUT | System settings |
+| `/api/settings/upload-logo` | POST | Upload custom logo |
+| `/api/reports-email/send-now` | POST | Trigger email report |
+| `/cv/health` | GET | CV service health |
+| `/cv/stream/{id}` | GET | MJPEG camera stream |
+| `/cv/ws/camera/{id}` | WS | WebSocket for browser camera |
 
 ## 📁 Project Structure
 
 ```
 FaceGYM/
-├── backend/                    # FastAPI backend
-│   ├── main.py                # App entry point, routers, middleware
-│   ├── api/                   # API endpoints
-│   │   ├── auth.py           # JWT login/token
-│   │   ├── members.py        # Member CRUD
+├── backend/                  # FastAPI backend
+│   ├── api/                  # API endpoints
+│   │   ├── auth.py           # Authentication
+│   │   ├── members.py        # Member CRUD + photo endpoint
 │   │   ├── memberships.py    # Membership management
-│   │   ├── membership_plans.py # Plan templates
-│   │   ├── enrollment.py     # Face enrollment + verification
-│   │   ├── cameras.py        # Camera CRUD
-│   │   ├── events.py         # Access events
-│   │   ├── sales.py          # Sales transactions
-│   │   ├── users.py          # User management
-│   │   ├── settings.py       # App settings
-│   │   ├── cv_internal.py    # Internal CV endpoints (no auth)
-│   │   └── health.py         # Health checks
-│   ├── core/                  # Core utilities
-│   │   ├── config.py         # Pydantic settings
-│   │   ├── database.py       # SQLAlchemy session
-│   │   ├── security.py       # JWT + bcrypt
-│   │   └── encryption.py     # AES-256-GCM
-│   ├── models/                # SQLAlchemy models
-│   │   ├── member.py         # Member (status, enrollment tracking)
-│   │   ├── biometric.py      # Encrypted face templates
-│   │   ├── membership.py     # Memberships + plans
-│   │   ├── camera.py         # RTSP cameras
-│   │   ├── event.py          # Access events
-│   │   ├── sale.py           # Sales transactions
-│   │   ├── setting.py        # App settings
-│   │   └── user.py           # Admin users
-│   ├── schemas/               # Pydantic request/response schemas
-│   ├── alembic/               # Database migrations
-│   ├── init_db.py            # DB initialization + admin user
-│   ├── reset_admin_password.py
+│   │   ├── membership_plans.py
+│   │   ├── sales.py          # Sales + dashboard reports
+│   │   ├── events.py         # Access events + today-recognized
+│   │   ├── cameras.py        # Camera management
+│   │   ├── enrollment.py     # Face enrollment (upload + camera)
+│   │   ├── settings.py       # System settings + logo upload
+│   │   ├── reports_email.py  # Scheduled email reports
+│   │   └── users.py          # User management
+│   ├── core/                 # Core modules
+│   │   ├── config.py         # Settings from .env
+│   │   ├── database.py       # SQLAlchemy setup
+│   │   ├── security.py       # JWT + password hashing
+│   │   ├── encryption.py     # AES encryption for biometrics
+│   │   └── email.py          # SMTP email service
+│   ├── models/               # SQLAlchemy models
+│   ├── schemas/              # Pydantic schemas
+│   ├── main.py               # FastAPI app entry
 │   └── requirements.txt
-│
-├── cv_service/                 # Computer Vision service
-│   ├── main.py                # FastAPI + CV service orchestrator
-│   ├── config.py              # CV settings
-│   ├── detection/
-│   │   ├── face_detector.py  # Haar Cascade face detection
-│   │   └── quality_assessor.py # Image quality metrics
-│   ├── recognition/
-│   │   ├── face_recognizer.py    # FaceNet embedding generation
-│   │   ├── template_cache.py     # Redis template cache
-│   │   └── template_matcher.py   # Cosine similarity matching
-│   ├── stream/
-│   │   └── rtsp_processor.py     # RTSP multi-camera handler
-│   ├── validation/
-│   │   └── access_validator.py   # Member + membership rules engine
-│   ├── api/
-│   │   └── backend_client.py     # Backend HTTP client
-│   └── requirements.txt
-│
-├── frontend/                   # React SPA
+├── cv_service/               # Computer vision service
+│   ├── main.py               # FastAPI app + WebSocket handler
+│   ├── stream/               # RTSP + V4L2 stream processor
+│   ├── detection/            # Face detection + quality + liveness
+│   ├── recognition/          # FaceNet recognizer + template matcher
+│   └── api/                  # Backend client
+├── frontend/                 # React frontend
 │   ├── src/
-│   │   ├── App.tsx            # Routes (dashboard, members, kiosk, etc.)
-│   │   ├── api/               # Axios API clients
-│   │   ├── components/        # Layout, ProtectedRoute, UserManagement
-│   │   ├── contexts/          # AuthContext
-│   │   ├── pages/
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Login.tsx
-│   │   │   ├── Members/       # List, Form, FaceEnrollment
-│   │   │   ├── Memberships/   # List, Form
-│   │   │   ├── Cameras/       # CamerasList
-│   │   │   ├── Kiosk/         # Kiosk (access terminal)
-│   │   │   ├── Reports/       # Reports & analytics
-│   │   │   └── Settings/      # App settings
-│   │   └── theme/             # MUI theme
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── scripts/                    # Operational scripts
-│   ├── backup.sh              # DB + data backup
-│   ├── restore.sh             # Backup restoration
-│   ├── health_monitor.sh      # Service health monitoring
-│   └── fix_nginx.sh           # Nginx config repair
-│
-└── .gitignore
+│   │   ├── api/              # API clients
+│   │   ├── components/       # Shared components
+│   │   ├── contexts/         # Auth + Theme contexts
+│   │   ├── i18n/             # Translations (ES/EN)
+│   │   ├── pages/            # Page components
+│   │   └── main.tsx          # Entry point
+│   ├── public/               # Static assets (logo, favicon)
+│   └── package.json
+├── install.sh                # One-click installer
+├── .env.example              # Environment template
+└── README.md                 # This file
 ```
-
----
-
-## 📡 API Reference
-
-The backend exposes a RESTful API with auto-generated documentation:
-
-| URL | Description |
-|-----|-------------|
-| `/docs` | Swagger UI (interactive) |
-| `/redoc` | ReDoc documentation |
-
-### Key Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| **Auth** | | |
-| `POST` | `/api/auth/login` | Login, returns JWT token |
-| **Members** | | |
-| `GET` | `/api/members` | List members (paginated) |
-| `POST` | `/api/members` | Create member |
-| `GET` | `/api/members/{id}` | Get member details |
-| `PUT` | `/api/members/{id}` | Update member |
-| `DELETE` | `/api/members/{id}` | Delete member |
-| **Enrollment** | | |
-| `POST` | `/api/enrollment/{id}/enroll` | Enroll face from image upload |
-| `POST` | `/api/enrollment/{id}/enroll/camera` | Enroll face from RTSP camera |
-| `DELETE` | `/api/enrollment/{id}/enroll` | Remove biometric enrollment |
-| `POST` | `/api/enrollment/{id}/verify` | Verify face against enrollment |
-| **Memberships** | | |
-| `GET` | `/api/memberships` | List memberships |
-| `POST` | `/api/memberships` | Create membership |
-| `GET` | `/api/membership-plans` | List membership plan templates |
-| **Cameras** | | |
-| `GET` | `/api/cameras` | List cameras |
-| `POST` | `/api/cameras` | Add camera |
-| **Events** | | |
-| `GET` | `/api/events` | List access events |
-| **CV Internal** (no auth) | | |
-| `GET` | `/api/cv/templates` | Sync face templates to CV service |
-| `GET` | `/api/cv/cameras` | Get enabled cameras for CV service |
-| `GET` | `/api/cv/members/{id}/membership` | Check member membership |
-| **Health** | | |
-| `GET` | `/api/health` | Basic health check |
-| `GET` | `/api/health/full` | Full system health (DB, Redis) |
-
----
 
 ## 🔒 Security
 
-### Biometric Data Protection
-- **AES-256-GCM** encryption for all facial templates at rest
-- Random IV per encryption operation
-- Authentication tags for tamper detection
-- Key versioning (`encryption_key_id`) for rotation
-- Templates stored separately from member PII
+- AES-256 encryption for biometric template data at rest
+- JWT authentication with token blacklisting
+- Rate limiting on auth endpoints (Nginx)
+- CORS configuration
+- Helmet-style security headers
+- Encrypted camera RTSP URLs in database
+- Face enrollment quality threshold (0.9) prevents low-quality enrollments
+- Anti-passback cooldown prevents duplicate check-ins
 
-### Authentication
-- **JWT** (HS256) with configurable expiration (24h default)
-- **bcrypt** password hashing
-- Token-based protected routes in frontend
-- Role-based access control (RBAC)
+## 📄 License
 
-### API Security
-- Rate limiting (120 req/min via SlowAPI)
-- CORS configured per environment
-- Nginx reverse proxy with body size limits
-- Internal CV endpoints (localhost only, no auth)
-
-### Data Privacy
-- Member consent tracking (`consent_given_at`)
-- Biometric data deletion support
-- Audit logging for all access events
-
----
-
-## ⚙️ Configuration
-
-### Key Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
-| `SECRET_KEY` | App secret key | Required |
-| `ENCRYPTION_KEY` | AES-256 key for biometrics | Required |
-| `JWT_SECRET` | JWT signing key | Required |
-| `FACE_CONFIDENCE_THRESHOLD` | Recognition match threshold | `0.85` |
-| `ENROLLMENT_QUALITY_THRESHOLD` | Min quality for enrollment | `0.90` |
-| `USE_GPU` | Enable CUDA for CV service | `false` |
-| `CORS_ORIGINS` | Allowed origins (comma-separated) | `http://localhost` |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT token lifetime | `1440` (24h) |
-
-### Generating Secure Keys
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
-
----
-
-## 📊 Database Schema
-
-```
-users ──────────────────────────────────────────
-members ───┬── biometric_templates (1:1)
-           ├── memberships (1:N) ─── membership_plans
-           ├── sales_transactions (1:N)
-           └── access_events (1:N)
-cameras ───┴── access_events (1:N)
-settings ───────────────────────────────────────
-```
-
----
-
-## 🔧 Operational Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/backup.sh` | Automated DB + data backup with retention |
-| `scripts/restore.sh` | Restore from backup |
-| `scripts/health_monitor.sh` | Monitor service health |
-| `scripts/fix_nginx.sh` | Repair Nginx configuration |
-
----
-
-## 📋 Status
-
-| Component | Completion |
-|-----------|-----------|
-| Backend API | ~85% |
-| Frontend UI | ~75% |
-| CV Service | ~65% |
-| Database Schema | ~95% |
-| Deployment | ~95% |
-| Testing | ~30% |
-
----
-
-## 📝 License
-
-Proprietary — All rights reserved.
-
-<div align="center">
-Built for PowerHouse Gym Manizales
-</div>
+MIT License — feel free to use, modify, and deploy for your own gym or business.
