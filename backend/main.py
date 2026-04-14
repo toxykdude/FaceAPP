@@ -1,6 +1,7 @@
 """
 FastAPI main application.
 """
+import logging
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -8,7 +9,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export, password_reset
+from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export, password_reset, reports_email
+
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -50,6 +53,30 @@ app.include_router(cv_internal.router, prefix=settings.API_V1_PREFIX)
 app.include_router(audit.router, prefix=settings.API_V1_PREFIX)
 app.include_router(import_export.router, prefix=settings.API_V1_PREFIX)
 app.include_router(password_reset.router, prefix=settings.API_V1_PREFIX)
+app.include_router(reports_email.router, prefix=settings.API_V1_PREFIX)
+
+
+@app.on_event("startup")
+def start_scheduler():
+    """Start the background scheduler for email reports."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from api.reports_email import send_scheduled_report
+    from core.database import SessionLocal
+    
+    try:
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            send_scheduled_report,
+            "interval",
+            hours=2,
+            args=[SessionLocal],
+            id="email_report",
+            replace_existing=True,
+        )
+        scheduler.start()
+        logger.info("Email report scheduler started (every 2 hours)")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
 
 
 @app.get("/")

@@ -118,24 +118,57 @@ def create_event(
     return db_event
 
 
-@router.get("/{event_id}", response_model=AccessEventResponse)
-def get_event(
-    event_id: str,
+# IMPORTANT: Static routes like /today-recognized and /stats/summary
+# MUST be defined BEFORE the /{event_id} parameterized route.
+
+
+@router.get("/today-recognized")
+def get_today_recognized(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
-    """
-    Get access event by ID.
-    """
-    event = db.query(AccessEvent).filter(AccessEvent.id == event_id).first()
+    """Get today recognized members with their membership status."""
+    from models.member import Member
+    from models.membership import Membership
     
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Event not found"
-        )
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    return event
+    # Get all access events with member_id from today
+    events = db.query(AccessEvent).filter(
+        AccessEvent.member_id.isnot(None),
+        AccessEvent.timestamp >= today_start
+    ).order_by(AccessEvent.timestamp.desc()).all()
+    
+    # Deduplicate by member_id, keep latest event
+    seen = set()
+    result = []
+    for evt in events:
+        mid = str(evt.member_id)
+        if mid in seen:
+            continue
+        seen.add(mid)
+        
+        member = db.query(Member).filter(Member.id == evt.member_id).first()
+        if not member:
+            continue
+        
+        # Get latest membership
+        latest_membership = db.query(Membership).filter(
+            Membership.member_id == evt.member_id
+        ).order_by(Membership.end_date.desc()).first()
+        
+        result.append({
+            "member_id": mid,
+            "member_name": f"{member.first_name} {member.last_name}",
+            "member_id_number": member.id_number,
+            "membership_status": latest_membership.status if latest_membership else "none",
+            "membership_plan": latest_membership.type if latest_membership else None,
+            "membership_end": latest_membership.end_date.isoformat() if latest_membership and latest_membership.end_date else None,
+            "last_seen": evt.timestamp.isoformat(),
+            "confidence": evt.confidence_score,
+        })
+    
+    return {"recognized": result}
 
 
 @router.get("/stats/summary", response_model=AccessStatsResponse)
@@ -190,3 +223,23 @@ def get_access_stats(
         "grant_rate": round(grant_rate, 2),
         "denial_reasons": denial_reasons
     }
+
+
+@router.get("/{event_id}", response_model=AccessEventResponse)
+def get_event(
+    event_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff)
+):
+    """
+    Get access event by ID.
+    """
+    event = db.query(AccessEvent).filter(AccessEvent.id == event_id).first()
+    
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+    
+    return event
