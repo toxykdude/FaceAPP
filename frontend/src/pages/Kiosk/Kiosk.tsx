@@ -5,7 +5,6 @@ import {
     Box,
     Card,
     Typography,
-    Grid,
     Select,
     MenuItem,
     FormControl,
@@ -437,28 +436,17 @@ export const Kiosk: React.FC = () => {
                 )}
             </Box>
 
-            {/* Main Content */}
-            <Grid container sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                {/* Video Feed */}
-                <Grid
-                    item
-                    xs={12}
-                    md={8}
-                    sx={{
-                        bgcolor: '#000',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        minHeight: 0,
-                    }}
-                >
-                    <Box sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                    }}>
+            {/* Main Content - plain flexbox, NO MUI Grid */}
+            <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+                {/* Video Feed - fixed container */}
+                <Box sx={{
+                    flex: '1 1 0',
+                    bgcolor: '#000',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    minWidth: 0,
+                    minHeight: 0,
+                }}>
                     {selectedCameraId ? (
                         usbMode ? (
                             <>
@@ -468,9 +456,9 @@ export const Kiosk: React.FC = () => {
                                     playsInline
                                     muted
                                     style={{
-                                        display: 'block',
-                                        maxWidth: '100%',
-                                        maxHeight: '100%',
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
                                         width: '100%',
                                         height: '100%',
                                         objectFit: 'contain',
@@ -514,9 +502,9 @@ export const Kiosk: React.FC = () => {
                                 src={cvServiceApi.getStreamUrl(selectedCameraId)}
                                 alt="Live Camera Feed"
                                 style={{
-                                    display: 'block',
-                                    maxWidth: '100%',
-                                    maxHeight: '100%',
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
                                     width: '100%',
                                     height: '100%',
                                     objectFit: 'contain',
@@ -524,26 +512,30 @@ export const Kiosk: React.FC = () => {
                             />
                         )
                     ) : (
-                        <Box textAlign="center" color="grey.500">
+                        <Box sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }} color="grey.500">
                             <VideocamOffIcon sx={{ fontSize: 60 }} />
                             <Typography mt={1}>Select a camera to start monitoring</Typography>
                         </Box>
                     )}
-                    </Box>
-                </Grid>
+                </Box>
 
                 {/* Events Panel */}
-                <Grid
-                    item
-                    xs={12}
-                    md={4}
-                    sx={{
-                        borderLeft: '1px solid #2a2a2a',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        bgcolor: '#111',
-                    }}
-                >
+                <Box sx={{
+                    width: 340,
+                    flexShrink: 0,
+                    borderLeft: '1px solid #2a2a2a',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    bgcolor: '#111',
+                    overflow: 'hidden',
+                }}>
                     <Box sx={{ p: 2, bgcolor: '#141414', borderBottom: '1px solid #2a2a2a' }}>
                         <Typography variant="h6" fontWeight="bold">
                             Recent Access
@@ -675,8 +667,8 @@ export const Kiosk: React.FC = () => {
                             )}
                         </List>
                     </Box>
-                </Grid>
-            </Grid>
+                </Box>
+            </Box>
         </Box>
     );
 };
