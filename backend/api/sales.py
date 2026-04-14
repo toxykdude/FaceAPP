@@ -74,9 +74,28 @@ def list_transactions(
     # Get paginated results
     transactions = query.order_by(SalesTransaction.transaction_date.desc()).offset(skip).limit(limit).all()
     
+    # Enrich with member data
+    result = []
+    for tx in transactions:
+        member = db.query(Member).filter(Member.id == tx.member_id).first()
+        tx_dict = {
+            "id": str(tx.id),
+            "member_id": str(tx.member_id),
+            "membership_id": str(tx.membership_id) if tx.membership_id else None,
+            "amount": tx.amount,
+            "payment_method": tx.payment_method,
+            "invoice_number": tx.invoice_number,
+            "notes": tx.notes,
+            "transaction_date": tx.transaction_date,
+            "created_at": tx.created_at,
+            "member_name": f"{member.first_name} {member.last_name}" if member else "Unknown",
+            "member_id_number": member.id_number if member else None,
+        }
+        result.append(tx_dict)
+
     return {
         "total": total,
-        "transactions": transactions
+        "transactions": result
     }
 
 

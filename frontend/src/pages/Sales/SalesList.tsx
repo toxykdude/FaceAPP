@@ -86,6 +86,7 @@ export const SalesList: React.FC = () => {
                                 <TableRow>
                                     <TableCell>Invoice</TableCell>
                                     <TableCell>Member</TableCell>
+                                    <TableCell>ID</TableCell>
                                     <TableCell>Amount</TableCell>
                                     <TableCell>Method</TableCell>
                                     <TableCell>Date</TableCell>
@@ -94,11 +95,11 @@ export const SalesList: React.FC = () => {
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} align="center">Loading...</TableCell>
+                                        <TableCell colSpan={6} align="center">Loading...</TableCell>
                                     </TableRow>
                                 ) : data?.transactions.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} align="center">No transactions found</TableCell>
+                                        <TableCell colSpan={6} align="center">No transactions found</TableCell>
                                     </TableRow>
                                 ) : (
                                     data?.transactions.map((tx) => (
@@ -109,7 +110,8 @@ export const SalesList: React.FC = () => {
                                                     <Typography variant="body2">{tx.invoice_number}</Typography>
                                                 </Box>
                                             </TableCell>
-                                            <TableCell>{tx.member_id.substring(0, 8)}...</TableCell>
+                                            <TableCell>{tx.member_name || 'Unknown'}</TableCell>
+                                            <TableCell>{tx.member_id_number || '-'}</TableCell>
                                             <TableCell>${Number(tx.amount).toLocaleString()}</TableCell>
                                             <TableCell>
                                                 <Chip

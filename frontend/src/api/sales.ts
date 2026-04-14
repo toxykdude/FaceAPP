@@ -13,6 +13,8 @@ export interface SalesTransaction {
     notes?: string;
     transaction_date: string;
     created_at: string;
+    member_name?: string;
+    member_id_number?: string;
 }
 
 export interface SalesReport {

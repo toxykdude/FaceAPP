@@ -30,6 +30,8 @@ class SalesTransactionResponse(SalesTransactionBase):
     invoice_number: str
     transaction_date: datetime
     created_at: datetime
+    member_name: Optional[str] = None
+    member_id_number: Optional[str] = None
     
     @field_serializer('id', 'member_id', 'membership_id')
     def serialize_uuids(self, value: Any) -> Optional[str]:
