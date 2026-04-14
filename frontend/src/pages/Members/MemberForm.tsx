@@ -295,14 +295,42 @@ export const MemberForm: React.FC = () => {
     );
 };
 
-// Sub-component for Membership Section — inline, no dialog
+// Sub-component for Membership Section - inline, no dialog
+interface MembershipHistoryItem {
+    id: string;
+    member_id: string;
+    plan_id?: string;
+    type: string;
+    start_date: string;
+    end_date: string;
+    price: number;
+    status: 'active' | 'expired' | 'cancelled' | 'suspended';
+    created_at: string;
+    updated_at: string;
+    plan_name?: string;
+}
+
 const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const queryClient = useQueryClient();
 
+    const [showForm, setShowForm] = React.useState(false);
+    const [renewFromMembership, setRenewFromMembership] = React.useState<MembershipHistoryItem | null>(null);
     const [selectedPlanId, setSelectedPlanId] = React.useState('');
     const [startDate, setStartDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
     const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
     const [paymentAmount, setPaymentAmount] = React.useState<string>('');
+
+    // Fetch existing memberships for this member
+    const { data: memberships, isLoading: membershipsLoading } = useQuery({
+        queryKey: ['memberships', 'member', memberId],
+        queryFn: () => membershipsApi.getMemberships(0, 50, memberId),
+    });
+
+    // Sort by end_date descending (most recent first)
+    const sortedMemberships = React.useMemo(() => {
+        if (!memberships) return [];
+        return [...memberships].sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime());
+    }, [memberships]);
 
     const { data: plansData } = useQuery({
         queryKey: ['membershipPlans', 'active'],
@@ -351,6 +379,9 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['memberships'] });
+            queryClient.invalidateQueries({ queryKey: ['memberships', 'member', memberId] });
+            setShowForm(false);
+            setRenewFromMembership(null);
             setSelectedPlanId('');
             setPaymentAmount('');
             setPaymentMethod('cash');
@@ -380,125 +411,263 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         });
     };
 
+    const handleRenew = (membership: MembershipHistoryItem) => {
+        setRenewFromMembership(membership);
+        if (membership.plan_id) {
+            setSelectedPlanId(membership.plan_id);
+        }
+        // Start date = day after the membership ends
+        const nextDay = addDays(new Date(membership.end_date), 1);
+        setStartDate(format(nextDay, 'yyyy-MM-dd'));
+        setPaymentMethod('cash');
+        setShowForm(true);
+    };
+
+    const handleAddNew = () => {
+        setRenewFromMembership(null);
+        setSelectedPlanId('');
+        setStartDate(format(new Date(), 'yyyy-MM-dd'));
+        setPaymentAmount('');
+        setPaymentMethod('cash');
+        setShowForm(true);
+    };
+
+    const handleCancelForm = () => {
+        setShowForm(false);
+        setRenewFromMembership(null);
+        setSelectedPlanId('');
+        setPaymentAmount('');
+        setPaymentMethod('cash');
+        setStartDate(format(new Date(), 'yyyy-MM-dd'));
+    };
+
     const formatPlanLabel = (plan: MembershipPlan) => {
         const durationParts: string[] = [];
         if (plan.duration_months) durationParts.push(`${plan.duration_months}m`);
         if (plan.duration_days) durationParts.push(`${plan.duration_days}d`);
         const durationStr = durationParts.join(' ') || '0d';
-        return `${plan.name} — $${Number(plan.price).toLocaleString()} (${durationStr})`;
+        return `${plan.name} \u2014 $${Number(plan.price).toLocaleString()} (${durationStr})`;
+    };
+
+    const formatDate = (dateStr: string) => {
+        try {
+            return format(new Date(dateStr), 'MMM d, yyyy');
+        } catch {
+            return dateStr;
+        }
+    };
+
+    const getStatusChip = (status: string) => {
+        switch (status) {
+            case 'active':
+                return <Chip label="Active" color="success" size="small" icon={<span>{'\u2705'}</span>} />;
+            case 'expired':
+                return <Chip label="Expired" color="error" size="small" icon={<span>{'\u26d4'}</span>} />;
+            case 'cancelled':
+                return <Chip label="Cancelled" color="default" size="small" icon={<span>{'\ud83d\udeab'}</span>} />;
+            case 'suspended':
+                return <Chip label="Suspended" color="warning" size="small" icon={<span>{'\u23f8\ufe0f'}</span>} />;
+            default:
+                return <Chip label={status} size="small" />;
+        }
     };
 
     return (
         <Card sx={{ mt: 3 }}>
             <CardContent>
-                <Typography variant="h6" gutterBottom>Assign Membership</Typography>
+                <Typography variant="h6" gutterBottom>Membership History</Typography>
 
-                <Box display="flex" flexDirection="column" gap={2} mt={1}>
-                    {/* Plan Selection */}
-                    <TextField
-                        select
-                        label="Select Plan"
-                        value={selectedPlanId}
-                        onChange={(e) => setSelectedPlanId(e.target.value)}
-                        fullWidth
-                        required
-                    >
-                        <MenuItem value=""><em>Choose a plan...</em></MenuItem>
-                        {plans.map((plan: MembershipPlan) => (
-                            <MenuItem key={plan.id} value={plan.id}>
-                                {formatPlanLabel(plan)}
-                            </MenuItem>
-                        ))}
-                    </TextField>
+                {membershipsLoading && (
+                    <Box display="flex" justifyContent="center" p={3}>
+                        <CircularProgress size={24} />
+                    </Box>
+                )}
 
-                    {/* Dates Row */}
-                    <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                            <TextField
-                                label="Start Date"
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                fullWidth
-                                InputLabelProps={{ shrink: true }}
-                            />
-                        </Grid>
-                        <Grid item xs={6}>
-                            <TextField
-                                label="End Date"
-                                type="date"
-                                value={endDate}
-                                fullWidth
-                                InputLabelProps={{ shrink: true }}
-                                InputProps={{ readOnly: true }}
-                                helperText="Auto-calculated from plan"
-                                sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
-                            />
-                        </Grid>
-                    </Grid>
+                {!showForm && !membershipsLoading && (
+                    <>
+                        {sortedMemberships.length === 0 ? (
+                            <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
+                                No memberships found for this member.
+                            </Typography>
+                        ) : (
+                            <Box display="flex" flexDirection="column" gap={1.5}>
+                                {sortedMemberships.map((m) => (
+                                    <Paper
+                                        key={m.id}
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 2,
+                                        }}
+                                    >
+                                        <Box>
+                                            <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                                                <Typography variant="subtitle1" fontWeight="bold">
+                                                    {m.plan_name || m.type}
+                                                </Typography>
+                                                {getStatusChip(m.status)}
+                                            </Box>
+                                            <Typography variant="body2" color="textSecondary">
+                                                {formatDate(m.start_date)} {'\u2192'} {formatDate(m.end_date)}
+                                            </Typography>
+                                            <Typography variant="body2" fontWeight="500">
+                                                ${Number(m.price).toLocaleString()}
+                                            </Typography>
+                                        </Box>
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
+                                            onClick={() => handleRenew(m)}
+                                        >
+                                            Renew
+                                        </Button>
+                                    </Paper>
+                                ))}
+                            </Box>
+                        )}
 
-                    {/* Price Display (read-only) */}
-                    {selectedPlan && (
-                        <TextField
-                            label="Plan Price"
-                            value={`$${price.toLocaleString()}`}
-                            fullWidth
-                            InputProps={{ readOnly: true }}
-                            sx={{ '& .MuiInputBase-input': { fontWeight: 'bold', fontSize: '1.1rem' } }}
-                        />
-                    )}
+                        <Button
+                            variant="text"
+                            startIcon={<span>+</span>}
+                            onClick={handleAddNew}
+                            sx={{ mt: 2 }}
+                        >
+                            Add New Membership
+                        </Button>
+                    </>
+                )}
 
-                    {/* Payment Section — only shown when a plan is selected */}
-                    {selectedPlan && (
-                        <>
+                {showForm && (
+                    <>
+                        <Box display="flex" alignItems="center" gap={1} mb={2}>
+                            <Typography variant="subtitle1" fontWeight="bold">
+                                {renewFromMembership ? 'Renew Membership' : 'Assign New Membership'}
+                            </Typography>
+                            {renewFromMembership && getStatusChip(renewFromMembership.status)}
+                        </Box>
+
+                        {renewFromMembership && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                Renewing <strong>{renewFromMembership.plan_name || renewFromMembership.type}</strong> {'\u2014'}
+                                {' '}Previous: {formatDate(renewFromMembership.start_date)} {'\u2192'} {formatDate(renewFromMembership.end_date)}
+                            </Alert>
+                        )}
+
+                        <Box display="flex" flexDirection="column" gap={2}>
                             <TextField
                                 select
-                                label="Payment Method"
-                                value={paymentMethod}
-                                onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'transfer')}
+                                label="Select Plan"
+                                value={selectedPlanId}
+                                onChange={(e) => setSelectedPlanId(e.target.value)}
                                 fullWidth
+                                required
                             >
-                                <MenuItem value="cash">💵 Efectivo (Cash)</MenuItem>
-                                <MenuItem value="transfer">🏦 Transferencia (Transfer)</MenuItem>
+                                <MenuItem value=""><em>Choose a plan...</em></MenuItem>
+                                {plans.map((plan: MembershipPlan) => (
+                                    <MenuItem key={plan.id} value={plan.id}>
+                                        {formatPlanLabel(plan)}
+                                    </MenuItem>
+                                ))}
                             </TextField>
 
-                            {/* Payment Amount */}
-                            <TextField
-                                label="Payment Amount"
-                                type="number"
-                                value={paymentAmount}
-                                onChange={(e) => setPaymentAmount(e.target.value)}
-                                fullWidth
-                                InputProps={{
-                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                }}
-                                helperText={
-                                    isPaid ? "✅ Pago completo" :
-                                    isPartial ? `⚠️ Pago parcial — Falta: $${(price - paidAmount).toLocaleString()}` :
-                                    "❌ Sin pago (pendiente)"
-                                }
-                            />
+                            <Grid container spacing={2}>
+                                <Grid item xs={6}>
+                                    <TextField
+                                        label="Start Date"
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        fullWidth
+                                        InputLabelProps={{ shrink: true }}
+                                    />
+                                </Grid>
+                                <Grid item xs={6}>
+                                    <TextField
+                                        label="End Date"
+                                        type="date"
+                                        value={endDate}
+                                        fullWidth
+                                        InputLabelProps={{ shrink: true }}
+                                        InputProps={{ readOnly: true }}
+                                        helperText="Auto-calculated from plan"
+                                        sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                                    />
+                                </Grid>
+                            </Grid>
 
-                            {/* Payment Status Badge */}
-                            <Box>
-                                {isPaid && <Chip label="Pagado" color="success" />}
-                                {isPartial && <Chip label={`Parcial: $${paidAmount.toLocaleString()} de $${price.toLocaleString()}`} color="warning" />}
-                                {isPending && <Chip label="Pendiente" color="error" />}
+                            {selectedPlan && (
+                                <TextField
+                                    label="Plan Price"
+                                    value={`$${price.toLocaleString()}`}
+                                    fullWidth
+                                    InputProps={{ readOnly: true }}
+                                    sx={{ '& .MuiInputBase-input': { fontWeight: 'bold', fontSize: '1.1rem' } }}
+                                />
+                            )}
+
+                            {selectedPlan && (
+                                <>
+                                    <TextField
+                                        select
+                                        label="Payment Method"
+                                        value={paymentMethod}
+                                        onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'transfer')}
+                                        fullWidth
+                                    >
+                                        <MenuItem value="cash">{'\ud83d\udcb5'} Efectivo (Cash)</MenuItem>
+                                        <MenuItem value="transfer">{'\ud83c\udfe6'} Transferencia (Transfer)</MenuItem>
+                                    </TextField>
+
+                                    <TextField
+                                        label="Payment Amount"
+                                        type="number"
+                                        value={paymentAmount}
+                                        onChange={(e) => setPaymentAmount(e.target.value)}
+                                        fullWidth
+                                        InputProps={{
+                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                        }}
+                                        helperText={
+                                            isPaid ? "\u2705 Pago completo" :
+                                            isPartial ? `\u26a0\ufe0f Pago parcial \u2014 Falta: $${(price - paidAmount).toLocaleString()}` :
+                                            "\u274c Sin pago (pendiente)"
+                                        }
+                                    />
+
+                                    <Box>
+                                        {isPaid && <Chip label="Pagado" color="success" />}
+                                        {isPartial && <Chip label={`Parcial: $${paidAmount.toLocaleString()} de $${price.toLocaleString()}`} color="warning" />}
+                                        {isPending && <Chip label="Pendiente" color="error" />}
+                                    </Box>
+                                </>
+                            )}
+
+                            <Box display="flex" gap={2}>
+                                <Button
+                                    onClick={handleAssign}
+                                    variant="contained"
+                                    size="large"
+                                    disabled={!selectedPlanId || createMutation.isPending}
+                                    fullWidth
+                                >
+                                    {createMutation.isPending ? "Assigning..." : "Assign Membership"}
+                                </Button>
+                                <Button
+                                    onClick={handleCancelForm}
+                                    variant="outlined"
+                                    size="large"
+                                    fullWidth
+                                >
+                                    Cancel
+                                </Button>
                             </Box>
-                        </>
-                    )}
-
-                    {/* Assign Button */}
-                    <Button
-                        onClick={handleAssign}
-                        variant="contained"
-                        size="large"
-                        disabled={!selectedPlanId || createMutation.isPending}
-                        fullWidth
-                    >
-                        {createMutation.isPending ? "Assigning..." : "Assign Membership"}
-                    </Button>
-                </Box>
+                        </Box>
+                    </>
+                )}
             </CardContent>
         </Card>
     );
