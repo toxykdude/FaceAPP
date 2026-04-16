@@ -11,8 +11,8 @@ export const translations = {
       logout: 'Cerrar Sesión',
     },
     dashboard: {
-      title: 'Hola, {name}',
-      subtitle: '¿Cómo puedo ayudarte hoy?',
+      title: 'Sistema Biometrico con Reconocimiento Facial',
+      subtitle: 'PowerHouse GYM',
       quickActions: 'Acciones Rápidas',
       addMember: 'Agregar Miembro',
       viewCameras: 'Ver Cámaras',
@@ -421,8 +421,8 @@ export const translations = {
       logout: 'Logout',
     },
     dashboard: {
-      title: 'Hello, {name}',
-      subtitle: 'How can I help you today?',
+      title: 'Biometric System with Facial Recognition',
+      subtitle: 'PowerHouse GYM',
       quickActions: 'Quick Actions',
       addMember: 'Add Member',
       viewCameras: 'View Cameras',

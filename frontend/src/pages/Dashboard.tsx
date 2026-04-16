@@ -202,17 +202,84 @@ export const Dashboard: React.FC = () => {
     return (
         <Box sx={{ maxWidth: "1400px", margin: "0 auto", padding: { xs: 2, sm: 3, md: 4 } }}>
             {/* Header */}
-            <Box sx={{ mb: { xs: 2, md: 4 } }}>
-                <Typography variant="body2" sx={{ color: textSecondary, mb: 0.5, fontWeight: 500 }}>
-                    {currentDate}
-                </Typography>
-                <Typography variant={isMobile ? "h5" : "h3"} sx={{ fontWeight: 800, mb: 0.5 }}>
-                    {t.dashboard.title.replace('{name}', user?.username || 'Admin')}
-                </Typography>
-                <Typography variant={isMobile ? "h6" : "h4"} className="gradient-text" sx={{ fontWeight: 700 }}>
-                    {t.dashboard.subtitle}
-                </Typography>
-            </Box>
+            <Paper
+                elevation={0}
+                sx={{
+                    mb: { xs: 2, md: 4 },
+                    borderRadius: 3,
+                    border: `1px solid ${borderColor}`,
+                    bgcolor: paperBg,
+                    overflow: 'hidden',
+                    position: 'relative',
+                }}
+            >
+                <Box
+                    sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: { xs: 2, md: 3 },
+                        p: { xs: 2, md: 3 },
+                        background: isDark
+                            ? `linear-gradient(135deg, ${alpha(theme.palette.primary.dark, 0.15)} 0%, ${alpha(theme.palette.secondary.dark, 0.1)} 100%)`
+                            : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+                    }}
+                >
+                    <Box
+                        component="img"
+                        src="/logo.png"
+                        alt="PowerHouse GYM"
+                        sx={{
+                            width: { xs: 56, md: 72 },
+                            height: { xs: 56, md: 72 },
+                            borderRadius: 2,
+                            objectFit: 'contain',
+                            flexShrink: 0,
+                        }}
+                    />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                            variant={isMobile ? "h6" : "h4"}
+                            sx={{
+                                fontWeight: 800,
+                                letterSpacing: '-0.02em',
+                                lineHeight: 1.2,
+                                mb: 0.5,
+                                background: isDark
+                                    ? `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.secondary.light})`
+                                    : `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                                WebkitBackgroundClip: 'text',
+                                WebkitTextFillColor: 'transparent',
+                                backgroundClip: 'text',
+                            }}
+                        >
+                            Sistema Biometrico con Reconocimiento Facial
+                        </Typography>
+                        <Typography
+                            variant={isMobile ? "subtitle1" : "h5"}
+                            sx={{
+                                fontWeight: 700,
+                                color: isDark ? theme.palette.warning.light : theme.palette.warning.dark,
+                                letterSpacing: '0.05em',
+                                textTransform: 'uppercase',
+                            }}
+                        >
+                            PowerHouse GYM
+                        </Typography>
+                    </Box>
+                    <Typography
+                        variant="body2"
+                        sx={{
+                            color: textSecondary,
+                            fontWeight: 500,
+                            display: { xs: 'none', sm: 'block' },
+                            textAlign: 'right',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {currentDate}
+                    </Typography>
+                </Box>
+            </Paper>
 
             {/* Main Layout */}
             <Box sx={{ display: "flex", gap: { xs: 2, md: 3 }, flexDirection: { xs: "column", lg: "row" } }}>
