@@ -32,7 +32,11 @@ class MembershipCreate(MembershipBase):
 
 class MembershipUpdate(BaseModel):
     """Schema for updating a membership."""
+    start_date: Optional[date] = None
     end_date: Optional[date] = None
+    price: Optional[Decimal] = None
+    plan_id: Optional[str] = None
+    type: Optional[str] = None
     status: Optional[MembershipStatus] = None
     access_rules: Optional[AccessRules] = None
 

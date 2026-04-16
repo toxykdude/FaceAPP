@@ -60,6 +60,14 @@ export const membershipsApi = {
     },
 
     /**
+     * Update a membership (dates, price, status, etc).
+     */
+    updateMembership: async (id: string, data: Partial<Omit<MembershipCreate, 'member_id'>>): Promise<Membership> => {
+        const response = await apiClient.put<Membership>(`/memberships/${id}`, data);
+        return response.data;
+    },
+
+    /**
      * Cancel a membership.
      */
     cancelMembership: async (id: string): Promise<Membership> => {

@@ -26,7 +26,7 @@ import {
     useMediaQuery,
     useTheme,
 } from '@mui/material';
-import { PhotoCamera } from '@mui/icons-material';
+import { PhotoCamera, Edit as EditIcon } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
 import { membershipsApi } from '@/api/memberships';
 import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
@@ -337,6 +337,10 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
     const [showForm, setShowForm] = React.useState(false);
     const [renewFromMembership, setRenewFromMembership] = React.useState<MembershipHistoryItem | null>(null);
+    const [editingMembership, setEditingMembership] = React.useState<MembershipHistoryItem | null>(null);
+    const [editStartDate, setEditStartDate] = React.useState('');
+    const [editEndDate, setEditEndDate] = React.useState('');
+    const [editPrice, setEditPrice] = React.useState('');
     const [selectedPlanId, setSelectedPlanId] = React.useState('');
     const [startDate, setStartDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
     const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
@@ -407,6 +411,47 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
             alert(`Error: ${error.response?.data?.detail || error.message}`);
         }
     });
+
+    const editMutation = useMutation({
+        mutationFn: async ({ id, data }: { id: string; data: any }) => {
+            return await membershipsApi.updateMembership(id, data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['memberships', 'member', memberId] });
+            queryClient.invalidateQueries({ queryKey: ['memberships'] });
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            setEditingMembership(null);
+        },
+        onError: (error: any) => {
+            alert('Error: ' + (error.response?.data?.detail || error.message));
+        }
+    });
+
+    const handleEdit = (membership: MembershipHistoryItem) => {
+        setEditingMembership(membership);
+        setEditStartDate(membership.start_date);
+        setEditEndDate(membership.end_date);
+        setEditPrice(String(membership.price));
+    };
+
+    const handleSaveEdit = () => {
+        if (!editingMembership) return;
+        editMutation.mutate({
+            id: editingMembership.id,
+            data: {
+                start_date: editStartDate,
+                end_date: editEndDate,
+                price: Number(editPrice),
+            }
+        });
+    };
+
+    const handleCancelEdit = () => {
+        setEditingMembership(null);
+        setEditStartDate('');
+        setEditEndDate('');
+        setEditPrice('');
+    };
 
     const handleAssign = () => {
         if (!selectedPlan) return;
@@ -519,29 +564,108 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                             gap: 2,
                                         }}
                                     >
-                                        <Box>
+                                        <Box sx={{ flex: 1 }}>
                                             <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
                                                 <Typography variant="subtitle1" fontWeight="bold">
                                                     {m.plan_name || m.type}
                                                 </Typography>
                                                 {getStatusChip(m.status)}
                                             </Box>
-                                            <Typography variant="body2" color="textSecondary">
-                                                {formatDate(m.start_date)} {'→'} {formatDate(m.end_date)}
-                                            </Typography>
-                                            <Typography variant="body2" fontWeight="500">
-                                                ${Number(m.price).toLocaleString()}
-                                            </Typography>
+                                            {editingMembership?.id === m.id ? (
+                                                <Box display="flex" flexDirection="column" gap={1.5} mt={1} mb={0.5}>
+                                                    <Typography variant="caption" color="textSecondary">
+                                                        {t.members.editDatesDesc}
+                                                    </Typography>
+                                                    <Grid container spacing={1}>
+                                                        <Grid item xs={6}>
+                                                            <TextField
+                                                                label={t.members.startDate}
+                                                                type="date"
+                                                                value={editStartDate}
+                                                                onChange={(e) => setEditStartDate(e.target.value)}
+                                                                fullWidth
+                                                                size="small"
+                                                                InputLabelProps={{ shrink: true }}
+                                                            />
+                                                        </Grid>
+                                                        <Grid item xs={6}>
+                                                            <TextField
+                                                                label={t.members.endDate}
+                                                                type="date"
+                                                                value={editEndDate}
+                                                                onChange={(e) => setEditEndDate(e.target.value)}
+                                                                fullWidth
+                                                                size="small"
+                                                                InputLabelProps={{ shrink: true }}
+                                                            />
+                                                        </Grid>
+                                                        <Grid item xs={12}>
+                                                            <TextField
+                                                                label={t.members.planPrice}
+                                                                type="number"
+                                                                value={editPrice}
+                                                                onChange={(e) => setEditPrice(e.target.value)}
+                                                                fullWidth
+                                                                size="small"
+                                                                InputProps={{
+                                                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                                }}
+                                                            />
+                                                        </Grid>
+                                                    </Grid>
+                                                    <Box display="flex" gap={1} justifyContent="flex-end">
+                                                        <Button
+                                                            size="small"
+                                                            variant="text"
+                                                            onClick={handleCancelEdit}
+                                                            sx={{ minHeight: 36 }}
+                                                        >
+                                                            {t.members.cancel}
+                                                        </Button>
+                                                        <Button
+                                                            size="small"
+                                                            variant="contained"
+                                                            onClick={handleSaveEdit}
+                                                            disabled={editMutation.isPending}
+                                                            sx={{ minHeight: 36 }}
+                                                        >
+                                                            {editMutation.isPending ? '...' : t.members.saveChanges}
+                                                        </Button>
+                                                    </Box>
+                                                </Box>
+                                            ) : (
+                                                <>
+                                                    <Typography variant="body2" color="textSecondary">
+                                                        {formatDate(m.start_date)} {'\u2192'} {formatDate(m.end_date)}
+                                                    </Typography>
+                                                    <Typography variant="body2" fontWeight="500">
+                                                        ${Number(m.price).toLocaleString()}
+                                                    </Typography>
+                                                </>
+                                            )}
                                         </Box>
-                                        <Button
-                                            variant="outlined"
-                                            size="small"
-                                            color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
-                                            onClick={() => handleRenew(m)}
-                                            sx={{ minWidth: 44, minHeight: 44 }}
-                                        >
-                                            {t.members.renew}
-                                        </Button>
+                                        {editingMembership?.id !== m.id && (
+                                            <Box display="flex" gap={1} flexShrink={0}>
+                                                <Button
+                                                    variant="outlined"
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={() => handleEdit(m)}
+                                                    sx={{ minWidth: 36, minHeight: 44, px: 1 }}
+                                                >
+                                                    <EditIcon fontSize="small" />
+                                                </Button>
+                                                <Button
+                                                    variant="outlined"
+                                                    size="small"
+                                                    color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
+                                                    onClick={() => handleRenew(m)}
+                                                    sx={{ minWidth: 44, minHeight: 44 }}
+                                                >
+                                                    {t.members.renew}
+                                                </Button>
+                                            </Box>
+                                        )}
                                     </Paper>
                                 ))}
                             </Box>
