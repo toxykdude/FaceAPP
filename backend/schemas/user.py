@@ -19,6 +19,7 @@ class UserCreate(UserBase):
     """Schema for creating a user."""
     password: str = Field(..., min_length=8, max_length=100)
     is_active: Optional[bool] = True
+    permissions: Optional[dict] = None
 
 
 class UserUpdate(BaseModel):

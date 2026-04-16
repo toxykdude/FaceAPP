@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { RequirePermission } from '@/components/RequirePermission';
 import { MainLayout } from '@/components/Layout/MainLayout';
 import { LoginPage } from '@/pages/Login';
 import { ForgotPasswordPage } from '@/pages/ForgotPassword';
@@ -58,18 +59,18 @@ function App() {
                             }
                         >
                             <Route index element={<Dashboard />} />
-                            <Route path="members" element={<MembersList />} />
-                            <Route path="members/new" element={<MemberForm />} />
-                            <Route path="members/:id/edit" element={<MemberForm />} />
-                            <Route path="members/:id/membership" element={<MemberForm />} />
-                            <Route path="members/:id/enroll" element={<FaceEnrollment />} />
-                            <Route path="memberships" element={<MembershipsList />} />
-                            <Route path="memberships/new" element={<MembershipForm />} />
-                            <Route path="sales" element={<SalesList />} />
-                            <Route path="cameras" element={<CamerasList />} />
-                            <Route path="reports" element={<Reports />} />
+                            <Route path="members" element={<RequirePermission page="members"><MembersList /></RequirePermission>} />
+                            <Route path="members/new" element={<RequirePermission page="members"><MemberForm /></RequirePermission>} />
+                            <Route path="members/:id/edit" element={<RequirePermission page="members"><MemberForm /></RequirePermission>} />
+                            <Route path="members/:id/membership" element={<RequirePermission page="members"><MemberForm /></RequirePermission>} />
+                            <Route path="members/:id/enroll" element={<RequirePermission page="members"><FaceEnrollment /></RequirePermission>} />
+                            <Route path="memberships" element={<RequirePermission page="memberships"><MembershipsList /></RequirePermission>} />
+                            <Route path="memberships/new" element={<RequirePermission page="memberships"><MembershipForm /></RequirePermission>} />
+                            <Route path="sales" element={<RequirePermission page="sales"><SalesList /></RequirePermission>} />
+                            <Route path="cameras" element={<RequirePermission page="cameras"><CamerasList /></RequirePermission>} />
+                            <Route path="reports" element={<RequirePermission page="reports"><Reports /></RequirePermission>} />
                             <Route path="enrollment" element={<div>Enrollment (Coming Soon)</div>} />
-                            <Route path="settings" element={<SettingsPage />} />
+                            <Route path="settings" element={<RequirePermission page="settings"><SettingsPage /></RequirePermission>} />
                         </Route>
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

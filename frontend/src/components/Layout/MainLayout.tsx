@@ -288,7 +288,7 @@ export const MainLayout: React.FC = () => {
             </Box>
 
             {/* Settings at Bottom */}
-            <Box sx={{ p: 2, borderTop: '1px solid var(--border-color)' }}>
+            {canAccess('settings') && (<Box sx={{ p: 2, borderTop: '1px solid var(--border-color)' }}>
                 <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 0.5 }}>
                     <ListItemButton
                         onClick={() => handleMenuClick('/settings')}
@@ -335,7 +335,7 @@ export const MainLayout: React.FC = () => {
                         {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
                     </IconButton>
                 </Box>
-            </Box>
+            </Box>)}
 
             {/* User Menu */}
             <Menu
