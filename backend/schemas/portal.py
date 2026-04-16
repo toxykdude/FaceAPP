@@ -137,3 +137,12 @@ class PortalRenewResponse(BaseModel):
     """Schema for membership renewal response."""
     membership: ActiveMembershipResponse
     transaction: PaymentHistoryItem
+
+
+class PortalWebhookRenewRequest(BaseModel):
+    """Schema for webhook-triggered renewal (no JWT, server-to-server)."""
+    plan_id: str
+    member_id: str
+    wompi_reference: str
+    wompi_transaction_id: str
+    amount: Decimal

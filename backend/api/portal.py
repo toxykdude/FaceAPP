@@ -16,6 +16,7 @@ from schemas.portal import (
     PortalPlanResponse,
     PortalRenewRequest,
     PortalRenewResponse,
+    PortalWebhookRenewRequest,
     ActiveMembershipResponse,
     PaymentHistoryItem,
 )
@@ -175,3 +176,158 @@ def portal_renew(
         ),
         transaction=transaction,
     )
+
+
+@router.post("/webhook-renew")
+def portal_webhook_renew(
+    request: PortalWebhookRenewRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Renew membership from Wompi webhook — no JWT required.
+    Called server-to-server by the Cloudflare Pages Function webhook.
+    
+    Uses plan_id + member_id from the request (stored in Redis by the
+    pending-payment endpoint and passed through by the webhook handler).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Verify plan exists and is active
+    plan = db.query(MembershipPlan).filter(
+        MembershipPlan.id == request.plan_id,
+        MembershipPlan.is_active == True,
+    ).first()
+
+    if not plan:
+        logger.error(f"Webhook renew: plan {request.plan_id} not found or inactive")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plan no encontrado o inactivo",
+        )
+
+    # Verify member exists
+    member = db.query(Member).filter(Member.id == request.member_id).first()
+    if not member:
+        logger.error(f"Webhook renew: member {request.member_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Miembro no encontrado",
+        )
+
+    # Idempotency check: avoid duplicate memberships for the same Wompi reference
+    existing_tx = db.query(SalesTransaction).filter(
+        SalesTransaction.notes.like(f"%{request.wompi_reference}%")
+    ).first()
+    if existing_tx:
+        logger.info(f"Webhook renew: already processed reference {request.wompi_reference}, skipping")
+        return {"status": "already_processed", "membership_id": str(existing_tx.membership_id)}
+
+    today = date.today()
+
+    # Check for existing active membership — extend from current end_date
+    active_membership = db.query(Membership).filter(
+        Membership.member_id == str(member.id),
+        Membership.status == "active",
+        Membership.start_date <= today,
+        Membership.end_date >= today,
+    ).order_by(Membership.end_date.desc()).first()
+
+    start_date = today
+    if active_membership and active_membership.end_date >= today:
+        start_date = active_membership.end_date + timedelta(days=1)
+
+    end_date = start_date + timedelta(days=plan.duration_days)
+
+    # Create membership
+    new_membership = Membership(
+        member_id=str(member.id),
+        plan_id=plan.id,
+        type=plan.name,
+        start_date=start_date,
+        end_date=end_date,
+        price=Decimal(str(request.amount)),
+        status="active",
+    )
+    db.add(new_membership)
+    db.flush()
+
+    # Generate invoice number
+    invoice_number = f"WOM-{today.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+
+    # Create sales transaction
+    transaction = SalesTransaction(
+        member_id=str(member.id),
+        membership_id=new_membership.id,
+        amount=Decimal(str(request.amount)),
+        payment_method="card",
+        invoice_number=invoice_number,
+        notes=f"Wompi ref: {request.wompi_reference} | Wompi tx: {request.wompi_transaction_id}",
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(new_membership)
+    db.refresh(transaction)
+
+    logger.info(
+        f"Webhook renew: created membership {new_membership.id} for member {member.id}, "
+        f"plan {plan.name}, {start_date} to {end_date}"
+    )
+
+    return {
+        "status": "success",
+        "membership_id": str(new_membership.id),
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "plan_name": plan.name,
+    }
+
+
+@router.post("/pending-payment")
+def portal_pending_payment(
+    request: PortalWebhookRenewRequest,
+    member: Member = Depends(get_current_member),
+):
+    """
+    Store pending payment info in Redis BEFORE opening Wompi widget.
+    The webhook later reads this to activate membership.
+    """
+    import redis
+    import json
+    from core.config import settings
+    import logging
+    logger = logging.getLogger(__name__)
+
+    r = redis.from_url(settings.REDIS_URL)
+    key = f"pending-payment:{request.wompi_reference}"
+    data = {
+        "plan_id": request.plan_id,
+        "member_id": str(member.id),
+        "amount": str(request.amount),
+        "wompi_reference": request.wompi_reference,
+    }
+    # TTL 24 hours — more than enough for a payment to complete
+    r.setex(key, 86400, json.dumps(data))
+    logger.info(f"Stored pending payment: {key} -> {data}")
+
+    return {"status": "stored"}
+
+
+@router.get("/pending-payment/{reference}")
+def get_pending_payment(reference: str):
+    """
+    Look up pending payment by Wompi reference (public — used by webhook).
+    Returns the stored plan_id, member_id, and amount.
+    """
+    import redis
+    import json
+    from core.config import settings
+
+    r = redis.from_url(settings.REDIS_URL)
+    key = f"pending-payment:{reference}"
+    data = r.get(key)
+
+    if not data:
+        return {"status": "not_found", "reference": reference}
+
+    return {"status": "found", **json.loads(data)}
