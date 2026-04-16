@@ -203,27 +203,47 @@ def get_expiring_today(
     today = date.today()
     three_days_ago = today - __import__("datetime").timedelta(days=3)
     
-    # Memberships expiring today or expired in last 3 days, sorted by end_date desc
+    # Memberships expiring today or expired in last 3 days
+    # EXCLUDE members who already have a newer active membership
     expiring = db.query(Membership).filter(
         Membership.end_date <= today,
         Membership.end_date >= three_days_ago,
-    ).order_by(Membership.end_date.desc()).limit(limit).all()
+    ).order_by(Membership.end_date.desc()).all()
     
     result = []
+    seen_members = set()
     for m in expiring:
+        mid = str(m.member_id)
+        if mid in seen_members:
+            continue
+        
+        # Skip if this member has a NEWER active membership (they renewed)
+        has_active = db.query(Membership).filter(
+            Membership.member_id == m.member_id,
+            Membership.end_date > today,
+        ).first()
+        
+        if has_active:
+            continue  # Already renewed, skip
+        
+        seen_members.add(mid)
+        
         member = db.query(Member).filter(Member.id == m.member_id).first()
         if not member:
             continue
         plan = db.query(MembershipPlan).filter(MembershipPlan.id == m.plan_id).first() if m.plan_id else None
         
         result.append({
-            "member_id": str(m.member_id),
+            "member_id": mid,
             "member_name": f"{member.first_name} {member.last_name}",
             "plan_name": plan.name if plan else m.type,
             "end_date": m.end_date.isoformat(),
             "days_expired": (today - m.end_date).days,
             "price": float(m.price) if m.price else 0,
         })
+        
+        if len(result) >= limit:
+            break
     
     return {"expiring": result, "date": today.isoformat(), "count": len(result)}
 

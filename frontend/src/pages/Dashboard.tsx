@@ -1,5 +1,5 @@
 /**
- * Dashboard page component - Modern task management interface
+ * Dashboard page component — Theme-aware (light + dark mode)
  */
 import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -21,21 +21,7 @@ import {
     Tooltip,
     useMediaQuery,
     useTheme,
-} from "@mui/material";
-import {
-    PersonAdd as PersonAddIcon,
-    Videocam as VideocamIcon,
-    Assessment as AssessmentIcon,
-    Schedule as ScheduleIcon,
-    Warning as WarningIcon,
-    CheckCircle as CheckCircleIcon,
-} from "@mui/icons-material";
-import { eventsApi } from "@/api/events";
-import { membersApi } from "@/api/members";
-import { useAuth } from "@/contexts/AuthContext";
-import { useLanguage } from "@/i18n/LanguageContext";
-import { format } from "date-fns";
-import {
+    alpha,
     Select,
     MenuItem,
     FormControl,
@@ -45,8 +31,19 @@ import {
     CardContent,
 } from "@mui/material";
 import {
+    PersonAdd as PersonAddIcon,
+    Videocam as VideocamIcon,
+    Assessment as AssessmentIcon,
+    Schedule as ScheduleIcon,
+    Warning as WarningIcon,
+    CheckCircle as CheckCircleIcon,
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import { eventsApi } from "@/api/events";
+import { membersApi } from "@/api/members";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/i18n/LanguageContext";
+import { format } from "date-fns";
 import { camerasApi } from "@/api/cameras";
 import { salesApi } from '@/api/sales';
 import { cvServiceApi } from "@/api/cvService";
@@ -55,6 +52,7 @@ export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const isDark = theme.palette.mode === 'dark';
     const { user } = useAuth();
     const { t } = useLanguage();
 
@@ -81,7 +79,6 @@ export const Dashboard: React.FC = () => {
     });
     const expiringToday = expiringTodayData?.expiring || [];
 
-    // Check if user has reports permission
     const hasReportsAccess = user?.role === 'admin' || user?.permissions?.pages?.includes('all') || user?.permissions?.pages?.includes('reports');
 
     const { data: recognizedData } = useQuery({
@@ -94,9 +91,8 @@ export const Dashboard: React.FC = () => {
     const recognizedActive = recognized.filter((r: any) => r.membership_status === "active");
     const recognizedExpired = recognized.filter((r: any) => r.membership_status === "expired");
 
-    // Camera Widget Logic
+    // Camera Widget
     const [selectedCam, setSelectedCam] = useState("");
-
     const { data: camerasData } = useQuery({
         queryKey: ["cameras"],
         queryFn: () => camerasApi.getCameras(),
@@ -112,10 +108,6 @@ export const Dashboard: React.FC = () => {
         window.open(`/kiosk?cameraId=${selectedCam}`, "PowerHouseKiosk", "width=1000,height=800");
     };
 
-    const handleCamChange = (e: any) => {
-        setSelectedCam(e.target.value);
-    };
-
     const stats = {
         activeMembers: membersData?.total || 0,
         todayCheckIns: recognizedActive.length + recognizedExpired.length,
@@ -123,6 +115,25 @@ export const Dashboard: React.FC = () => {
     };
 
     const currentDate = format(new Date(), "EEE, MMMM d");
+
+    // Theme-aware colors
+    const paperBg = theme.palette.background.paper;
+    const borderColor = isDark ? alpha(theme.palette.divider, 0.12) : theme.palette.divider;
+    const successMain = theme.palette.success.main;
+    const warningMain = theme.palette.warning.main;
+    const errorMain = theme.palette.error.main;
+    const textSecondary = theme.palette.text.secondary;
+
+    // Warning panel colors (theme-aware)
+    const warnBg = isDark
+        ? alpha(theme.palette.warning.dark, 0.15)
+        : alpha(theme.palette.warning.light, 0.3);
+    const warnBorder = isDark
+        ? alpha(theme.palette.warning.main, 0.4)
+        : theme.palette.warning.main;
+    const warnHeaderText = isDark
+        ? theme.palette.warning.light
+        : theme.palette.warning.dark;
 
     const MemberTooltip: React.FC<{ member: any; children: React.ReactElement }> = ({ member, children }) => {
         const [photoUrl, setPhotoUrl] = React.useState<string | null>(null);
@@ -134,6 +145,7 @@ export const Dashboard: React.FC = () => {
         }, [member.member_id]);
 
         const isActive = member.membership_status === 'active';
+        const tooltipBg = isDark ? '#1a1a2e' : '#1e1e1e';
 
         return (
             <Tooltip
@@ -141,8 +153,8 @@ export const Dashboard: React.FC = () => {
                 componentsProps={{
                     tooltip: {
                         sx: {
-                            bgcolor: '#1e1e1e',
-                            border: '1px solid #333',
+                            bgcolor: tooltipBg,
+                            border: `1px solid ${isDark ? '#3a3a5a' : '#333'}`,
                             borderRadius: 2,
                             p: 2,
                             maxWidth: 280,
@@ -156,7 +168,7 @@ export const Dashboard: React.FC = () => {
                             sx={{
                                 width: 56,
                                 height: 56,
-                                bgcolor: '#444',
+                                bgcolor: isDark ? '#3a3a5a' : '#444',
                                 fontSize: '1.2rem',
                             }}
                         >
@@ -173,15 +185,9 @@ export const Dashboard: React.FC = () => {
                             )}
                             {member.membership_end && (
                                 <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
-                                    {isActive ? (
-                                        <Typography variant="caption" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
-                                            ✅ {t.dashboard.activeUntil} {format(new Date(member.membership_end), 'MMM d, yyyy')}
-                                        </Typography>
-                                    ) : (
-                                        <Typography variant="caption" sx={{ color: '#f44336', fontWeight: 'bold' }}>
-                                            ❌ {t.dashboard.expiredOn} {format(new Date(member.membership_end), 'MMM d, yyyy')}
-                                        </Typography>
-                                    )}
+                                    <Typography variant="caption" sx={{ color: isActive ? '#4caf50' : '#f44336', fontWeight: 'bold' }}>
+                                        {isActive ? 'Activa hasta' : 'Vencida'} {format(new Date(member.membership_end), 'MMM d, yyyy')}
+                                    </Typography>
                                 </Box>
                             )}
                         </Box>
@@ -194,130 +200,76 @@ export const Dashboard: React.FC = () => {
     };
 
     return (
-        <Box
-            sx={{
-                maxWidth: "1400px",
-                margin: "0 auto",
-                padding: { xs: 2, sm: 3, md: 4 },
-            }}
-        >
-            {/* Header Section */}
+        <Box sx={{ maxWidth: "1400px", margin: "0 auto", padding: { xs: 2, sm: 3, md: 4 } }}>
+            {/* Header */}
             <Box sx={{ mb: { xs: 2, md: 4 } }}>
-                <Typography
-                    variant="body2"
-                    sx={{
-                        color: "var(--text-secondary)",
-                        mb: 0.5,
-                        fontWeight: 500,
-                    }}
-                >
+                <Typography variant="body2" sx={{ color: textSecondary, mb: 0.5, fontWeight: 500 }}>
                     {currentDate}
                 </Typography>
-                <Typography
-                    variant={isMobile ? "h5" : "h3"}
-                    sx={{
-                        fontWeight: 800,
-                        color: "var(--text-primary)",
-                        mb: 0.5,
-                    }}
-                >
+                <Typography variant={isMobile ? "h5" : "h3"} sx={{ fontWeight: 800, mb: 0.5 }}>
                     {t.dashboard.title.replace('{name}', user?.username || 'Admin')}
                 </Typography>
-                <Typography
-                    variant={isMobile ? "h6" : "h4"}
-                    className="gradient-text"
-                    sx={{
-                        fontWeight: 700,
-                    }}
-                >
+                <Typography variant={isMobile ? "h6" : "h4"} className="gradient-text" sx={{ fontWeight: 700 }}>
                     {t.dashboard.subtitle}
                 </Typography>
             </Box>
 
-            {/* Main Content */}
+            {/* Main Layout */}
             <Box sx={{ display: "flex", gap: { xs: 2, md: 3 }, flexDirection: { xs: "column", lg: "row" } }}>
-                {/* Quick Actions Section */}
+
+                {/* LEFT COLUMN */}
                 <Box sx={{ flex: 1 }}>
-                    <Paper
-                        elevation={0}
-                        sx={{
-                            p: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--bg-secondary)",
-                        }}
-                    >
+
+                    {/* Quick Actions */}
+                    <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, borderRadius: 3, border: `1px solid ${borderColor}`, bgcolor: paperBg }}>
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, fontSize: { xs: '1rem', md: '1.25rem' } }}>
                             {t.dashboard.quickActions}
                         </Typography>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-                            <Button
-                                variant="outlined"
-                                startIcon={<PersonAddIcon />}
-                                onClick={() => navigate("/members/new")}
-                                sx={{
-                                    justifyContent: "flex-start",
-                                    p: 1.5,
-                                    borderRadius: "var(--radius-lg)",
-                                    textTransform: "none",
-                                    borderColor: "var(--border-color)",
-                                    minHeight: 44,
-                                }}
-                            >
-                                {t.dashboard.addMember}
-                            </Button>
-                            <Button
-                                variant="outlined"
-                                startIcon={<VideocamIcon />}
-                                onClick={() => navigate("/cameras")}
-                                sx={{
-                                    justifyContent: "flex-start",
-                                    p: 1.5,
-                                    borderRadius: "var(--radius-lg)",
-                                    textTransform: "none",
-                                    borderColor: "var(--border-color)",
-                                    minHeight: 44,
-                                }}
-                            >
-                                {t.dashboard.viewCameras}
-                            </Button>
-                            <Button
-                                variant="outlined"
-                                startIcon={<AssessmentIcon />}
-                                onClick={() => navigate("/reports")}
-                                sx={{
-                                    justifyContent: "flex-start",
-                                    p: 1.5,
-                                    borderRadius: "var(--radius-lg)",
-                                    textTransform: "none",
-                                    borderColor: "var(--border-color)",
-                                    minHeight: 44,
-                                }}
-                            >
-                                {t.dashboard.viewReports}
-                            </Button>
+                            {[
+                                { icon: <PersonAddIcon />, label: t.dashboard.addMember, path: "/members/new" },
+                                { icon: <VideocamIcon />, label: t.dashboard.viewCameras, path: "/cameras" },
+                                { icon: <AssessmentIcon />, label: t.dashboard.viewReports, path: "/reports" },
+                            ].map((action) => (
+                                <Button
+                                    key={action.path}
+                                    variant="outlined"
+                                    startIcon={action.icon}
+                                    onClick={() => navigate(action.path)}
+                                    sx={{
+                                        justifyContent: "flex-start",
+                                        p: 1.5,
+                                        borderRadius: 2,
+                                        textTransform: "none",
+                                        borderColor: borderColor,
+                                        minHeight: 44,
+                                        color: 'text.primary',
+                                        '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.05) },
+                                    }}
+                                >
+                                    {action.label}
+                                </Button>
+                            ))}
                         </Box>
                     </Paper>
 
-                    {/* Expiring Today Widget - Dynamic Daily */}
+                    {/* Expiring Today — Dynamic Daily */}
                     <Paper
                         elevation={0}
                         sx={{
-                            p: { xs: 2, md: 3 },
-                            mt: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: expiringToday.length > 0 ? "1px solid #ff9800" : "1px solid var(--border-color)",
-                            background: expiringToday.length > 0 ? "#fff8e1" : "var(--bg-secondary)",
+                            p: { xs: 2, md: 3 }, mt: { xs: 2, md: 3 }, borderRadius: 3,
+                            border: `1px solid ${expiringToday.length > 0 ? warnBorder : borderColor}`,
+                            bgcolor: expiringToday.length > 0 ? warnBg : paperBg,
                         }}
                     >
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
-                                <WarningIcon sx={{ mr: 1.5, color: expiringToday.length > 0 ? "#f44336" : "#aaa" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' }, color: expiringToday.length > 0 ? "#e65100" : "inherit" }}>
-                                    Membresías Vencidas Hoy
+                                <WarningIcon sx={{ mr: 1.5, color: expiringToday.length > 0 ? errorMain : textSecondary }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' }, color: expiringToday.length > 0 ? warnHeaderText : 'text.primary' }}>
+                                    Membresias Vencidas Hoy
                                 </Typography>
                             </Box>
-                            <Chip label={expiringToday.length} color={expiringToday.length > 0 ? "warning" : "default" as any} size="small" />
+                            <Chip label={expiringToday.length} color={expiringToday.length > 0 ? "warning" : "default"} size="small" />
                         </Box>
                         <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
@@ -325,27 +277,22 @@ export const Dashboard: React.FC = () => {
                                     <TableRow>
                                         <TableCell>Miembro</TableCell>
                                         <TableCell>Plan</TableCell>
-                                        <TableCell>Venció</TableCell>
-                                        <TableCell>Días</TableCell>
+                                        <TableCell>Vencio</TableCell>
+                                        <TableCell>Dias</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
                                     {expiringToday.map((m: any) => (
-                                        <TableRow
-                                            key={m.member_id + m.end_date}
-                                            hover
-                                            onClick={() => navigate(`/members/${m.member_id}`)}
-                                            sx={{ cursor: "pointer" }}
-                                        >
+                                        <TableRow key={m.member_id + m.end_date} hover onClick={() => navigate(`/members/${m.member_id}`)} sx={{ cursor: "pointer" }}>
                                             <TableCell>{m.member_name}</TableCell>
                                             <TableCell>{m.plan_name || "-"}</TableCell>
-                                            <TableCell sx={{ color: m.days_expired > 0 ? "#f44336" : "#ff9800", fontWeight: "bold" }}>
+                                            <TableCell sx={{ color: m.days_expired > 0 ? errorMain : warningMain, fontWeight: "bold" }}>
                                                 {format(new Date(m.end_date), "MMM d")}
                                             </TableCell>
                                             <TableCell>
                                                 <Chip
                                                     label={m.days_expired === 0 ? "Hoy" : `${m.days_expired}d`}
-                                                    color={m.days_expired === 0 ? "warning" : "error" as any}
+                                                    color={m.days_expired === 0 ? "warning" : "error"}
                                                     size="small"
                                                 />
                                             </TableCell>
@@ -353,8 +300,8 @@ export const Dashboard: React.FC = () => {
                                     ))}
                                     {expiringToday.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={4} align="center" sx={{ py: 3, color: "#999" }}>
-                                                No hay membresías vencidas hoy
+                                            <TableCell colSpan={4} align="center" sx={{ py: 3, color: textSecondary }}>
+                                                No hay membresias vencidas hoy
                                             </TableCell>
                                         </TableRow>
                                     )}
@@ -363,21 +310,14 @@ export const Dashboard: React.FC = () => {
                         </TableContainer>
                     </Paper>
 
-                    {/* Today Check-ins - Active */}
-                    <Paper
-                        elevation={0}
-                        sx={{
-                            p: { xs: 2, md: 3 },
-                            mt: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--bg-secondary)",
-                        }}
-                    >
+                    {/* Today Check-ins — Active */}
+                    <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, mt: { xs: 2, md: 3 }, borderRadius: 3, border: `1px solid ${borderColor}`, bgcolor: paperBg }}>
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
-                                <CheckCircleIcon sx={{ mr: 1.5, color: "#4caf50" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>{t.dashboard.todayCheckinsActive}</Typography>
+                                <CheckCircleIcon sx={{ mr: 1.5, color: successMain }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>
+                                    {t.dashboard.todayCheckinsActive}
+                                </Typography>
                             </Box>
                             <Chip label={recognizedActive.length} color="success" size="small" />
                         </Box>
@@ -394,25 +334,19 @@ export const Dashboard: React.FC = () => {
                                 <TableBody>
                                     {recognizedActive.map((r: any) => (
                                         <MemberTooltip key={r.member_id} member={r}>
-                                        <TableRow
-                                            hover
-                                            onClick={() => navigate(`/members/${r.member_id}`)}
-                                            sx={{ cursor: "pointer" }}
-                                        >
-                                            <TableCell>{r.member_name}</TableCell>
-                                            <TableCell>{r.membership_plan || "-"}</TableCell>
-                                            <TableCell>
-                                                {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
-                                            </TableCell>
-                                            <TableCell>
-                                                {r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}
-                                            </TableCell>
-                                        </TableRow>
+                                            <TableRow hover onClick={() => navigate(`/members/${r.member_id}`)} sx={{ cursor: "pointer" }}>
+                                                <TableCell>{r.member_name}</TableCell>
+                                                <TableCell>{r.membership_plan || "-"}</TableCell>
+                                                <TableCell sx={{ color: successMain }}>
+                                                    {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
+                                                </TableCell>
+                                                <TableCell>{r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}</TableCell>
+                                            </TableRow>
                                         </MemberTooltip>
                                     ))}
                                     {recognizedActive.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={4} align="center">{t.dashboard.noActive}</TableCell>
+                                            <TableCell colSpan={4} align="center" sx={{ color: textSecondary }}>{t.dashboard.noActive}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -420,21 +354,20 @@ export const Dashboard: React.FC = () => {
                         </TableContainer>
                     </Paper>
 
-                    {/* Today Check-ins - Expired */}
+                    {/* Today Check-ins — Expired */}
+                    {recognizedExpired.length > 0 && (
                     <Paper
                         elevation={0}
                         sx={{
-                            p: { xs: 2, md: 3 },
-                            mt: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: "1px solid #ff9800",
-                            background: "#fff8e1",
+                            p: { xs: 2, md: 3 }, mt: { xs: 2, md: 3 }, borderRadius: 3,
+                            border: `1px solid ${warnBorder}`,
+                            bgcolor: warnBg,
                         }}
                     >
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
-                                <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600, color: "#e65100", fontSize: { xs: '1rem', md: '1.25rem' } }}>
+                                <WarningIcon sx={{ mr: 1.5, color: errorMain }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600, color: warnHeaderText, fontSize: { xs: '1rem', md: '1.25rem' } }}>
                                     {t.dashboard.todayCheckinsExpired}
                                 </Typography>
                             </Box>
@@ -453,37 +386,28 @@ export const Dashboard: React.FC = () => {
                                 <TableBody>
                                     {recognizedExpired.map((r: any) => (
                                         <MemberTooltip key={r.member_id} member={r}>
-                                        <TableRow
-                                            hover
-                                            onClick={() => navigate(`/members/${r.member_id}`)}
-                                            sx={{ cursor: "pointer" }}
-                                        >
-                                            <TableCell>{r.member_name}</TableCell>
-                                            <TableCell>{r.membership_plan || "-"}</TableCell>
-                                            <TableCell sx={{ color: "#f44336", fontWeight: "bold" }}>
-                                                {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
-                                            </TableCell>
-                                            <TableCell>
-                                                {r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}
-                                            </TableCell>
-                                        </TableRow>
+                                            <TableRow hover onClick={() => navigate(`/members/${r.member_id}`)} sx={{ cursor: "pointer" }}>
+                                                <TableCell>{r.member_name}</TableCell>
+                                                <TableCell>{r.membership_plan || "-"}</TableCell>
+                                                <TableCell sx={{ color: errorMain, fontWeight: "bold" }}>
+                                                    {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
+                                                </TableCell>
+                                                <TableCell>{r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}</TableCell>
+                                            </TableRow>
                                         </MemberTooltip>
                                     ))}
-                                    {recognizedExpired.length === 0 && (
-                                        <TableRow>
-                                            <TableCell colSpan={4} align="center">{t.dashboard.noActiveCheckins}</TableCell>
-                                        </TableRow>
-                                    )}
                                 </TableBody>
                             </Table>
                         </TableContainer>
                     </Paper>
+                    )}
                 </Box>
 
-                {/* Stats & Quick Actions Sidebar */}
+                {/* RIGHT SIDEBAR */}
                 <Box sx={{ width: { xs: "100%", lg: "320px" } }}>
+
                     {/* Live Feed Widget */}
-                    <Card sx={{ mb: { xs: 2, md: 3 }, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-color)" }}>
+                    <Card sx={{ mb: { xs: 2, md: 3 }, borderRadius: 3, border: `1px solid ${borderColor}` }}>
                         <CardHeader
                             title={t.dashboard.liveAccessMonitor}
                             avatar={<VideocamIcon color="primary" />}
@@ -497,106 +421,60 @@ export const Dashboard: React.FC = () => {
                         <CardContent>
                             <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                                 <InputLabel>{t.dashboard.camera}</InputLabel>
-                                <Select value={selectedCam} label={t.dashboard.camera} onChange={handleCamChange}>
+                                <Select value={selectedCam} label={t.dashboard.camera} onChange={(e) => setSelectedCam(e.target.value)}>
                                     {camerasData?.map((cam: any) => (
                                         <MenuItem key={cam.id} value={cam.id}>{cam.name}</MenuItem>
                                     ))}
                                 </Select>
                             </FormControl>
-
-                            <Box
-                                sx={{
-                                    width: "100%",
-                                    aspectRatio: "16/9",
-                                    bgcolor: "black",
-                                    borderRadius: 1,
-                                    overflow: "hidden",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                }}
-                            >
+                            <Box sx={{ width: "100%", aspectRatio: "16/9", bgcolor: "black", borderRadius: 1, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
                                 {selectedCam ? (
-                                    <img
-                                        src={cvServiceApi.getStreamUrl(selectedCam)}
-                                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                                        alt="Live Feed"
-                                    />
+                                    <img src={cvServiceApi.getStreamUrl(selectedCam)} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="Live Feed" />
                                 ) : (
-                                    <Typography variant="body2" color="grey.500">{t.dashboard.selectCamera}</Typography>
+                                    <Typography variant="body2" sx={{ color: 'grey.500' }}>{t.dashboard.selectCamera}</Typography>
                                 )}
                             </Box>
                         </CardContent>
                     </Card>
 
-                    {/* Quick Stats - Only visible with reports permission */}
-                    {hasReportsAccess && (<Paper
+                    {/* Quick Stats — Only with reports permission */}
+                    {hasReportsAccess && (
+                    <Paper
                         elevation={0}
                         sx={{
-                            p: { xs: 2, md: 3 },
-                            mb: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: "1px solid var(--border-color)",
-                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            p: { xs: 2, md: 3 }, mb: { xs: 2, md: 3 }, borderRadius: 3,
+                            border: `1px solid ${isDark ? alpha(theme.palette.primary.dark, 0.3) : alpha(theme.palette.primary.main, 0.2)}`,
+                            background: isDark
+                                ? `linear-gradient(135deg, ${alpha(theme.palette.primary.dark, 0.5)} 0%, ${alpha(theme.palette.secondary.dark, 0.5)} 100%)`
+                                : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
                             color: "white",
                             position: "relative",
                             overflow: "hidden",
                         }}
                     >
-                        <Box
-                            sx={{
-                                position: "absolute",
-                                top: -20,
-                                right: -20,
-                                width: 100,
-                                height: 100,
-                                borderRadius: "50%",
-                                background: "rgba(255, 255, 255, 0.1)",
-                            }}
-                        />
+                        <Box sx={{ position: "absolute", top: -20, right: -20, width: 100, height: 100, borderRadius: "50%", background: "rgba(255, 255, 255, 0.1)" }} />
                         <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, position: "relative", fontSize: { xs: '1rem', md: '1.25rem' } }}>
                             {t.dashboard.quickStats}
                         </Typography>
                         <Box sx={{ position: "relative" }}>
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    {t.dashboard.activeMembers}
-                                </Typography>
-                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
-                                    {stats.activeMembers}
-                                </Typography>
-                            </Box>
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    {t.dashboard.todayCheckins}
-                                </Typography>
-                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
-                                    {stats.todayCheckIns}
-                                </Typography>
-                            </Box>
-                            <Box>
-                                <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
-                                    {t.dashboard.monthlyRevenue}
-                                </Typography>
-                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
-                                    ${stats.monthlyRevenue.toLocaleString()}
-                                </Typography>
-                            </Box>
+                            {[
+                                { label: t.dashboard.activeMembers, value: stats.activeMembers },
+                                { label: t.dashboard.todayCheckins, value: stats.todayCheckIns },
+                                { label: t.dashboard.monthlyRevenue, value: `$${stats.monthlyRevenue.toLocaleString()}` },
+                            ].map((stat, i) => (
+                                <Box key={i} sx={{ mb: 2 }}>
+                                    <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>{stat.label}</Typography>
+                                    <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>{stat.value}</Typography>
+                                </Box>
+                            ))}
                         </Box>
-                    </Paper>)}
+                    </Paper>
+                    )}
 
                     {/* Recent Activity */}
-                    <Paper
-                        elevation={0}
-                        sx={{
-                            p: { xs: 2, md: 3 },
-                            borderRadius: "var(--radius-xl)",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--bg-secondary)",
-                        }}
-                    >
+                    <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, borderRadius: 3, border: `1px solid ${borderColor}`, bgcolor: paperBg }}>
                         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-                            <ScheduleIcon sx={{ mr: 1.5, color: "var(--accent-cyan)" }} />
+                            <ScheduleIcon sx={{ mr: 1.5, color: theme.palette.info.main }} />
                             <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>
                                 {t.dashboard.recentActivity}
                             </Typography>
@@ -604,50 +482,39 @@ export const Dashboard: React.FC = () => {
                         <Box>
                             {recentEvents?.slice(0, 3).map((event, index) => {
                                 const conf = event.confidence ?? event.confidence_score ?? 0;
+                                const granted = (event as any).access_granted;
                                 return (
-                                <Box
-                                    key={event.id}
-                                    sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 2,
-                                        py: 2,
-                                        borderBottom: index < 2 ? "1px solid var(--border-color)" : "none",
-                                    }}
-                                >
-                                    <Avatar
+                                    <Box
+                                        key={event.id}
                                         sx={{
-                                            width: 40,
-                                            height: 40,
-                                            background: "var(--primary-gradient)",
+                                            display: "flex", alignItems: "center", gap: 2, py: 2,
+                                            borderBottom: index < Math.min(recentEvents.length - 1, 2) ? `1px solid ${borderColor}` : "none",
                                         }}
                                     >
-                                        {(event.member_name || "M")[0]}
-                                    </Avatar>
-                                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {event.member_name || t.dashboard.unknown}
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: "var(--text-secondary)" }}>
-                                            {(event as any).access_granted ? "✅ Acceso" : "⛔ Denegado"} • {event.timestamp ? format(new Date(event.timestamp), "h:mm a") : ""}
-                                        </Typography>
+                                        <Avatar sx={{ width: 40, height: 40, background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})` }}>
+                                            {(event.member_name || "M")[0]}
+                                        </Avatar>
+                                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {event.member_name || t.dashboard.unknown}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ color: textSecondary }}>
+                                                {granted ? "Acceso" : "Denegado"} — {event.timestamp ? format(new Date(event.timestamp), "h:mm a") : ""}
+                                            </Typography>
+                                        </Box>
+                                        {conf > 0 && (
+                                            <Chip
+                                                label={`${(conf * 100).toFixed(0)}%`}
+                                                size="small"
+                                                color={granted ? "success" : "error"}
+                                                sx={{ fontWeight: 600 }}
+                                            />
+                                        )}
                                     </Box>
-                                    {conf > 0 && (
-                                        <Chip
-                                            label={`${(conf * 100).toFixed(0)}%`}
-                                            size="small"
-                                            sx={{
-                                                background: "var(--status-progress)",
-                                                color: "var(--status-progress-text)",
-                                                fontWeight: 600,
-                                            }}
-                                        />
-                                    )}
-                                </Box>
                                 );
                             })}
                             {(!recentEvents || recentEvents.length === 0) && (
-                                <Typography variant="body2" sx={{ color: "var(--text-secondary)", py: 2 }}>
+                                <Typography variant="body2" sx={{ color: textSecondary, py: 2 }}>
                                     {t.dashboard.noActivity}
                                 </Typography>
                             )}
