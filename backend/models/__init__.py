@@ -12,6 +12,7 @@ from models.sale import SalesTransaction, PaymentMethod
 from models.event import AccessEvent
 from models.camera import Camera
 from models.biometric import BiometricTemplate
+from models.enrollment_request import EnrollmentRequest
 from models.setting import Setting
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "AccessEvent",
     "Camera",
     "BiometricTemplate",
+    "EnrollmentRequest",
     "Setting",
 ]
