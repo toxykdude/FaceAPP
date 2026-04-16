@@ -58,15 +58,26 @@ def list_members(
     if status:
         query = query.filter(Member.status == status.value)
     
-    # Search by name or email
+    # Search by name, email, or id_number
+    # Multi-word: ALL words must match somewhere (AND between words, OR between fields)
     if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            (Member.first_name.ilike(search_term)) |
-            (Member.last_name.ilike(search_term)) |
-            (Member.email.ilike(search_term)) |
-            (Member.id_number.ilike(search_term))
-        )
+        from sqlalchemy import func, or_, and_
+        
+        words = search.strip().split()
+        
+        # Build per-word conditions: each word must match at least one field
+        word_filters = []
+        for word in words:
+            word_filters.append(or_(
+                Member.first_name.ilike(f"%{word}%"),
+                Member.last_name.ilike(f"%{word}%"),
+                Member.email.ilike(f"%{word}%"),
+                Member.id_number.ilike(f"%{word}%"),
+                func.concat(Member.first_name, ' ', Member.last_name).ilike(f"%{word}%"),
+            ))
+        
+        # All words must match (AND), each word can match any field (OR)
+        query = query.filter(and_(*word_filters))
     
     # Get total count
     total = query.count()
@@ -74,9 +85,52 @@ def list_members(
     # Get paginated results
     members = query.order_by(Member.created_at.desc()).offset(skip).limit(limit).all()
     
+    # Enrich members with active membership info
+    from models.membership import Membership
+    today = datetime.now(timezone.utc).date()
+    
+    member_data = []
+    for m in members:
+        active_mem = db.query(Membership).filter(
+            Membership.member_id == m.id,
+            Membership.status == 'active',
+            Membership.end_date >= today
+        ).order_by(Membership.end_date.desc()).first()
+        
+        expired_mem = None
+        if not active_mem:
+            expired_mem = db.query(Membership).filter(
+                Membership.member_id == m.id,
+            ).order_by(Membership.end_date.desc()).first()
+        
+        from models.membership import MembershipPlan
+        plan_name = None
+        if active_mem and active_mem.plan_id:
+            plan = db.query(MembershipPlan).filter(MembershipPlan.id == active_mem.plan_id).first()
+            plan_name = plan.name if plan else None
+        
+        m_dict = {
+            'id': str(m.id),
+            'first_name': m.first_name,
+            'last_name': m.last_name,
+            'email': m.email,
+            'phone': m.phone,
+            'status': m.status,
+            'facial_data_enrolled': m.facial_data_enrolled,
+            'consent_given_at': m.consent_given_at,
+            'id_number': m.id_number,
+            'created_at': m.created_at,
+            'updated_at': m.updated_at,
+            'last_seen': m.last_seen,
+            'membership_status': 'active' if active_mem else ('expired' if expired_mem else None),
+            'membership_end_date': str(active_mem.end_date) if active_mem else (str(expired_mem.end_date) if expired_mem and expired_mem.end_date else None),
+            'membership_plan_name': plan_name or (active_mem.type if active_mem else None),
+        }
+        member_data.append(m_dict)
+
     return {
         "total": total,
-        "members": members
+        "members": member_data
     }
 
 

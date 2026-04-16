@@ -19,6 +19,8 @@ import {
     TableHead,
     TableRow,
     Tooltip,
+    useMediaQuery,
+    useTheme,
 } from "@mui/material";
 import {
     PersonAdd as PersonAddIcon,
@@ -52,6 +54,8 @@ import { cvServiceApi } from "@/api/cvService";
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const { user } = useAuth();
     const { t } = useLanguage();
 
@@ -194,23 +198,23 @@ export const Dashboard: React.FC = () => {
             sx={{
                 maxWidth: "1400px",
                 margin: "0 auto",
-                padding: { xs: 2, md: 4 },
+                padding: { xs: 2, sm: 3, md: 4 },
             }}
         >
             {/* Header Section */}
-            <Box sx={{ mb: 4 }}>
+            <Box sx={{ mb: { xs: 2, md: 4 } }}>
                 <Typography
                     variant="body2"
                     sx={{
                         color: "var(--text-secondary)",
-                        mb: 1,
+                        mb: 0.5,
                         fontWeight: 500,
                     }}
                 >
                     {currentDate}
                 </Typography>
                 <Typography
-                    variant="h3"
+                    variant={isMobile ? "h5" : "h3"}
                     sx={{
                         fontWeight: 800,
                         color: "var(--text-primary)",
@@ -220,7 +224,7 @@ export const Dashboard: React.FC = () => {
                     {t.dashboard.title.replace('{name}', user?.username || 'Admin')}
                 </Typography>
                 <Typography
-                    variant="h4"
+                    variant={isMobile ? "h6" : "h4"}
                     className="gradient-text"
                     sx={{
                         fontWeight: 700,
@@ -231,22 +235,22 @@ export const Dashboard: React.FC = () => {
             </Box>
 
             {/* Main Content */}
-            <Box sx={{ display: "flex", gap: 3, flexDirection: { xs: "column", lg: "row" } }}>
+            <Box sx={{ display: "flex", gap: { xs: 2, md: 3 }, flexDirection: { xs: "column", lg: "row" } }}>
                 {/* Quick Actions Section */}
                 <Box sx={{ flex: 1 }}>
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
+                            p: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid var(--border-color)",
                             background: "var(--bg-secondary)",
                         }}
                     >
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, fontSize: { xs: '1rem', md: '1.25rem' } }}>
                             {t.dashboard.quickActions}
                         </Typography>
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
                             <Button
                                 variant="outlined"
                                 startIcon={<PersonAddIcon />}
@@ -257,6 +261,7 @@ export const Dashboard: React.FC = () => {
                                     borderRadius: "var(--radius-lg)",
                                     textTransform: "none",
                                     borderColor: "var(--border-color)",
+                                    minHeight: 44,
                                 }}
                             >
                                 {t.dashboard.addMember}
@@ -271,6 +276,7 @@ export const Dashboard: React.FC = () => {
                                     borderRadius: "var(--radius-lg)",
                                     textTransform: "none",
                                     borderColor: "var(--border-color)",
+                                    minHeight: 44,
                                 }}
                             >
                                 {t.dashboard.viewCameras}
@@ -285,6 +291,7 @@ export const Dashboard: React.FC = () => {
                                     borderRadius: "var(--radius-lg)",
                                     textTransform: "none",
                                     borderColor: "var(--border-color)",
+                                    minHeight: 44,
                                 }}
                             >
                                 {t.dashboard.viewReports}
@@ -296,8 +303,8 @@ export const Dashboard: React.FC = () => {
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
-                            mt: 3,
+                            p: { xs: 2, md: 3 },
+                            mt: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid var(--border-color)",
                             background: "var(--bg-secondary)",
@@ -306,16 +313,15 @@ export const Dashboard: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
                                 <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600 }}>{t.dashboard.expiredMemberships}</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>{t.dashboard.expiredMemberships}</Typography>
                             </Box>
                             <Button size="small" onClick={() => navigate("/memberships")}>{t.dashboard.viewAll}</Button>
                         </Box>
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
                                         <TableCell>{t.dashboard.member}</TableCell>
-                                        <TableCell>{t.dashboard.id}</TableCell>
                                         <TableCell>{t.dashboard.plan}</TableCell>
                                         <TableCell>{t.dashboard.expired}</TableCell>
                                     </TableRow>
@@ -338,7 +344,6 @@ export const Dashboard: React.FC = () => {
                                                 sx={{ cursor: "pointer" }}
                                             >
                                                 <TableCell>{m.member_name || t.dashboard.unknown}</TableCell>
-                                                <TableCell>{m.member_id_number || "-"}</TableCell>
                                                 <TableCell>{m.plan_name || m.type}</TableCell>
                                                 <TableCell>{format(new Date(m.end_date), "MMM d, yyyy")}</TableCell>
                                             </TableRow>
@@ -346,7 +351,7 @@ export const Dashboard: React.FC = () => {
                                         ))}
                                     {(!expiredMemberships || expiredMemberships.length === 0) && (
                                         <TableRow>
-                                            <TableCell colSpan={4} align="center">{t.dashboard.noExpired}</TableCell>
+                                            <TableCell colSpan={3} align="center">{t.dashboard.noExpired}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -358,8 +363,8 @@ export const Dashboard: React.FC = () => {
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
-                            mt: 3,
+                            p: { xs: 2, md: 3 },
+                            mt: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid var(--border-color)",
                             background: "var(--bg-secondary)",
@@ -368,16 +373,15 @@ export const Dashboard: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
                                 <CheckCircleIcon sx={{ mr: 1.5, color: "#4caf50" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600 }}>{t.dashboard.todayCheckinsActive}</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>{t.dashboard.todayCheckinsActive}</Typography>
                             </Box>
                             <Chip label={recognizedActive.length} color="success" size="small" />
                         </Box>
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
                                         <TableCell>{t.dashboard.member}</TableCell>
-                                        <TableCell>{t.dashboard.id}</TableCell>
                                         <TableCell>{t.dashboard.plan}</TableCell>
                                         <TableCell>{t.dashboard.expires}</TableCell>
                                         <TableCell>{t.dashboard.lastSeen}</TableCell>
@@ -392,7 +396,6 @@ export const Dashboard: React.FC = () => {
                                             sx={{ cursor: "pointer" }}
                                         >
                                             <TableCell>{r.member_name}</TableCell>
-                                            <TableCell>{r.member_id_number || "-"}</TableCell>
                                             <TableCell>{r.membership_plan || "-"}</TableCell>
                                             <TableCell>
                                                 {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
@@ -405,7 +408,7 @@ export const Dashboard: React.FC = () => {
                                     ))}
                                     {recognizedActive.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} align="center">{t.dashboard.noActive}</TableCell>
+                                            <TableCell colSpan={4} align="center">{t.dashboard.noActive}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -417,8 +420,8 @@ export const Dashboard: React.FC = () => {
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
-                            mt: 3,
+                            p: { xs: 2, md: 3 },
+                            mt: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid #ff9800",
                             background: "#fff8e1",
@@ -427,18 +430,17 @@ export const Dashboard: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
                                 <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600, color: "#e65100" }}>
+                                <Typography variant="h6" sx={{ fontWeight: 600, color: "#e65100", fontSize: { xs: '1rem', md: '1.25rem' } }}>
                                     {t.dashboard.todayCheckinsExpired}
                                 </Typography>
                             </Box>
                             <Chip label={recognizedExpired.length} color="error" size="small" />
                         </Box>
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
                                         <TableCell>{t.dashboard.member}</TableCell>
-                                        <TableCell>{t.dashboard.id}</TableCell>
                                         <TableCell>{t.dashboard.plan}</TableCell>
                                         <TableCell>{t.dashboard.expired}</TableCell>
                                         <TableCell>{t.dashboard.lastSeen}</TableCell>
@@ -453,7 +455,6 @@ export const Dashboard: React.FC = () => {
                                             sx={{ cursor: "pointer" }}
                                         >
                                             <TableCell>{r.member_name}</TableCell>
-                                            <TableCell>{r.member_id_number || "-"}</TableCell>
                                             <TableCell>{r.membership_plan || "-"}</TableCell>
                                             <TableCell sx={{ color: "#f44336", fontWeight: "bold" }}>
                                                 {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
@@ -466,7 +467,7 @@ export const Dashboard: React.FC = () => {
                                     ))}
                                     {recognizedExpired.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} align="center">{t.dashboard.noActiveCheckins}</TableCell>
+                                            <TableCell colSpan={4} align="center">{t.dashboard.noActiveCheckins}</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -478,15 +479,16 @@ export const Dashboard: React.FC = () => {
                 {/* Stats & Quick Actions Sidebar */}
                 <Box sx={{ width: { xs: "100%", lg: "320px" } }}>
                     {/* Live Feed Widget */}
-                    <Card sx={{ mb: 3, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-color)" }}>
+                    <Card sx={{ mb: { xs: 2, md: 3 }, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-color)" }}>
                         <CardHeader
                             title={t.dashboard.liveAccessMonitor}
                             avatar={<VideocamIcon color="primary" />}
                             action={
-                                <IconButton onClick={handleOpenKiosk} title="Detach Window">
+                                <IconButton onClick={handleOpenKiosk} title="Detach Window" sx={{ minWidth: 44, minHeight: 44 }}>
                                     <OpenInNewIcon />
                                 </IconButton>
                             }
+                            titleTypographyProps={{ fontSize: { xs: '0.95rem', md: '1.25rem' } }}
                         />
                         <CardContent>
                             <FormControl fullWidth size="small" sx={{ mb: 2 }}>
@@ -527,8 +529,8 @@ export const Dashboard: React.FC = () => {
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
-                            mb: 3,
+                            p: { xs: 2, md: 3 },
+                            mb: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid var(--border-color)",
                             background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
@@ -548,7 +550,7 @@ export const Dashboard: React.FC = () => {
                                 background: "rgba(255, 255, 255, 0.1)",
                             }}
                         />
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, position: "relative" }}>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, position: "relative", fontSize: { xs: '1rem', md: '1.25rem' } }}>
                             {t.dashboard.quickStats}
                         </Typography>
                         <Box sx={{ position: "relative" }}>
@@ -556,7 +558,7 @@ export const Dashboard: React.FC = () => {
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
                                     {t.dashboard.activeMembers}
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
                                     {stats.activeMembers}
                                 </Typography>
                             </Box>
@@ -564,7 +566,7 @@ export const Dashboard: React.FC = () => {
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
                                     {t.dashboard.todayCheckins}
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
                                     {stats.todayCheckIns}
                                 </Typography>
                             </Box>
@@ -572,7 +574,7 @@ export const Dashboard: React.FC = () => {
                                 <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
                                     {t.dashboard.monthlyRevenue}
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                                <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontWeight: 700 }}>
                                     ${stats.monthlyRevenue.toLocaleString()}
                                 </Typography>
                             </Box>
@@ -583,7 +585,7 @@ export const Dashboard: React.FC = () => {
                     <Paper
                         elevation={0}
                         sx={{
-                            p: 3,
+                            p: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
                             border: "1px solid var(--border-color)",
                             background: "var(--bg-secondary)",
@@ -591,7 +593,7 @@ export const Dashboard: React.FC = () => {
                     >
                         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                             <ScheduleIcon sx={{ mr: 1.5, color: "var(--accent-cyan)" }} />
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>
                                 {t.dashboard.recentActivity}
                             </Typography>
                         </Box>
@@ -616,8 +618,8 @@ export const Dashboard: React.FC = () => {
                                     >
                                         {event.member_name?.[0] || "M"}
                                     </Avatar>
-                                    <Box sx={{ flex: 1 }}>
-                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {event.member_name || (event?.member_id ? `${t.dashboard.member} ${event.member_id.substring(0, 8)}` : t.dashboard.unknown)}
                                         </Typography>
                                         <Typography variant="caption" sx={{ color: "var(--text-secondary)" }}>

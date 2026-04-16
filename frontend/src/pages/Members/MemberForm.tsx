@@ -23,6 +23,8 @@ import {
     Chip,
     InputAdornment,
     CircularProgress,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import { PhotoCamera } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
@@ -53,6 +55,8 @@ export const MemberForm: React.FC = () => {
     const isEdit = !!id;
     const [createdMemberId, setCreatedMemberId] = React.useState<string | null>(null);
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     const { data: member } = useQuery({
         queryKey: ['member', id],
@@ -64,9 +68,10 @@ export const MemberForm: React.FC = () => {
         control,
         handleSubmit,
         formState: { errors },
+        reset,
     } = useForm<MemberFormData>({
         resolver: zodResolver(memberSchema),
-        defaultValues: member || {
+        defaultValues: {
             first_name: '',
             last_name: '',
             email: '',
@@ -76,6 +81,23 @@ export const MemberForm: React.FC = () => {
             status: 'active',
         },
     });
+
+    // Populate form with member data when it loads in edit mode
+    React.useEffect(() => {
+        if (member) {
+            reset({
+                first_name: member.first_name || '',
+                last_name: member.last_name || '',
+                email: member.email || '',
+                phone: member.phone || '',
+                id_number: member.id_number || '',
+                date_of_birth: member.date_of_birth || '',
+                address: member.address || '',
+                consent_given: member.consent_given || false,
+                status: member.status || 'active',
+            });
+        }
+    }, [member, reset]);
 
     const createMutation = useMutation({
         mutationFn: (data: MemberCreate) => membersApi.createMember(data),
@@ -110,16 +132,16 @@ export const MemberForm: React.FC = () => {
     };
 
     return (
-        <Box>
-            <Typography variant="h4" gutterBottom>
+        <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+            <Typography variant={isMobile ? "h5" : "h4"} gutterBottom>
                 {isEdit ? t.members.editMember : t.members.addMember}
             </Typography>
 
-            {(!createdMemberId && !isEdit) && (
+            {(!createdMemberId || isEdit) && (
             <Card>
-                <CardContent>
+                <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <form onSubmit={handleSubmit(onSubmit)}>
-                        <Grid container spacing={3}>
+                        <Grid container spacing={2}>
                             <Grid item xs={12} sm={6}>
                                 <Controller
                                     name="first_name"
@@ -256,14 +278,15 @@ export const MemberForm: React.FC = () => {
                             </Grid>
 
                             <Grid item xs={12}>
-                                <Box display="flex" gap={2}>
-                                    <Button type="submit" variant="contained" size="large">
+                                <Box display="flex" gap={2} flexDirection={{ xs: 'column', sm: 'row' }}>
+                                    <Button type="submit" variant="contained" size="large" fullWidth={isMobile}>
                                         {isEdit ? t.members.update : t.members.create}
                                     </Button>
                                     <Button
                                         variant="outlined"
                                         size="large"
                                         onClick={() => navigate('/members')}
+                                        fullWidth={isMobile}
                                     >
                                         {t.members.cancel}
                                     </Button>
@@ -309,6 +332,8 @@ interface MembershipHistoryItem {
 const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     const [showForm, setShowForm] = React.useState(false);
     const [renewFromMembership, setRenewFromMembership] = React.useState<MembershipHistoryItem | null>(null);
@@ -464,7 +489,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
     return (
         <Card sx={{ mt: 3 }}>
-            <CardContent>
+            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom>{t.members.membershipHistory}</Typography>
 
                 {membershipsLoading && (
@@ -488,13 +513,14 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                         sx={{
                                             p: 2,
                                             display: 'flex',
-                                            alignItems: 'center',
+                                            flexDirection: { xs: 'column', sm: 'row' },
+                                            alignItems: { xs: 'flex-start', sm: 'center' },
                                             justifyContent: 'space-between',
                                             gap: 2,
                                         }}
                                     >
                                         <Box>
-                                            <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                                            <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
                                                 <Typography variant="subtitle1" fontWeight="bold">
                                                     {m.plan_name || m.type}
                                                 </Typography>
@@ -512,6 +538,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                             size="small"
                                             color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
                                             onClick={() => handleRenew(m)}
+                                            sx={{ minWidth: 44, minHeight: 44 }}
                                         >
                                             {t.members.renew}
                                         </Button>
@@ -565,7 +592,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                             </TextField>
 
                             <Grid container spacing={2}>
-                                <Grid item xs={6}>
+                                <Grid item xs={12} sm={6}>
                                     <TextField
                                         label={t.members.startDate}
                                         type="date"
@@ -575,7 +602,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                         InputLabelProps={{ shrink: true }}
                                     />
                                 </Grid>
-                                <Grid item xs={6}>
+                                <Grid item xs={12} sm={6}>
                                     <TextField
                                         label={t.members.endDate}
                                         type="date"
@@ -636,13 +663,14 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                 </>
                             )}
 
-                            <Box display="flex" gap={2}>
+                            <Box display="flex" gap={2} flexDirection={{ xs: 'column', sm: 'row' }}>
                                 <Button
                                     onClick={handleAssign}
                                     variant="contained"
                                     size="large"
                                     disabled={!selectedPlanId || createMutation.isPending}
-                                    fullWidth
+                                    fullWidth={isMobile}
+                                    sx={{ minHeight: 44 }}
                                 >
                                     {createMutation.isPending ? t.members.assigning : t.members.assignMembershipBtn}
                                 </Button>
@@ -650,7 +678,8 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                     onClick={handleCancelForm}
                                     variant="outlined"
                                     size="large"
-                                    fullWidth
+                                    fullWidth={isMobile}
+                                    sx={{ minHeight: 44 }}
                                 >
                                     {t.members.cancel}
                                 </Button>
@@ -665,6 +694,8 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
 const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [enrollmentStatus, setEnrollmentStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const [qualityScore, setQualityScore] = React.useState<number | null>(null);
     const [errorMsg, setErrorMsg] = React.useState<string>('');
@@ -749,7 +780,7 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
 
     return (
         <Card sx={{ mt: 3 }}>
-            <CardContent>
+            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                 <Typography variant="h6" gutterBottom>{t.members.faceEnrollment}</Typography>
 
                 {enrollmentStatus === 'success' ? (
@@ -777,16 +808,18 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                                         borderColor: 'primary.main',
                                     }}
                                 />
-                                <Box display="flex" gap={1} mt={1}>
+                                <Box display="flex" gap={1} mt={1} flexDirection={{ xs: 'column', sm: 'row' }}>
                                     <Button
                                         variant="contained"
                                         color="primary"
                                         onClick={captureAndEnroll}
                                         disabled={enrollmentStatus === 'uploading'}
+                                        fullWidth={isMobile}
+                                        sx={{ minHeight: 44 }}
                                     >
                                         {enrollmentStatus === 'uploading' ? t.members.processing : `📸 ${t.members.captureEnroll}`}
                                     </Button>
-                                    <Button variant="outlined" color="error" onClick={stopCamera}>
+                                    <Button variant="outlined" color="error" onClick={stopCamera} fullWidth={isMobile} sx={{ minHeight: 44 }}>
                                         {t.members.cancel}
                                     </Button>
                                 </Box>
@@ -794,12 +827,14 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                         )}
 
                         {!cameraActive && (
-                            <Box display="flex" gap={2} flexWrap="wrap">
+                            <Box display="flex" gap={2} flexWrap="wrap" flexDirection={{ xs: 'column', sm: 'row' }}>
                                 <Button
                                     variant="contained"
                                     startIcon={<PhotoCamera />}
                                     onClick={startCamera}
                                     disabled={enrollmentStatus === 'uploading'}
+                                    fullWidth={isMobile}
+                                    sx={{ minHeight: 44 }}
                                 >
                                     {t.members.useWebcam}
                                 </Button>
@@ -808,6 +843,8 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                                     startIcon={<PhotoCamera />}
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={enrollmentStatus === 'uploading'}
+                                    fullWidth={isMobile}
+                                    sx={{ minHeight: 44 }}
                                 >
                                     {enrollmentStatus === 'uploading' ? t.members.processing : t.members.uploadPhoto}
                                 </Button>

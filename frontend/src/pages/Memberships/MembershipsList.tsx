@@ -28,7 +28,9 @@ import {
     Grid,
     InputAdornment,
     Switch,
-    FormControlLabel
+    FormControlLabel,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import { Add as AddIcon, Refresh as RefreshIcon, Visibility as ViewIcon, Delete as DeleteIcon, Edit as EditIcon, CardMembership as PlanIcon, Assignment as AssignIcon } from '@mui/icons-material';
 import { membershipsApi } from '@/api/memberships';
@@ -49,6 +51,8 @@ export const MembershipsList: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [tabValue, setTabValue] = useState(0);
     const [openPlanDialog, setOpenPlanDialog] = useState(false);
 
@@ -146,11 +150,11 @@ export const MembershipsList: React.FC = () => {
     };
 
     return (
-        <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">{t.memberships.title}</Typography>
-                <Box>
-                    <IconButton onClick={() => { refetchMemberships(); refetchPlans(); }} sx={{ mr: 1 }}>
+        <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} gap={2}>
+                <Typography variant={isMobile ? "h5" : "h4"}>{t.memberships.title}</Typography>
+                <Box display="flex" gap={1} width={isMobile ? '100%' : 'auto'}>
+                    <IconButton onClick={() => { refetchMemberships(); refetchPlans(); }} sx={{ minWidth: 44, minHeight: 44 }}>
                         <RefreshIcon />
                     </IconButton>
                     <Button
@@ -160,25 +164,32 @@ export const MembershipsList: React.FC = () => {
                             if (tabValue === 0) navigate('/memberships/new');
                             else setOpenPlanDialog(true);
                         }}
+                        fullWidth={isMobile}
                     >
                         {tabValue === 0 ? t.memberships.newMembership : t.memberships.addPlan}
                     </Button>
                 </Box>
             </Box>
 
-            <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 3 }}>
+            <Tabs
+                value={tabValue}
+                onChange={(_, v) => setTabValue(v)}
+                sx={{ mb: 3, overflowX: 'auto' }}
+                variant="scrollable"
+                scrollButtons="auto"
+            >
                 <Tab icon={<AssignIcon />} iconPosition="start" label={t.memberships.activePlans} />
                 <Tab icon={<PlanIcon />} iconPosition="start" label={t.memberships.plans} />
             </Tabs>
 
             {tabValue === 0 && (
-                <TableContainer component={Paper}>
-                    <Table>
+                <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                    <Table size={isMobile ? "small" : "medium"}>
                         <TableHead>
                             <TableRow>
                                 <TableCell>{t.memberships.member}</TableCell>
                                 <TableCell>{t.memberships.type} / {t.memberships.plan}</TableCell>
-                                <TableCell>{t.memberships.startDate}</TableCell>
+                                {!isMobile && <TableCell>{t.memberships.startDate}</TableCell>}
                                 <TableCell>{t.memberships.endDate}</TableCell>
                                 <TableCell>{t.memberships.status}</TableCell>
                                 <TableCell align="right">{t.common.actions}</TableCell>
@@ -189,19 +200,19 @@ export const MembershipsList: React.FC = () => {
                                 <TableRow key={m.id}>
                                     <TableCell>
                                         <Typography variant="body2" fontWeight="bold">{m.member_name || t.dashboard.unknown}</Typography>
-                                        <Typography variant="caption" color="textSecondary">{m.member_id_number || t.memberships.noId}</Typography>
+                                        {!isMobile && <Typography variant="caption" color="textSecondary">{m.member_id_number || t.memberships.noId}</Typography>}
                                     </TableCell>
                                     <TableCell>{m.plan_name || m.type}</TableCell>
-                                    <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>
+                                    {!isMobile && <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>}
                                     <TableCell>{format(new Date(m.end_date), 'PPP')}</TableCell>
                                     <TableCell>{getStatusChip(m.status)}</TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title={t.memberships.viewMember}><ViewIcon /></IconButton>
+                                        <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title={t.memberships.viewMember} sx={{ minWidth: 44, minHeight: 44 }}><ViewIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {(!memberships || memberships.length === 0) && (
-                                <TableRow><TableCell colSpan={6} align="center">{t.memberships.noMembershipsFound}</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={isMobile ? 5 : 6} align="center">{t.memberships.noMembershipsFound}</TableCell></TableRow>
                             )}
                         </TableBody>
                     </Table>
@@ -209,14 +220,14 @@ export const MembershipsList: React.FC = () => {
             )}
 
             {tabValue === 1 && (
-                <TableContainer component={Paper}>
-                    <Table>
+                <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                    <Table size={isMobile ? "small" : "medium"}>
                         <TableHead>
                             <TableRow>
                                 <TableCell>{t.memberships.planName}</TableCell>
                                 <TableCell>{t.memberships.duration}</TableCell>
                                 <TableCell>{t.memberships.price}</TableCell>
-                                <TableCell>{t.memberships.description}</TableCell>
+                                {!isMobile && <TableCell>{t.memberships.description}</TableCell>}
                                 <TableCell>{t.memberships.status}</TableCell>
                                 <TableCell align="right">{t.common.actions}</TableCell>
                             </TableRow>
@@ -230,18 +241,18 @@ export const MembershipsList: React.FC = () => {
                                         {p.duration_days > 0 ? `${p.duration_days} ${t.memberships.durationDays}` : ''}
                                     </TableCell>
                                     <TableCell>${p.price}</TableCell>
-                                    <TableCell>{p.description || '-'}</TableCell>
+                                    {!isMobile && <TableCell>{p.description || '-'}</TableCell>}
                                     <TableCell>
                                         <Chip label={p.is_active ? t.memberships.active : t.members.inactive} color={p.is_active ? "success" : "default"} size="small" />
                                     </TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small" onClick={() => setEditPlan(p)}><EditIcon /></IconButton>
-                                        <IconButton size="small" color="error" onClick={() => { if (confirm(`${t.memberships.deleteConfirm}`)) { deletePlanMutation.mutate(p.id); } }}><DeleteIcon /></IconButton>
+                                        <IconButton size="small" onClick={() => setEditPlan(p)} sx={{ minWidth: 44, minHeight: 44 }}><EditIcon /></IconButton>
+                                        <IconButton size="small" color="error" onClick={() => { if (confirm(`${t.memberships.deleteConfirm}`)) { deletePlanMutation.mutate(p.id); } }} sx={{ minWidth: 44, minHeight: 44 }}><DeleteIcon /></IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {plans.length === 0 && (
-                                <TableRow><TableCell colSpan={6} align="center">{t.memberships.noPlansFound}</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={isMobile ? 5 : 6} align="center">{t.memberships.noPlansFound}</TableCell></TableRow>
                             )}
                         </TableBody>
                     </Table>
@@ -249,7 +260,7 @@ export const MembershipsList: React.FC = () => {
             )}
 
             {/* Create Plan Dialog */}
-            <Dialog open={openPlanDialog} onClose={() => setOpenPlanDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={openPlanDialog} onClose={() => setOpenPlanDialog(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
                 <DialogTitle>{t.memberships.createMembershipPlan}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
@@ -303,12 +314,13 @@ export const MembershipsList: React.FC = () => {
                         />
                     </Box>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setOpenPlanDialog(false)}>{t.memberships.cancel}</Button>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setOpenPlanDialog(false)} fullWidth={isMobile}>{t.memberships.cancel}</Button>
                     <Button
                         onClick={handleCreatePlan}
                         variant="contained"
                         disabled={!newPlan.name || createPlanMutation.isPending}
+                        fullWidth={isMobile}
                     >
                         {createPlanMutation.isPending ? t.memberships.creating : t.memberships.createPlan}
                     </Button>
@@ -316,7 +328,7 @@ export const MembershipsList: React.FC = () => {
             </Dialog>
 
             {/* Edit Plan Dialog */}
-            <Dialog open={!!editPlan} onClose={() => setEditPlan(null)} maxWidth="sm" fullWidth>
+            <Dialog open={!!editPlan} onClose={() => setEditPlan(null)} maxWidth="sm" fullWidth fullScreen={isMobile}>
                 <DialogTitle>{t.memberships.editMembershipPlan}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
@@ -370,12 +382,13 @@ export const MembershipsList: React.FC = () => {
                         />
                     </Box>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setEditPlan(null)}>{t.memberships.cancel}</Button>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setEditPlan(null)} fullWidth={isMobile}>{t.memberships.cancel}</Button>
                     <Button
                         onClick={handleUpdatePlan}
                         variant="contained"
                         disabled={!editFormData.name || updatePlanMutation.isPending}
+                        fullWidth={isMobile}
                     >
                         {updatePlanMutation.isPending ? t.memberships.saving : t.memberships.saveChanges}
                     </Button>

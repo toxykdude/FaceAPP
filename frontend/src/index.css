@@ -151,3 +151,25 @@ body {
 .animate-slide-in {
   animation: slideIn var(--transition-slow) ease-out;
 }
+
+/* Mobile touch improvements */
+@media (max-width: 600px) {
+    body {
+        -webkit-text-size-adjust: 100%;
+        -webkit-tap-highlight-color: transparent;
+    }
+    
+    /* Prevent horizontal overflow */
+    #root {
+        overflow-x: hidden;
+    }
+}
+
+/* Safe area for notch devices */
+@supports (padding: env(safe-area-inset-left)) {
+    body {
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}

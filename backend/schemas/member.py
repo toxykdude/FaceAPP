@@ -10,7 +10,7 @@ from models.member import MemberStatus
 class MemberBase(BaseModel):
     """Base member schema."""
     first_name: str = Field(..., min_length=1, max_length=100)
-    last_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field('', max_length=100)
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(None, max_length=20)
 
@@ -41,6 +41,12 @@ class MemberResponse(MemberBase):
     created_at: datetime
     updated_at: datetime
     last_seen: Optional[datetime] = None
+    membership_status: Optional[str] = None  # 'active', 'expired', or None
+    membership_end_date: Optional[str] = None
+    membership_plan_name: Optional[str] = None
+    membership_status: Optional[str] = None  # 'active', 'expired', or None
+    membership_end_date: Optional[str] = None
+    membership_plan_name: Optional[str] = None
     
     @field_serializer('id')
     def serialize_id(self, value: Any) -> str:

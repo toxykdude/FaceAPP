@@ -1,8 +1,9 @@
 """
 Face enrollment API endpoints.
 
-Generates FaceNet embeddings during enrollment and stores them encrypted in the database.
-The CV service loads these embeddings into Redis cache for real-time recognition.
+Uses MTCNN for face detection (same as CV service), face alignment with
+eye landmarks, and multi-embedding averaging via data augmentation for
+robust recognition.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ import numpy as np
 import cv2
 import logging
 import json
+import torch
+from typing import List, Tuple
 
 import httpx
 
@@ -26,193 +29,339 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/enrollment", tags=["enrollment"])
 
-# FaceNet model (lazy loaded)
+# ---------------------------------------------------------------------------
+# Lazy-loaded models (shared across requests)
+# ---------------------------------------------------------------------------
 _face_net_model = None
+_mtcnn_detector = None
 
 
-async def notify_cv_invalidation(member_id: str):
-    """Notify CV service to invalidate a member's cached template."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"http://localhost:8001/invalidate/{member_id}")
-    except Exception:
-        pass  # CV service might be down, non-critical
+def _get_mtcnn():
+    """Lazy-load MTCNN detector (same config as CV service)."""
+    global _mtcnn_detector
+    if _mtcnn_detector is None:
+        from facenet_pytorch import MTCNN
+        _mtcnn_detector = MTCNN(
+            keep_all=True,
+            device=torch.device('cpu'),
+            min_face_size=80,
+            thresholds=[0.6, 0.7, 0.8],
+        )
+        logger.info("MTCNN detector loaded for enrollment")
+    return _mtcnn_detector
 
 
 def _get_face_net():
     """Lazy-load FaceNet model."""
     global _face_net_model
     if _face_net_model is None:
-        import torch
         from facenet_pytorch import InceptionResnetV1
-        device = torch.device('cpu')  # Always CPU for enrollment (no GPU needed)
-        _face_net_model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+        _face_net_model = InceptionResnetV1(
+            pretrained='vggface2'
+        ).eval().to(torch.device('cpu'))
         logger.info("FaceNet model loaded for enrollment")
     return _face_net_model
 
 
-def _generate_embedding(face_roi: np.ndarray) -> np.ndarray:
+# ---------------------------------------------------------------------------
+# CV service notification
+# ---------------------------------------------------------------------------
+
+async def notify_cv_reload():
     """
-    Generate a 512-dimensional FaceNet embedding from a face ROI.
-    
+    Trigger full template reload on CV service after enrollment.
+
+    This ensures the newly enrolled template is available immediately
+    instead of waiting for the next periodic refresh (10 minutes).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post("http://localhost:8001/reload")
+            logger.info(f"CV service reload after enrollment: {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Failed to reload CV templates: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Face alignment
+# ---------------------------------------------------------------------------
+
+def _align_face(face_roi: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
+    """
+    Align face using eye landmarks via affine transformation.
+
+    Rotates the image so both eyes are on a horizontal line, which is
+    the alignment FaceNet was trained on.
+
     Args:
-        face_roi: BGR image of the face
-        
+        face_roi: BGR face image
+        landmarks: MTCNN landmarks [[left_eye, right_eye, nose, left_mouth, right_mouth]]
+
     Returns:
-        Normalized 512-d embedding as numpy array
+        Aligned face image
     """
-    import torch
-    from PIL import Image
-    
+    if landmarks is None:
+        return face_roi
+
+    left_eye = landmarks[0]   # (x, y)
+    right_eye = landmarks[1]  # (x, y)
+
+    # Angle between eyes
+    dy = right_eye[1] - left_eye[1]
+    dx = right_eye[0] - left_eye[0]
+    angle = np.degrees(np.arctan2(dy, dx))
+
+    # Center point between eyes
+    center = ((left_eye[0] + right_eye[0]) / 2.0,
+              (left_eye[1] + right_eye[1]) / 2.0)
+
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    h, w = face_roi.shape[:2]
+    aligned = cv2.warpAffine(face_roi, M, (w, h), flags=cv2.INTER_CUBIC)
+
+    return aligned
+
+
+# ---------------------------------------------------------------------------
+# Data augmentation for multi-embedding
+# ---------------------------------------------------------------------------
+
+def _augment_face(face_roi: np.ndarray) -> List[np.ndarray]:
+    """
+    Generate augmented versions of a face for robust multi-embedding.
+
+    Returns 6 versions: original, +5 deg, -5 deg, brighter, darker, flipped.
+    """
+    augmented = [face_roi]
+    h, w = face_roi.shape[:2]
+
+    # Slight rotation +5 degrees
+    M1 = cv2.getRotationMatrix2D((w / 2, h / 2), 5, 1.0)
+    augmented.append(cv2.warpAffine(face_roi, M1, (w, h), borderMode=cv2.BORDER_REFLECT))
+
+    # Slight rotation -5 degrees
+    M2 = cv2.getRotationMatrix2D((w / 2, h / 2), -5, 1.0)
+    augmented.append(cv2.warpAffine(face_roi, M2, (w, h), borderMode=cv2.BORDER_REFLECT))
+
+    # Brightness increase (+15%)
+    augmented.append(cv2.convertScaleAbs(face_roi, alpha=1.15, beta=10))
+
+    # Brightness decrease (-15%)
+    augmented.append(cv2.convertScaleAbs(face_roi, alpha=0.85, beta=-10))
+
+    # Horizontal flip (simulates opposite angle)
+    augmented.append(cv2.flip(face_roi, 1))
+
+    return augmented
+
+
+# ---------------------------------------------------------------------------
+# Embedding generation
+# ---------------------------------------------------------------------------
+
+def _generate_single_embedding(face_roi: np.ndarray) -> np.ndarray:
+    """Generate one FaceNet 512-d embedding from a face ROI."""
     model = _get_face_net()
-    device = next(model.parameters()).device
-    
-    # BGR -> RGB
+
+    # BGR -> RGB, resize to 160x160
     face_rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-    
-    # Resize to 160x160 (FaceNet input)
     face_resized = cv2.resize(face_rgb, (160, 160))
-    
-    # Convert to tensor: HWC -> CHW, normalize to [-1, 1]
+
+    # To tensor, normalize to [-1, 1]
     face_tensor = torch.from_numpy(np.array(face_resized)).float()
     face_tensor = face_tensor.permute(2, 0, 1)
     face_tensor = (face_tensor - 127.5) / 128.0
-    face_tensor = face_tensor.unsqueeze(0).to(device)
-    
-    # Generate embedding
+    face_tensor = face_tensor.unsqueeze(0)
+
     with torch.no_grad():
         embedding = model(face_tensor)
-    
-    # Convert to numpy and L2-normalize
+
     embedding_np = embedding.cpu().numpy().flatten()
     embedding_np = embedding_np / np.linalg.norm(embedding_np)
-    
     return embedding_np
 
 
-def _detect_and_extract_face(img: np.ndarray):
+def _generate_multi_embedding(face_roi: np.ndarray) -> Tuple[np.ndarray, float]:
     """
-    Detect a single face in an image and extract the ROI with padding.
-    
+    Generate robust embedding by averaging multiple augmented versions.
+
     Returns:
-        Tuple of (face_roi, bbox) or raises HTTPException
+        (averaged_normalized_embedding, consistency_score)
+        consistency_score reflects how stable the embeddings are across
+        augmentations (higher = more reliable enrollment).
     """
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    )
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    
-    if len(faces) == 0:
-        raise HTTPException(status_code=400, detail="No face detected in image")
-    
-    if len(faces) > 1:
+    faces = _augment_face(face_roi)
+    embeddings = [_generate_single_embedding(f) for f in faces]
+
+    embeddings_arr = np.array(embeddings)
+    avg = np.mean(embeddings_arr, axis=0)
+    avg = avg / np.linalg.norm(avg)  # Re-normalize
+
+    # Consistency: cosine similarity between each augmented and the mean
+    sims = [float(np.dot(e, avg)) for e in embeddings]
+    consistency = float(np.mean(sims))
+
+    return avg, consistency
+
+
+# ---------------------------------------------------------------------------
+# Face detection + extraction (MTCNN)
+# ---------------------------------------------------------------------------
+
+def _detect_and_extract_face(img: np.ndarray) -> Tuple[np.ndarray, float, np.ndarray]:
+    """
+    Detect face using MTCNN (same detector as CV service), extract aligned ROI.
+
+    Returns:
+        (face_roi_aligned, quality_score, landmarks_or_None)
+    """
+    mtcnn = _get_mtcnn()
+
+    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    boxes, probs, landmarks = mtcnn.detect(rgb, landmarks=True)
+
+    if boxes is None or len(boxes) == 0:
         raise HTTPException(
             status_code=400,
-            detail="Multiple faces detected. Please upload image with single face."
+            detail="No face detected in image. Ensure your face is clearly visible with good lighting.",
         )
-    
-    # Extract face with 10% padding
-    (x, y, w, h) = faces[0]
-    padding = int(min(w, h) * 0.1)
-    x1 = max(0, x - padding)
-    y1 = max(0, y - padding)
-    x2 = min(img.shape[1], x + w + padding)
-    y2 = min(img.shape[0], y + h + padding)
-    
-    face_roi = img[y1:y2, x1:x2]
-    
-    # Calculate quality score based on face size relative to image
-    quality_score = min(1.0, (w * h) / (img.shape[0] * img.shape[1]) * 10)
-    
-    return face_roi, quality_score
 
+    # Pick largest face if multiple detected
+    if len(boxes) > 1:
+        areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in boxes]
+        best = int(np.argmax(areas))
+    else:
+        best = 0
+
+    box = boxes[best]
+    prob = float(probs[best]) if probs is not None else 0.0
+    face_landmarks = landmarks[best] if landmarks is not None else None
+
+    if prob < 0.9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Face detection confidence too low ({prob:.2f}). Use a clearer, more frontal photo.",
+        )
+
+    # Extract with generous 30% padding
+    x1, y1, x2, y2 = box.astype(int)
+    w, h = x2 - x1, y2 - y1
+    pad = int(min(w, h) * 0.3)
+    x1 = max(0, x1 - pad)
+    y1 = max(0, y1 - pad)
+    x2 = min(img.shape[1], x2 + pad)
+    y2 = min(img.shape[0], y2 + pad)
+
+    face_roi = img[y1:y2, x1:x2]
+
+    # Adjust landmarks to ROI coordinates and align
+    if face_landmarks is not None:
+        adjusted = face_landmarks.copy()
+        adjusted[:, 0] -= x1
+        adjusted[:, 1] -= y1
+        face_roi = _align_face(face_roi, adjusted)
+
+    # Quality assessment (sharpness + brightness + size + MTCNN confidence)
+    gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+    sharpness = min(cv2.Laplacian(gray, cv2.CV_64F).var() / 300.0, 1.0)
+    mean_bright = gray.mean()
+    brightness = max(0.0, 1.0 - abs(mean_bright - 130) / 130.0)
+    face_area_ratio = (w * h) / (img.shape[0] * img.shape[1])
+    size_score = min(face_area_ratio * 5.0, 1.0)
+
+    quality = (sharpness * 0.4 + brightness * 0.25 + size_score * 0.2 + prob * 0.15)
+
+    return face_roi, quality, face_landmarks
+
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
 
 class CameraEnrollmentRequest(BaseModel):
     camera_id: str
 
 
-# --- Endpoints ---
-
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/{member_id}/enroll", response_model=BiometricEnrollmentResponse)
 async def enroll_member_face(
     member_id: str,
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Enroll a member's face from uploaded image.
-    
-    Generates a FaceNet embedding (512-d vector) and stores it encrypted.
+    Enroll a member's face from an uploaded image.
+
+    Uses MTCNN detection, face alignment, and multi-embedding averaging
+    for robust recognition.
     """
-    # Get member
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
-    # Delete existing enrollment if present (re-enrollment)
+
+    # Remove existing enrollment (re-enrollment)
     existing = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
     if existing:
         db.delete(existing)
         db.flush()
-    
+
     try:
-        # Read image
         contents = await image.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image format")
-        
-        # Detect face and extract ROI
-        face_roi, quality_score = _detect_and_extract_face(img)
-        
-        # Quality threshold - reject low quality photos
-        MIN_QUALITY = 0.9
-        if quality_score < MIN_QUALITY:
+
+        # MTCNN detection + alignment
+        face_roi, quality_score, _ = _detect_and_extract_face(img)
+
+        if quality_score < 0.4:
             raise HTTPException(
                 status_code=400,
-                detail=f"Face photo quality too low ({quality_score:.2f}). Minimum required: {MIN_QUALITY}. Please use a clearer, closer photo with better lighting."
+                detail=f"Face quality too low ({quality_score:.2f}). Use better lighting and face the camera directly.",
             )
-        
-        # Generate FaceNet embedding
-        embedding = _generate_embedding(face_roi)
-        
-        # Serialize embedding to JSON-compatible bytes
-        template_data = json.dumps(embedding.tolist()).encode('utf-8')
-        
+
+        # Multi-embedding with augmentation
+        embedding, consistency = _generate_multi_embedding(face_roi)
+        final_quality = max(quality_score, consistency)
+
         # Encrypt and store
+        template_data = json.dumps(embedding.tolist()).encode('utf-8')
         encrypted_template = encrypt_template(template_data)
-        
-        biometric_template = BiometricTemplate(
+
+        biometric = BiometricTemplate(
             member_id=member_id,
             template_data=encrypted_template,
-            quality_score=quality_score,
-            encryption_key_id="v1"
+            quality_score=final_quality,
+            encryption_key_id="v1",
         )
-        
-        db.add(biometric_template)
+        db.add(biometric)
         member.facial_data_enrolled = True
         db.commit()
-        db.refresh(biometric_template)
-        
-        # Invalidate CV cache so new template gets picked up on next reload
-        await notify_cv_invalidation(member_id)
-        
-        logger.info(f"Face enrolled for member {member_id} (quality: {quality_score:.2f})")
-        
+        db.refresh(biometric)
+
+        # Reload CV service templates immediately
+        await notify_cv_reload()
+
+        logger.info(
+            f"Enrolled member {member_id}: quality={final_quality:.2f}, "
+            f"consistency={consistency:.2f} (multi-embedding)"
+        )
+
         return BiometricEnrollmentResponse(
             success=True,
             message="Face enrolled successfully",
-            quality_score=quality_score,
-            member_id=member_id
+            quality_score=final_quality,
+            member_id=member_id,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -224,27 +373,26 @@ async def enroll_member_face(
 async def delete_enrollment(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a member's biometric enrollment."""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     template = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
-    
+
     if not template:
         raise HTTPException(status_code=404, detail="No enrollment found for this member")
-    
+
     db.delete(template)
     member.facial_data_enrolled = False
     db.commit()
-    
-    # Invalidate CV cache
-    await notify_cv_invalidation(member_id)
-    
+
+    await notify_cv_reload()
+
     logger.info(f"Enrollment deleted for member {member_id}")
     return {"success": True, "message": "Enrollment deleted successfully"}
 
@@ -253,31 +401,30 @@ async def delete_enrollment(
 async def get_enrollment_status(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Get enrollment status for a member."""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     template = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
-    
+
     if template:
         return {
             "enrolled": True,
             "quality_score": template.quality_score,
             "enrolled_at": template.enrolled_at.isoformat(),
-            "updated_at": template.updated_at.isoformat()
+            "updated_at": template.updated_at.isoformat(),
         }
-    else:
-        return {
-            "enrolled": False,
-            "quality_score": None,
-            "enrolled_at": None,
-            "updated_at": None
-        }
+    return {
+        "enrolled": False,
+        "quality_score": None,
+        "enrolled_at": None,
+        "updated_at": None,
+    }
 
 
 @router.post("/{member_id}/verify")
@@ -285,56 +432,53 @@ async def verify_face(
     member_id: str,
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Verify a face against enrolled template using FaceNet cosine similarity.
-    """
+    """Verify a face against enrolled template."""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     template = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
-    
+
     if not template:
         raise HTTPException(status_code=404, detail="Member not enrolled")
-    
+
     try:
         from core.encryption import decrypt_template
-        
-        # Read uploaded image
+
         contents = await image.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image format")
-        
-        # Detect and extract face
-        face_roi, _ = _detect_and_extract_face(img)
-        
-        # Generate embedding for uploaded face
-        query_embedding = _generate_embedding(face_roi)
-        
+
+        # MTCNN detection + alignment for verification too
+        face_roi, _, _ = _detect_and_extract_face(img)
+
+        # Multi-embedding for verification
+        query_embedding, _ = _generate_multi_embedding(face_roi)
+
         # Decrypt stored embedding
         decrypted = decrypt_template(template.template_data)
         stored_embedding = np.array(json.loads(decrypted.decode('utf-8')))
-        
+
         # Cosine similarity
         similarity = np.dot(query_embedding, stored_embedding) / (
             np.linalg.norm(query_embedding) * np.linalg.norm(stored_embedding)
         )
-        similarity = (similarity + 1) / 2  # Normalize to 0-1 range
-        
+        similarity = (similarity + 1) / 2  # Normalize to 0-1
+
         return {
             "match": bool(similarity >= 0.85),
             "confidence": float(similarity),
             "member_id": member_id,
-            "member_name": member.full_name
+            "member_name": member.full_name,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -347,90 +491,82 @@ async def enroll_member_camera(
     member_id: str,
     request: CameraEnrollmentRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Enroll a member's face from a connected system camera (RTSP or USB).
-    Uses FaceNet to generate a real embedding.
-    """
+    """Enroll face from connected camera with MTCNN and multi-embedding."""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
     existing = db.query(BiometricTemplate).filter(
         BiometricTemplate.member_id == member_id
     ).first()
     if existing:
         db.delete(existing)
         db.flush()
-    
+
     camera = db.query(Camera).filter(Camera.id == request.camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
-    
+
     try:
         rtsp_url = decrypt_string(camera.rtsp_url)
         video_source = rtsp_url
-        
         if isinstance(video_source, str) and video_source.isdigit():
             video_source = int(video_source)
-        
+
         cap = cv2.VideoCapture(video_source)
         if not cap.isOpened():
             raise HTTPException(status_code=400, detail="Could not connect to camera")
-        
+
         # Let auto-exposure settle
-        for _ in range(5):
+        for _ in range(10):
             cap.read()
-        
+
         ret, frame = cap.read()
         cap.release()
-        
+
         if not ret or frame is None:
             raise HTTPException(status_code=500, detail="Failed to capture frame from camera")
-        
-        # Detect face and extract ROI
-        face_roi, quality_score = _detect_and_extract_face(frame)
-        
-        # Quality threshold - reject low quality captures
-        MIN_QUALITY = 0.9
-        if quality_score < MIN_QUALITY:
+
+        # MTCNN detection + alignment
+        face_roi, quality_score, _ = _detect_and_extract_face(frame)
+
+        if quality_score < 0.4:
             raise HTTPException(
                 status_code=400,
-                detail=f"Face capture quality too low ({quality_score:.2f}). Minimum required: {MIN_QUALITY}. Please ensure good lighting and face the camera directly."
+                detail=f"Face capture quality too low ({quality_score:.2f}). Ensure good lighting.",
             )
-        
-        # Generate FaceNet embedding
-        embedding = _generate_embedding(face_roi)
-        
-        # Serialize and encrypt
+
+        # Multi-embedding
+        embedding, consistency = _generate_multi_embedding(face_roi)
+        final_quality = max(quality_score, consistency)
+
         template_data = json.dumps(embedding.tolist()).encode('utf-8')
         encrypted_template = encrypt_template(template_data)
-        
-        biometric_template = BiometricTemplate(
+
+        biometric = BiometricTemplate(
             member_id=member_id,
             template_data=encrypted_template,
-            quality_score=quality_score,
-            encryption_key_id="v1"
+            quality_score=final_quality,
+            encryption_key_id="v1",
         )
-        
-        db.add(biometric_template)
+        db.add(biometric)
         member.facial_data_enrolled = True
         db.commit()
-        db.refresh(biometric_template)
-        
-        # Invalidate CV cache so new template gets picked up on next reload
-        await notify_cv_invalidation(member_id)
-        
-        logger.info(f"Face enrolled from camera {camera.name} for member {member_id}")
-        
+        db.refresh(biometric)
+
+        await notify_cv_reload()
+
+        logger.info(f"Camera enrolled member {member_id} from {camera.name}")
+
         return BiometricEnrollmentResponse(
             success=True,
             message=f"Face enrolled from {camera.name}",
-            quality_score=quality_score,
-            member_id=member_id
+            quality_score=final_quality,
+            member_id=member_id,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:

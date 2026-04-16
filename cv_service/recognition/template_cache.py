@@ -56,7 +56,8 @@ class TemplateCache:
             "member_id": member_id,
             "name": member_data.get("name"),
             "status": member_data.get("status"),
-            "membership_status": member_data.get("membership_status")
+            "membership_status": member_data.get("membership_status"),
+            "membership_end_date": member_data.get("membership_end_date")
         }
         
         # Store in Redis

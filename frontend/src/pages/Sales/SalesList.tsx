@@ -27,6 +27,8 @@ import {
     Select,
     MenuItem,
     InputAdornment,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import { Add as AddIcon, Receipt as ReceiptIcon } from '@mui/icons-material';
 import { salesApi, SalesCreate } from '@/api/sales';
@@ -37,6 +39,8 @@ const paymentMethods = ['cash', 'card', 'transfer'];
 export const SalesList: React.FC = () => {
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [openDialog, setOpenDialog] = useState(false);
@@ -72,36 +76,36 @@ export const SalesList: React.FC = () => {
     };
 
     return (
-        <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">{t.sales.title}</Typography>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenDialog(true)}>
+        <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} gap={2}>
+                <Typography variant={isMobile ? "h5" : "h4"}>{t.sales.title}</Typography>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenDialog(true)} fullWidth={isMobile}>
                     {t.sales.addTransaction}
                 </Button>
             </Box>
 
             <Card>
-                <CardContent>
-                    <TableContainer>
-                        <Table>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
+                    <TableContainer sx={{ overflowX: 'auto' }}>
+                        <Table size={isMobile ? "small" : "medium"}>
                             <TableHead>
                                 <TableRow>
                                     <TableCell>{t.sales.invoice}</TableCell>
                                     <TableCell>{t.sales.member}</TableCell>
-                                    <TableCell>{t.sales.id}</TableCell>
+                                    {!isMobile && <TableCell>{t.sales.id}</TableCell>}
                                     <TableCell>{t.sales.amount}</TableCell>
                                     <TableCell>{t.sales.method}</TableCell>
-                                    <TableCell>{t.sales.date}</TableCell>
+                                    {!isMobile && <TableCell>{t.sales.date}</TableCell>}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">{t.sales.loading}</TableCell>
+                                        <TableCell colSpan={isMobile ? 4 : 6} align="center">{t.sales.loading}</TableCell>
                                     </TableRow>
                                 ) : data?.transactions.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center">{t.sales.noTransactionsFound}</TableCell>
+                                        <TableCell colSpan={isMobile ? 4 : 6} align="center">{t.sales.noTransactionsFound}</TableCell>
                                     </TableRow>
                                 ) : (
                                     data?.transactions.map((tx) => (
@@ -113,7 +117,7 @@ export const SalesList: React.FC = () => {
                                                 </Box>
                                             </TableCell>
                                             <TableCell>{tx.member_name || t.sales.unknown}</TableCell>
-                                            <TableCell>{tx.member_id_number || '-'}</TableCell>
+                                            {!isMobile && <TableCell>{tx.member_id_number || '-'}</TableCell>}
                                             <TableCell>${Number(tx.amount).toLocaleString()}</TableCell>
                                             <TableCell>
                                                 <Chip
@@ -122,9 +126,11 @@ export const SalesList: React.FC = () => {
                                                     size="small"
                                                 />
                                             </TableCell>
-                                            <TableCell>
-                                                {new Date(tx.transaction_date).toLocaleDateString()}
-                                            </TableCell>
+                                            {!isMobile && (
+                                                <TableCell>
+                                                    {new Date(tx.transaction_date).toLocaleDateString()}
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))
                                 )}
@@ -147,7 +153,7 @@ export const SalesList: React.FC = () => {
             </Card>
 
             {/* Create Transaction Dialog */}
-            <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
                 <DialogTitle>{t.sales.newTransactionTitle}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
@@ -188,12 +194,13 @@ export const SalesList: React.FC = () => {
                         />
                     </Box>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setOpenDialog(false)}>{t.common.cancel}</Button>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setOpenDialog(false)} fullWidth={isMobile}>{t.common.cancel}</Button>
                     <Button
                         onClick={() => createMutation.mutate(newTransaction)}
                         variant="contained"
                         disabled={!newTransaction.member_id || newTransaction.amount <= 0 || createMutation.isPending}
+                        fullWidth={isMobile}
                     >
                         {createMutation.isPending ? t.sales.creating : t.sales.createTransaction}
                     </Button>

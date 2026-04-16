@@ -13,6 +13,8 @@ import {
     Typography,
     Alert,
     Container,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import apiClient from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +25,8 @@ export const LoginPage: React.FC = () => {
     const { login } = useAuth();
     const { t } = useLanguage();
 
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -64,12 +68,12 @@ export const LoginPage: React.FC = () => {
                 alignItems="center"
                 minHeight="100vh"
             >
-                <Card sx={{ width: '100%', maxWidth: 450 }}>
-                    <CardContent sx={{ p: 4 }}>
+                <Card sx={{ width: '100%', maxWidth: 450, mx: isMobile ? 0 : 'auto' }}>
+                    <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
                         <Box sx={{ textAlign: 'center', mb: 1 }}>
-                            <img src={orgLogo} alt={orgName} style={{ width: 72, height: 72, borderRadius: 16, marginBottom: 12 }} />
+                            <img src={orgLogo} alt={orgName} style={{ width: isMobile ? 56 : 72, height: isMobile ? 56 : 72, borderRadius: 16, marginBottom: 12 }} />
                         </Box>
-                        <Typography variant="h4" component="h1" gutterBottom align="center">
+                        <Typography variant={isMobile ? "h5" : "h4"} component="h1" gutterBottom align="center">
                             {orgName}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" align="center" mb={3}>

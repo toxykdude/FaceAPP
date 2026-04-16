@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export, password_reset, reports_email
+from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export, password_reset, reports_email, portal_auth, portal
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ app.include_router(audit.router, prefix=settings.API_V1_PREFIX)
 app.include_router(import_export.router, prefix=settings.API_V1_PREFIX)
 app.include_router(password_reset.router, prefix=settings.API_V1_PREFIX)
 app.include_router(reports_email.router, prefix=settings.API_V1_PREFIX)
+app.include_router(portal_auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(portal.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")

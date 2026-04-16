@@ -19,6 +19,8 @@ import {
     InputLabel,
     Select,
     MenuItem,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import { CameraAlt as CameraIcon, PhotoLibrary as PhotoIcon, CheckCircle as CheckIcon, Videocam as VideoIcon, ConnectedTv as SystemIcon } from '@mui/icons-material';
 import { membersApi } from '@/api/members';
@@ -30,6 +32,8 @@ export const FaceEnrollment: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     const [tabValue, setTabValue] = useState(0);
 
@@ -150,7 +154,7 @@ export const FaceEnrollment: React.FC = () => {
 
     return (
         <Box>
-            <Typography variant="h4" gutterBottom>
+            <Typography variant={isMobile ? "h5" : "h4"} gutterBottom>
                 {t.members.faceEnrollmentTitle.replace('{first}', member?.first_name || '').replace('{last}', member?.last_name || '')}
             </Typography>
 
@@ -191,7 +195,7 @@ export const FaceEnrollment: React.FC = () => {
                                 <Box textAlign="center">
                                     <Box
                                         sx={{
-                                            height: 300,
+                                            height: { xs: 200, sm: 300 },
                                             border: '2px dashed #ccc',
                                             display: 'flex',
                                             justifyContent: 'center',
@@ -231,7 +235,7 @@ export const FaceEnrollment: React.FC = () => {
                                 <Box textAlign="center">
                                     <Box
                                         sx={{
-                                            height: 300,
+                                            height: { xs: 200, sm: 300 },
                                             bgcolor: '#000',
                                             mb: 2,
                                             position: 'relative',
@@ -262,6 +266,8 @@ export const FaceEnrollment: React.FC = () => {
                                         startIcon={<CameraIcon />}
                                         disabled={!isWebcamActive || enrollMutation.isPending}
                                         onClick={captureWebcam}
+                                        fullWidth={isMobile}
+                                        sx={{ minHeight: 44 }}
                                     >
                                         {enrollMutation.isPending ? t.members.processing : t.members.captureEnroll}
                                     </Button>

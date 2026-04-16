@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from core.security import decode_access_token
 from models.user import User, UserRole
+from models.member import Member
 
 # Security scheme
 security = HTTPBearer()
@@ -133,6 +134,57 @@ async def require_staff(
         )
     
     return current_user
+
+async def get_current_member(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> Member:
+    """
+    Get current authenticated member from JWT token (type: "member").
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    
+    if payload is None:
+        raise credentials_exception
+    
+    # Verify this is a member token, not a staff token
+    if payload.get("type") != "member":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Member access required"
+        )
+    
+    from core.security import is_token_blacklisted
+    if is_token_blacklisted(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    member_id = payload.get("sub")
+    if member_id is None:
+        raise credentials_exception
+    
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if member is None:
+        raise credentials_exception
+    
+    if member.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive member account"
+        )
+    
+    return member
+
 
 def require_page(page: str):
     """Check if current user has access to a specific page."""

@@ -59,6 +59,7 @@ def sync_templates(db: Session = Depends(get_db)):
                 "quality_score": template.quality_score,
                 "has_active_membership": membership is not None,
                 "membership_status": membership.status if membership else None,
+                "membership_end_date": membership.end_date.isoformat() if membership else None,
                 "access_rules": membership.access_rules if membership else {}
             })
         except Exception as e:

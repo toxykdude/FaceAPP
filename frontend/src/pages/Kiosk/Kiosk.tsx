@@ -15,6 +15,8 @@ import {
     Tooltip,
     IconButton,
     Chip,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import {
     CheckCircle as CheckCircleIcon,
@@ -45,6 +47,7 @@ interface WsRecognitionResult {
     access_granted: boolean;
     denial_reason: string | null;
     face_bbox: number[] | null;
+    membership_end_date: string | null;
 }
 
 interface WsStatusMessage {
@@ -152,6 +155,8 @@ const STATUS_DOT: Record<ConnectionStatus, 'green' | 'red' | 'yellow'> = {
 
 export const Kiosk: React.FC = () => {
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [searchParams, setSearchParams] = useSearchParams();
     const urlCameraId = searchParams.get('cameraId');
     const [selectedCameraId, setSelectedCameraId] = useState<string>(urlCameraId || '');
@@ -164,7 +169,8 @@ export const Kiosk: React.FC = () => {
 
     const [recognitionState, setRecognitionState] = useState<RecognitionState>('idle');
     const [recognizedName, setRecognizedName] = useState<string>('');
-    const [, setDenialReason] = useState<string>('');
+    const [, setDenialReason] = useState('' );
+    const [membershipExpiry, setMembershipExpiry] = useState<string | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
 
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -206,6 +212,7 @@ export const Kiosk: React.FC = () => {
         setRecognitionState('idle');
         setRecognizedName('');
         setDenialReason('');
+        setMembershipExpiry(null);
     }, []);
 
     useEffect(() => {
@@ -223,6 +230,7 @@ export const Kiosk: React.FC = () => {
         }
         setRecognizedName(latestRecognition.member_name);
         setDenialReason(latestRecognition.denial_reason || '');
+        setMembershipExpiry(latestRecognition.membership_end_date || null);
 
         resetTimerRef.current = setTimeout(() => {
             resetRecognition();
@@ -367,7 +375,7 @@ export const Kiosk: React.FC = () => {
         ctx.lineWidth = 3;
         ctx.strokeRect(x, y, w, h);
 
-        ctx.font = 'bold 16px monospace';
+        ctx.font = window.innerWidth < 600 ? 'bold 12px monospace' : 'bold 16px monospace';
         const textWidth = ctx.measureText(label).width;
         const labelY = y > 30 ? y - 8 : y + h + 24;
         ctx.fillStyle = color;
@@ -417,7 +425,7 @@ export const Kiosk: React.FC = () => {
     return (
         <Box
             sx={{
-                height: '100vh',
+                height: '100dvh',
                 width: '100vw',
                 display: 'flex',
                 flexDirection: 'column',
@@ -447,7 +455,7 @@ export const Kiosk: React.FC = () => {
                     <img
                         src="/logo.png"
                         alt="PowerHouse Gym"
-                        style={{ height: 36, width: 'auto' }}
+                        style={{ height: isMobile ? 28 : 36, width: 'auto' }}
                         onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
                         }}
@@ -500,7 +508,7 @@ export const Kiosk: React.FC = () => {
                         sx={{
                             textAlign: 'center',
                             mb: 2.5,
-                            minHeight: 70,
+                            minHeight: { xs: 50, sm: 70 },
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
@@ -509,22 +517,27 @@ export const Kiosk: React.FC = () => {
                     >
                         {recognitionState === 'granted' && (
                             <Box sx={{ animation: `${slideDown} 0.4s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <CheckCircleIcon sx={{ fontSize: 48, color: '#4caf50', mb: 0.5 }} />
-                                <Typography variant="h4" fontWeight={800} sx={{ color: '#4caf50', letterSpacing: '0.02em', textShadow: '0 0 20px rgba(76, 175, 80, 0.4)' }}>
+                                <CheckCircleIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: '#4caf50', mb: 0.5 }} />
+                                <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} sx={{ color: '#4caf50', letterSpacing: '0.02em', textShadow: '0 0 20px rgba(76, 175, 80, 0.4)' }}>
                                     {t.kiosk.welcomeBack}
                                 </Typography>
-                                <Typography variant="h5" fontWeight={600} sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
+                                <Typography variant={isMobile ? "h6" : "h5"} fontWeight={600} sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
                                     {recognizedName}
                                 </Typography>
+                                {membershipExpiry && (
+                                    <Typography variant="body2" sx={{ color: 'rgba(76,175,80,0.8)', mt: 0.5, fontSize: { xs: '0.8rem', sm: '0.9rem' }, fontWeight: 400 }}>
+                                        Membresia hasta: {new Date(membershipExpiry).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                    </Typography>
+                                )}
                             </Box>
                         )}
                         {recognitionState === 'denied' && (
                             <Box sx={{ animation: `${slideDown} 0.4s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <WarningAmberIcon sx={{ fontSize: 48, color: '#f44336', mb: 0.5 }} />
-                                <Typography variant="h4" fontWeight={800} sx={{ color: '#f44336', letterSpacing: '0.02em', textShadow: '0 0 20px rgba(244, 67, 54, 0.4)' }}>
+                                <WarningAmberIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: '#f44336', mb: 0.5 }} />
+                                <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} sx={{ color: '#f44336', letterSpacing: '0.02em', textShadow: '0 0 20px rgba(244, 67, 54, 0.4)' }}>
                                     {t.kiosk.membershipExpired}
                                 </Typography>
-                                <Typography variant="h5" fontWeight={600} sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
+                                <Typography variant={isMobile ? "h6" : "h5"} fontWeight={600} sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
                                     {recognizedName}
                                 </Typography>
                                 <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 0.5 }}>
@@ -580,7 +593,7 @@ export const Kiosk: React.FC = () => {
             </Box>
 
             {/* ---- BOTTOM BAR ---- */}
-            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, px: 4, py: 2, zIndex: 10 }}>
+            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: { xs: 1, sm: 3 }, px: { xs: 2, sm: 4 }, py: { xs: 1, sm: 2 }, flexWrap: 'wrap', zIndex: 10 }}>
                 {recentCheckins.map((event: any) => (
                     <Chip
                         key={event.id}
@@ -603,7 +616,7 @@ export const Kiosk: React.FC = () => {
             {/* ---- SETTINGS PANEL ---- */}
             <Box sx={{ position: 'absolute', bottom: 16, right: 16, zIndex: 20 }}>
                 <Fade in={settingsOpen} timeout={200}>
-                    <Box sx={{ display: settingsOpen ? 'block' : 'none', bgcolor: 'rgba(20,20,20,0.95)', backdropFilter: 'blur(12px)', border: '1px solid #333', borderRadius: 2, p: 2.5, mb: 1, minWidth: 260, animation: settingsOpen ? `${fadeIn} 0.2s ease-out` : 'none' }}>
+                    <Box sx={{ display: settingsOpen ? 'block' : 'none', bgcolor: 'rgba(20,20,20,0.95)', backdropFilter: 'blur(12px)', border: '1px solid #333', borderRadius: 2, p: 2.5, mb: 1, minWidth: { xs: 220, sm: 260 }, animation: settingsOpen ? `${fadeIn} 0.2s ease-out` : 'none' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: -1 }}>
                             <IconButton size="small" onClick={() => setSettingsOpen(false)}>
                                 <CloseIcon sx={{ fontSize: 18, color: '#888' }} />
@@ -671,7 +684,7 @@ export const Kiosk: React.FC = () => {
 
                 <IconButton
                     onClick={() => setSettingsOpen((prev) => !prev)}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.05)', border: '1px solid #333', color: '#666', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', color: '#aaa' } }}
+                    sx={{ bgcolor: 'rgba(255,255,255,0.05)', border: '1px solid #333', color: '#666', minWidth: 44, minHeight: 44, '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', color: '#aaa' } }}
                 >
                     <SettingsIcon />
                 </IconButton>

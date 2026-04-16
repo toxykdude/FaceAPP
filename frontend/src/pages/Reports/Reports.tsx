@@ -16,6 +16,8 @@ import {
     Paper,
     Avatar,
     CircularProgress,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import {
     TrendingUp as TrendingUpIcon,
@@ -74,7 +76,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, changeLab
         >
             <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                    <Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
                             {title}
                         </Typography>
@@ -94,7 +96,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, changeLab
                             >
                                 {Math.abs(change)}%
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {changeLabel}
                             </Typography>
                         </Box>
@@ -102,8 +104,8 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, changeLab
                     <Avatar
                         sx={{
                             bgcolor: color,
-                            width: 56,
-                            height: 56,
+                            width: { xs: 44, sm: 56 },
+                            height: { xs: 44, sm: 56 },
                         }}
                     >
                         {icon}
@@ -119,6 +121,9 @@ const GREEN_PALETTE = ['#1b5e20', '#2e7d32', '#388e3c', '#43a047', '#4caf50', '#
 export const Reports: React.FC = () => {
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const isXs = useMediaQuery(theme.breakpoints.down('xs'));
     const [timeRange, setTimeRange] = useState('30days');
 
     const daysMap: Record<string, number> = {
@@ -262,6 +267,9 @@ export const Reports: React.FC = () => {
         ],
     };
 
+    const chartHeight = isXs ? 250 : 320;
+    const paperHeight = isXs ? 330 : 400;
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
@@ -285,18 +293,18 @@ export const Reports: React.FC = () => {
     };
 
     return (
-        <Box sx={{ p: 3 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+        <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={4} gap={2}>
                 <Box>
-                    <Typography variant="h4" fontWeight="bold" gutterBottom>
+                    <Typography variant={isMobile ? "h5" : "h4"} fontWeight="bold" gutterBottom>
                         {t.reports.title}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                         {t.reports.subtitle}
                     </Typography>
                 </Box>
-                <Box display="flex" gap={2}>
-                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                <Box display="flex" gap={2} flexDirection={{ xs: 'column', sm: 'row' }} width={isMobile ? '100%' : 'auto'}>
+                    <FormControl size="small" fullWidth={isMobile}>
                         <InputLabel>{t.reports.timeRange}</InputLabel>
                         <Select
                             value={timeRange}
@@ -309,25 +317,27 @@ export const Reports: React.FC = () => {
                             <MenuItem value="year">{t.reports.thisYear}</MenuItem>
                         </Select>
                     </FormControl>
+                    <Box display="flex" gap={1}>
                     <Button
                         variant="outlined"
                         startIcon={<RefreshIcon />}
                         sx={{ borderColor: '#2e7d32', color: '#2e7d32' }}
                         onClick={handleRefresh}
                     >
-                        {t.reports.refresh}
+                        {isMobile ? '' : t.reports.refresh}
                     </Button>
                     <Button
                         variant="contained"
                         startIcon={<DownloadIcon />}
                         sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}
                     >
-                        {t.reports.exportReport}
+                        {isMobile ? '' : t.reports.exportReport}
                     </Button>
+                    </Box>
                 </Box>
             </Box>
 
-            <Grid container spacing={3} mb={4}>
+            <Grid container spacing={2} mb={4}>
                 <Grid item xs={12} sm={6} md={4}>
                     <MetricCard title={t.reports.totalRevenue} value={metrics.totalRevenue.value} change={metrics.totalRevenue.change} changeLabel={metrics.totalRevenue.label} icon={<MoneyIcon />} color="#2e7d32" />
                 </Grid>
@@ -350,9 +360,9 @@ export const Reports: React.FC = () => {
 
             <Grid container spacing={3} mb={4}>
                 <Grid item xs={12} lg={8}>
-                    <Paper sx={{ p: 3, height: 400 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 }, height: paperHeight }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.revenueTrend}</Typography>
-                        <Box sx={{ height: 320 }}>
+                        <Box sx={{ height: chartHeight }}>
                             {loadingReport ? (
                                 <Box display="flex" alignItems="center" justifyContent="center" height="100%"><CircularProgress /></Box>
                             ) : (
@@ -362,9 +372,9 @@ export const Reports: React.FC = () => {
                     </Paper>
                 </Grid>
                 <Grid item xs={12} lg={4}>
-                    <Paper sx={{ p: 3, height: 400 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 }, height: paperHeight }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.membershipDistribution}</Typography>
-                        <Box sx={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Box sx={{ height: chartHeight, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {loadingReport ? (
                                 <CircularProgress />
                             ) : distData.length > 0 ? (
@@ -379,9 +389,9 @@ export const Reports: React.FC = () => {
 
             <Grid container spacing={3} mb={4}>
                 <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 3, height: 400 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 }, height: paperHeight }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.memberGrowth}</Typography>
-                        <Box sx={{ height: 320 }}>
+                        <Box sx={{ height: chartHeight }}>
                             {loadingReport ? (
                                 <Box display="flex" alignItems="center" justifyContent="center" height="100%"><CircularProgress /></Box>
                             ) : (
@@ -391,9 +401,9 @@ export const Reports: React.FC = () => {
                     </Paper>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 3, height: 400 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 }, height: paperHeight }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.peakHoursAnalysis}</Typography>
-                        <Box sx={{ height: 320 }}>
+                        <Box sx={{ height: chartHeight }}>
                             {loadingReport ? (
                                 <Box display="flex" alignItems="center" justifyContent="center" height="100%"><CircularProgress /></Box>
                             ) : (
@@ -406,9 +416,9 @@ export const Reports: React.FC = () => {
 
             <Grid container spacing={3} mb={4}>
                 <Grid item xs={12}>
-                    <Paper sx={{ p: 3, height: 400 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 }, height: paperHeight }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.checkinTrend}</Typography>
-                        <Box sx={{ height: 320 }}>
+                        <Box sx={{ height: chartHeight }}>
                             {loadingReport ? (
                                 <Box display="flex" alignItems="center" justifyContent="center" height="100%"><CircularProgress /></Box>
                             ) : (
@@ -421,12 +431,12 @@ export const Reports: React.FC = () => {
 
             <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 3 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 } }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.salesByMethod}</Typography>
                         <Box sx={{ mt: 2 }}>
                             {Object.entries(salesReport?.revenue_by_method || {}).map(([method, revenue], index) => (
                                 <Box key={index} sx={{ mb: 2, p: 2, bgcolor: 'var(--bg-primary)', borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Box>
+                                    <Box sx={{ minWidth: 0, flex: 1, mr: 1 }}>
                                         <Typography variant="subtitle1" fontWeight="600">{method.toUpperCase()}</Typography>
                                         <Typography variant="body2" color="text.secondary">{salesReport?.transactions_by_method?.[method] || 0} {t.reports.transactions}</Typography>
                                     </Box>
@@ -440,7 +450,7 @@ export const Reports: React.FC = () => {
                     </Paper>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 3 }}>
+                    <Paper sx={{ p: { xs: 2, md: 3 } }}>
                         <Typography variant="h6" fontWeight="600" gutterBottom>{t.reports.recentTransactions}</Typography>
                         <Box sx={{ mt: 2, maxHeight: 400, overflow: 'auto' }}>
                             {recentSales?.transactions?.map((tx: any) => (

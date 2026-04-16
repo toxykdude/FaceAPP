@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # File Storage
     SNAPSHOT_RETENTION_DAYS: int = 30
     
+    # Evolution API (WhatsApp)
+    EVOLUTION_API_URL: str = "https://wappbot.powerhousegym.co"
+    EVOLUTION_API_KEY: str = "UJrZ7tMU93YaNX"
+    EVOLUTION_INSTANCE_NAME: str = "Powerbt"
+    
     # Email (optional)
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: Optional[int] = 587

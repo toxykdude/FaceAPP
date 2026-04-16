@@ -15,6 +15,8 @@ import {
     CircularProgress,
     Avatar,
     Alert,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import {
     Save as SaveIcon,
@@ -50,6 +52,8 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     const queryClient = useQueryClient();
     const { lang, setLang, t } = useLanguage();
     const { mode, toggleTheme } = useThemeMode();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [activeTab, setActiveTab] = useState(0);
     const [localValues, setLocalValues] = useState<Record<string, any>>({});
     const [hasChanges, setHasChanges] = useState(false);
@@ -170,9 +174,9 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     if (isLoading) return <CircularProgress />;
 
     return (
-        <Box sx={{ maxWidth: 1200, mx: 'auto', p: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 4 }}>
-                <Typography variant="h4" fontWeight="bold">{t.settings.title}</Typography>
+        <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, sm: 4 } }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', mb: 4, gap: 2 }}>
+                <Typography variant={isMobile ? "h5" : "h4"} fontWeight="bold">{t.settings.title}</Typography>
                 <Button
                     variant="contained"
                     startIcon={<SaveIcon />}
@@ -186,6 +190,8 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
             <Paper sx={{ width: '100%', mb: 2 }}>
                 <Tabs
                     value={activeTab}
+                    variant="scrollable"
+                    scrollButtons="auto"
                     onChange={(_, val) => setActiveTab(val)}
                     indicatorColor="primary"
                     textColor="primary"
@@ -198,7 +204,7 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     <Tab icon={<PeopleIcon />} label={t.settings.users} />
                 </Tabs>
 
-                <Box sx={{ p: 4 }}>
+                <Box sx={{ p: { xs: 2, sm: 4 } }}>
                     {activeTab === 0 && (
                         <Box>
                             {/* Branding Section */}

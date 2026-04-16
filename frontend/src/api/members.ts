@@ -17,6 +17,9 @@ export interface Member {
     consent_given: boolean;
     created_at: string;
     updated_at: string;
+    membership_status: string | null;
+    membership_end_date: string | null;
+    membership_plan_name: string | null;
 }
 
 export interface MemberCreate {

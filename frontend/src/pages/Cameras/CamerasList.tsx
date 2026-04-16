@@ -15,6 +15,8 @@ import {
     CircularProgress,
     IconButton,
     Tooltip,
+    useMediaQuery,
+    useTheme,
     Dialog,
     DialogTitle,
     DialogContent,
@@ -40,6 +42,8 @@ import { useLanguage } from '@/i18n/LanguageContext';
 
 export const CamerasList: React.FC = () => {
     const queryClient = useQueryClient();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const { t } = useLanguage();
     const [openAddDialog, setOpenAddDialog] = useState(false);
     const [newCamera, setNewCamera] = useState<CameraCreate>({
@@ -154,9 +158,9 @@ export const CamerasList: React.FC = () => {
 
     return (
         <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">{t.cameras.title}</Typography>
-                <Box>
+            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} gap={2}>
+                <Typography variant={isMobile ? "h5" : "h4"}>{t.cameras.title}</Typography>
+                <Box display="flex" gap={1} width={isMobile ? '100%' : 'auto'}>
                     <IconButton onClick={() => refetch()} sx={{ mr: 1 }}><RefreshIcon /></IconButton>
                     <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
                         {t.cameras.addCamera}
@@ -164,13 +168,13 @@ export const CamerasList: React.FC = () => {
                 </Box>
             </Box>
 
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
                 <Table>
                     <TableHead>
                         <TableRow>
                             <TableCell>{t.cameras.name}</TableCell>
                             <TableCell>{t.cameras.location}</TableCell>
-                            <TableCell>{t.cameras.rtspUrl}</TableCell>
+                            {!isMobile && <TableCell>{t.cameras.rtspUrl}</TableCell>}
                             <TableCell>{t.cameras.status}</TableCell>
                             <TableCell align="right">{t.common.actions}</TableCell>
                         </TableRow>
@@ -196,20 +200,20 @@ export const CamerasList: React.FC = () => {
                                     <Chip label={camera.enabled ? t.cameras.active : t.members.inactive} color={camera.enabled ? 'success' : 'default'} size="small" />
                                 </TableCell>
                                 <TableCell align="right">
-                                    <Tooltip title={t.cameras.testConnection}><IconButton size="small" onClick={() => testMutation.mutate(camera.id)}><TestIcon /></IconButton></Tooltip>
-                                    <IconButton size="small" onClick={() => handleEditClick(camera)}><EditIcon /></IconButton>
-                                    <IconButton size="small" color="error" onClick={() => { if (window.confirm(t.cameras.deleteConfirm)) { deleteMutation.mutate(camera.id); } }}><DeleteIcon /></IconButton>
+                                    <Tooltip title={t.cameras.testConnection}><IconButton size="small" sx={{ minWidth: 44, minHeight: 44 }} onClick={() => testMutation.mutate(camera.id)}><TestIcon /></IconButton></Tooltip>
+                                    <IconButton size="small" sx={{ minWidth: 44, minHeight: 44 }} onClick={() => handleEditClick(camera)}><EditIcon /></IconButton>
+                                    <IconButton size="small" sx={{ minWidth: 44, minHeight: 44 }} color="error" onClick={() => { if (window.confirm(t.cameras.deleteConfirm)) { deleteMutation.mutate(camera.id); } }}><DeleteIcon /></IconButton>
                                 </TableCell>
                             </TableRow>
                         ))}
                         {(!cameras || cameras.length === 0) && (
-                            <TableRow><TableCell colSpan={5} align="center">{t.cameras.noCameras}</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={isMobile ? 4 : 5} align="center">{t.cameras.noCameras}</TableCell></TableRow>
                         )}
                     </TableBody>
                 </Table>
             </TableContainer>
 
-            <Dialog open={openAddDialog} onClose={() => setOpenAddDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={openAddDialog} fullScreen={isMobile} onClose={() => setOpenAddDialog(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>{editingId ? t.cameras.editCamera : t.cameras.addNewCamera}</DialogTitle>
                 <DialogContent>
                     <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>

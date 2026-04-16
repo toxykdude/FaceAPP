@@ -127,7 +127,7 @@ export const MainLayout: React.FC = () => {
             }}
         >
             {/* Logo Section */}
-            <Box sx={{ p: 2.5, pb: 0, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ p: { xs: 2, sm: 2.5 }, pb: 0, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <img src={orgLogo} alt={orgName} style={{ width: 36, height: 36, borderRadius: 8 }} />
                 <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1.1rem' }}>
                     {orgName}
@@ -135,7 +135,7 @@ export const MainLayout: React.FC = () => {
             </Box>
 
             {/* User Profile Section */}
-            <Box sx={{ p: 3 }}>
+            <Box sx={{ p: { xs: 2, sm: 3 } }}>
                 <Box
                     sx={{
                         display: 'flex',
@@ -148,6 +148,8 @@ export const MainLayout: React.FC = () => {
                         '&:hover': {
                             background: 'var(--bg-primary)',
                         },
+                        // Ensure touch target is at least 44px
+                        minHeight: 44,
                     }}
                     onClick={handleUserMenuOpen}
                 >
@@ -187,6 +189,7 @@ export const MainLayout: React.FC = () => {
                                     '&:hover': {
                                         background: 'var(--bg-primary)',
                                     },
+                                    minHeight: 44,
                                 }}
                             >
                                 <ListItemIcon
@@ -257,6 +260,7 @@ export const MainLayout: React.FC = () => {
                                         '&:hover': {
                                             background: 'var(--bg-primary)',
                                         },
+                                        minHeight: 44,
                                     }}
                                 >
                                     <Box
@@ -285,7 +289,7 @@ export const MainLayout: React.FC = () => {
 
             {/* Settings at Bottom */}
             <Box sx={{ p: 2, borderTop: '1px solid var(--border-color)' }}>
-                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 0.5 }}>
                     <ListItemButton
                         onClick={() => handleMenuClick('/settings')}
                         sx={{
@@ -297,6 +301,7 @@ export const MainLayout: React.FC = () => {
                             '&:hover': {
                                 background: 'var(--bg-primary)',
                             },
+                            minHeight: 44,
                         }}
                     >
                         <ListItemIcon
@@ -320,7 +325,9 @@ export const MainLayout: React.FC = () => {
                         onClick={toggleTheme}
                         sx={{
                             color: 'var(--text-secondary)',
-                            alignSelf: 'center',
+                            alignSelf: { xs: 'flex-end', sm: 'center' },
+                            minWidth: 44,
+                            minHeight: 44,
                             '&:hover': { background: 'var(--bg-primary)' },
                         }}
                         title={mode === 'dark' ? t.settings.lightMode : t.settings.darkMode}
@@ -375,27 +382,26 @@ export const MainLayout: React.FC = () => {
                         borderBottom: '1px solid var(--border-color)',
                         display: 'flex',
                         alignItems: 'center',
-                        px: 2,
+                        px: 1.5,
                         zIndex: 1200,
                     }}
                 >
                     <IconButton
                         edge="start"
                         onClick={handleDrawerToggle}
-                        sx={{ mr: 2 }}
+                        sx={{ mr: 1, minWidth: 44, minHeight: 44 }}
                     >
                         <MenuIcon />
                     </IconButton>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <img src={orgLogo} alt={orgName} style={{ width: 36, height: 36, borderRadius: 8 }} />
-                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                        <img src={orgLogo} alt={orgName} style={{ width: 32, height: 32, borderRadius: 6 }} />
+                        <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {orgName}
                         </Typography>
                     </Box>
-                    <Box sx={{ flex: 1 }} />
                     <IconButton
                         onClick={toggleTheme}
-                        sx={{ color: 'var(--text-secondary)' }}
+                        sx={{ color: 'var(--text-secondary)', minWidth: 44, minHeight: 44 }}
                         title={mode === 'dark' ? t.settings.lightMode : t.settings.darkMode}
                     >
                         {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
@@ -455,6 +461,7 @@ export const MainLayout: React.FC = () => {
                     minHeight: '100vh',
                     background: 'var(--bg-primary)',
                     pt: { xs: '64px', md: 0 },
+                    overflowX: 'hidden',
                 }}
             >
                 <Outlet />

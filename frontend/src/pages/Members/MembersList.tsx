@@ -26,6 +26,8 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -42,6 +44,8 @@ export const MembersList: React.FC = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { t } = useLanguage();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const deleteMutation = useMutation({
@@ -84,20 +88,21 @@ export const MembersList: React.FC = () => {
     };
 
     return (
-        <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">{t.members.title}</Typography>
+        <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} gap={2}>
+                <Typography variant={isMobile ? "h5" : "h4"}>{t.members.title}</Typography>
                 <Button
                     variant="contained"
                     startIcon={<AddIcon />}
                     onClick={() => navigate('/members/new')}
+                    fullWidth={isMobile}
                 >
                     {t.members.addMember}
                 </Button>
             </Box>
 
             <Card>
-                <CardContent>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
                     <TextField
                         fullWidth
                         placeholder={t.members.search}
@@ -113,29 +118,28 @@ export const MembersList: React.FC = () => {
                         sx={{ mb: 2 }}
                     />
 
-                    <TableContainer>
-                        <Table>
+                    <TableContainer sx={{ overflowX: 'auto' }}>
+                        <Table size={isMobile ? "small" : "medium"}>
                             <TableHead>
                                 <TableRow>
                                     <TableCell>{t.members.name}</TableCell>
                                     <TableCell>{t.members.idNumber}</TableCell>
-                                    <TableCell>{t.members.email}</TableCell>
-                                    <TableCell>{t.members.phone}</TableCell>
+                                    {!isMobile && <TableCell>{t.members.email}</TableCell>}
                                     <TableCell>{t.members.status}</TableCell>
-                                    <TableCell>{t.members.enrolled}</TableCell>
+                                    {!isMobile && <TableCell>'Membresía'</TableCell>}
                                     <TableCell align="right">{t.common.actions}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} align="center">
+                                        <TableCell colSpan={isMobile ? 4 : 7} align="center">
                                             {t.members.loading}
                                         </TableCell>
                                     </TableRow>
                                 ) : data?.members.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} align="center">
+                                        <TableCell colSpan={isMobile ? 4 : 7} align="center">
                                             {t.members.noMembersFound}
                                         </TableCell>
                                     </TableRow>
@@ -146,8 +150,7 @@ export const MembersList: React.FC = () => {
                                                 {member.first_name} {member.last_name}
                                             </TableCell>
                                             <TableCell>{member.id_number || '—'}</TableCell>
-                                            <TableCell>{member.email}</TableCell>
-                                            <TableCell>{member.phone}</TableCell>
+                                            {!isMobile && <TableCell>{member.email}</TableCell>}
                                             <TableCell>
                                                 <Chip
                                                     label={member.status}
@@ -155,41 +158,65 @@ export const MembersList: React.FC = () => {
                                                     size="small"
                                                 />
                                             </TableCell>
-                                            <TableCell>
-                                                <Chip
-                                                    label={member.facial_data_enrolled ? t.members.yes : t.members.no}
-                                                    color={member.facial_data_enrolled ? 'success' : 'default'}
-                                                    size="small"
-                                                />
-                                            </TableCell>
+                                            {!isMobile && (
+                                                <TableCell>
+                                                    {member.membership_status === 'active' ? (
+                                                        <Chip
+                                                            label={`${member.membership_plan_name || 'Activa'} → ${member.membership_end_date || ''}`}
+                                                            color="success"
+                                                            size="small"
+                                                        />
+                                                    ) : member.membership_status === 'expired' ? (
+                                                        <Chip
+                                                            label={t.members.expired}
+                                                            color="error"
+                                                            size="small"
+                                                        />
+                                                    ) : (
+                                                        <Chip
+                                                            label={t.members.noMemberships}
+                                                            color="default"
+                                                            size="small"
+                                                            variant="outlined"
+                                                        />
+                                                    )}
+                                                </TableCell>
+                                            )}
                                             <TableCell align="right">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => navigate(`/members/${member.id}/edit`)}
-                                                    title={t.members.editMember}
-                                                    color="primary"
-                                                >
-                                                    <EditIcon />
-                                                </IconButton>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => navigate(`/members/${member.id}/membership`)}
-                                                    title={t.members.assignMembership}
-                                                    color="secondary"
-                                                >
-                                                    <CardMembershipIcon />
-                                                </IconButton>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => navigate(`/members/${member.id}/enroll`)}
-                                                    title={t.members.faceEnrollment}
-                                                    color={member.facial_data_enrolled ? 'success' : 'warning'}
-                                                >
-                                                    <EnrollIcon />
-                                                </IconButton>
-                                                <IconButton size="small" title={t.members.delete} color="error" onClick={() => setDeleteTarget(member.id)}>
-                                                    <DeleteIcon />
-                                                </IconButton>
+                                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => navigate(`/members/${member.id}/edit`)}
+                                                        title={t.members.editMember}
+                                                        color="primary"
+                                                        sx={{ minWidth: 44, minHeight: 44 }}
+                                                    >
+                                                        <EditIcon />
+                                                    </IconButton>
+                                                    {!isMobile && (
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => navigate(`/members/${member.id}/membership`)}
+                                                            title={t.members.assignMembership}
+                                                            color="secondary"
+                                                            sx={{ minWidth: 44, minHeight: 44 }}
+                                                        >
+                                                            <CardMembershipIcon />
+                                                        </IconButton>
+                                                    )}
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => navigate(`/members/${member.id}/enroll`)}
+                                                        title={t.members.faceEnrollment}
+                                                        color={member.facial_data_enrolled ? 'success' : 'warning'}
+                                                        sx={{ minWidth: 44, minHeight: 44 }}
+                                                    >
+                                                        <EnrollIcon />
+                                                    </IconButton>
+                                                    <IconButton size="small" title={t.members.delete} color="error" onClick={() => setDeleteTarget(member.id)} sx={{ minWidth: 44, minHeight: 44 }}>
+                                                        <DeleteIcon />
+                                                    </IconButton>
+                                                </Box>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -212,20 +239,21 @@ export const MembersList: React.FC = () => {
                 </CardContent>
             </Card>
             {/* Delete Confirmation Dialog */}
-            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} fullWidth fullScreen={isMobile}>
                 <DialogTitle>{t.members.deleteMember}</DialogTitle>
                 <DialogContent>
                     <DialogContentText>
                         {t.members.deleteConfirmMsg}
                     </DialogContentText>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDeleteTarget(null)}>{t.members.cancel}</Button>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setDeleteTarget(null)} fullWidth={isMobile}>{t.members.cancel}</Button>
                     <Button
                         onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
                         color="error"
                         variant="contained"
                         disabled={deleteMutation.isPending}
+                        fullWidth={isMobile}
                     >
                         {deleteMutation.isPending ? t.members.deleting : t.members.delete}
                     </Button>

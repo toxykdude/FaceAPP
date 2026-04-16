@@ -46,7 +46,8 @@ class TemplateMatcher:
                 "similarity": similarity,
                 "name": template_data["name"],
                 "status": template_data["status"],
-                "membership_status": template_data.get("membership_status")
+                "membership_status": template_data.get("membership_status"),
+                "membership_end_date": template_data.get("membership_end_date")
             })
         
         # Sort by similarity (descending)
@@ -71,7 +72,8 @@ class TemplateMatcher:
                 {
                     "name": best_match["name"],
                     "status": best_match["status"],
-                    "membership_status": best_match["membership_status"]
+                    "membership_status": best_match["membership_status"],
+                    "membership_end_date": best_match.get("membership_end_date")
                 }
             )
         else:

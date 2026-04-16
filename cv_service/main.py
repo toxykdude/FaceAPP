@@ -131,7 +131,8 @@ class CVService:
             member_data = {
                 "name": t["name"],
                 "status": t["status"],
-                "membership_status": t.get("membership_status")
+                "membership_status": t.get("membership_status"),
+                "membership_end_date": t.get("membership_end_date")
             }
             
             cache.store_template(t["member_id"], embedding, member_data)
@@ -500,6 +501,7 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
                 "access_granted": access_granted,
                 "denial_reason": denial_reason,
                 "face_bbox": bbox,
+                "membership_end_date": member_data.get("membership_end_date") if member_data else None,
             })
 
     except WebSocketDisconnect:
