@@ -27,7 +27,7 @@ class SalesTransactionResponse(SalesTransactionBase):
     id: Any
     member_id: Any
     membership_id: Optional[Any] = None
-    invoice_number: str
+    invoice_number: Optional[str] = None
     transaction_date: datetime
     created_at: datetime
     member_name: Optional[str] = None

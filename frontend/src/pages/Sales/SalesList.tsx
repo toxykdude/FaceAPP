@@ -113,7 +113,7 @@ export const SalesList: React.FC = () => {
                                             <TableCell>
                                                 <Box display="flex" alignItems="center" gap={1}>
                                                     <ReceiptIcon fontSize="small" color="action" />
-                                                    <Typography variant="body2">{tx.invoice_number}</Typography>
+                                                    <Typography variant="body2">{tx.invoice_number || '-'}</Typography>
                                                 </Box>
                                             </TableCell>
                                             <TableCell>{tx.member_name || t.sales.unknown}</TableCell>
