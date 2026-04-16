@@ -1,7 +1,7 @@
 /**
  * Face enrollment page for capturing member's facial data.
  */
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,8 +21,11 @@ import {
     MenuItem,
     useMediaQuery,
     useTheme,
+    Step,
+    StepLabel,
+    Stepper,
 } from '@mui/material';
-import { CameraAlt as CameraIcon, PhotoLibrary as PhotoIcon, CheckCircle as CheckIcon, Videocam as VideoIcon, ConnectedTv as SystemIcon } from '@mui/icons-material';
+import { CameraAlt as CameraIcon, PhotoLibrary as PhotoIcon, CheckCircle as CheckIcon, Videocam as VideoIcon, ConnectedTv as SystemIcon, CloudUpload as TabletIcon } from '@mui/icons-material';
 import { membersApi } from '@/api/members';
 import { camerasApi } from '@/api/cameras';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -78,6 +81,66 @@ export const FaceEnrollment: React.FC = () => {
         },
         onError: handleError,
     });
+
+    // --- Tablet Camera state ---
+    const [tabletRequestId, setTabletRequestId] = useState<string | null>(null);
+    const [tabletStatus, setTabletStatus] = useState<'idle' | 'creating' | 'pending' | 'processing' | 'complete' | 'failed' | 'cancelled'>('idle');
+    const [tabletQualityScore, setTabletQualityScore] = useState<number | null>(null);
+    const [tabletResultMessage, setTabletResultMessage] = useState<string | null>(null);
+
+    const createTabletRequestMutation = useMutation({
+        mutationFn: () => membersApi.createEnrollmentRequest(id!),
+        onSuccess: (data) => {
+            setTabletRequestId(data.id);
+            setTabletStatus('pending');
+        },
+        onError: (error) => {
+            setTabletStatus('failed');
+            setTabletResultMessage(error.response?.data?.detail || error.message);
+        },
+    });
+
+    const cancelTabletRequestMutation = useMutation({
+        mutationFn: () => membersApi.cancelEnrollmentRequest(tabletRequestId!),
+        onSuccess: () => {
+            setTabletStatus('cancelled');
+        },
+    });
+
+    const pollTabletRequest = useCallback(async () => {
+        if (!tabletRequestId) return;
+        try {
+            const result = await membersApi.getEnrollmentRequest(tabletRequestId);
+            setTabletStatus(result.status);
+            if (result.quality_score !== null) {
+                setTabletQualityScore(result.quality_score);
+            }
+            if (result.result_message) {
+                setTabletResultMessage(result.result_message);
+            }
+            if (result.status === 'complete') {
+                queryClient.invalidateQueries({ queryKey: ['biometric-status', id] });
+            }
+        } catch {
+            // Silently ignore poll errors — keep polling
+        }
+    }, [tabletRequestId, queryClient, id]);
+
+    useEffect(() => {
+        if (tabletStatus !== 'pending' && tabletStatus !== 'processing') return;
+        const interval = setInterval(pollTabletRequest, 2000);
+        return () => clearInterval(interval);
+    }, [tabletStatus, pollTabletRequest]);
+
+    // Reset tablet state when switching away from tab 3
+    useEffect(() => {
+        if (tabValue !== 3) {
+            setTabletRequestId(null);
+            setTabletStatus('idle');
+            setTabletQualityScore(null);
+            setTabletResultMessage(null);
+        }
+    }, [tabValue]);
 
     function handleSuccess() {
         queryClient.invalidateQueries({ queryKey: ['biometric-status', id] });
@@ -187,6 +250,7 @@ export const FaceEnrollment: React.FC = () => {
                                 <Tab icon={<PhotoIcon />} label={t.members.uploadPhotoTab} />
                                 <Tab icon={<VideoIcon />} label={t.members.webcamTab} />
                                 <Tab icon={<SystemIcon />} label={t.members.systemCameraTab} />
+                                <Tab icon={<TabletIcon />} label={t.members.tabletCameraTab} />
                             </Tabs>
                         </Box>
 
@@ -301,6 +365,141 @@ export const FaceEnrollment: React.FC = () => {
                                     >
                                         {enrollCameraMutation.isPending ? t.members.capturing : t.members.captureFromCamera}
                                     </Button>
+                                </Box>
+                            )}
+
+                            {tabValue === 3 && (
+                                <Box textAlign="center">
+                                    {tabletStatus === 'idle' && (
+                                        <Box sx={{ py: 4 }}>
+                                            <TabletIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                                            <Typography variant="body1" color="text.secondary" gutterBottom>
+                                                {t.members.chooseMethod}
+                                            </Typography>
+                                            <Button
+                                                variant="contained"
+                                                startIcon={<TabletIcon />}
+                                                onClick={() => {
+                                                    setTabletStatus('creating');
+                                                    createTabletRequestMutation.mutate();
+                                                }}
+                                            >
+                                                {t.members.tabletStartEnroll}
+                                            </Button>
+                                        </Box>
+                                    )}
+
+                                    {(tabletStatus === 'creating' || tabletStatus === 'pending' || tabletStatus === 'processing') && (
+                                        <Box sx={{ py: 2 }}>
+                                            <Stepper activeStep={
+                                                tabletStatus === 'creating' ? 0
+                                                : tabletStatus === 'pending' ? 1
+                                                : 2
+                                            } alternativeLabel>
+                                                <Step completed={tabletStatus !== 'creating'}>
+                                                    <StepLabel>{t.members.tabletRequestSent}</StepLabel>
+                                                </Step>
+                                                <Step completed={tabletStatus === 'processing' || tabletStatus === 'complete' || tabletStatus === 'failed'}>
+                                                    <StepLabel StepIconComponent={() => (
+                                                        tabletStatus === 'pending' ? <CircularProgress size={20} /> : undefined
+                                                    )}>
+                                                        {t.members.tabletWaiting}
+                                                    </StepLabel>
+                                                </Step>
+                                                <Step completed={tabletStatus === 'complete'}>
+                                                    <StepLabel StepIconComponent={() => (
+                                                        tabletStatus === 'processing' ? <CircularProgress size={20} /> : undefined
+                                                    )}>
+                                                        {t.members.tabletCapturing}
+                                                    </StepLabel>
+                                                </Step>
+                                                <Step completed={tabletStatus === 'complete'}>
+                                                    <StepLabel>{t.members.tabletCompleted}</StepLabel>
+                                                </Step>
+                                            </Stepper>
+
+                                            <Box sx={{ mt: 4 }}>
+                                                <CircularProgress size={32} sx={{ mb: 2 }} />
+                                                <Typography variant="body1">
+                                                    {tabletStatus === 'creating' && t.members.tabletRequestSent}
+                                                    {tabletStatus === 'pending' && t.members.tabletWaiting}
+                                                    {tabletStatus === 'processing' && t.members.tabletCapturing}
+                                                </Typography>
+                                            </Box>
+
+                                            <Box sx={{ mt: 3 }}>
+                                                <Button
+                                                    variant="outlined"
+                                                    color="error"
+                                                    disabled={cancelTabletRequestMutation.isPending}
+                                                    onClick={() => cancelTabletRequestMutation.mutate()}
+                                                >
+                                                    {t.members.tabletCancel}
+                                                </Button>
+                                            </Box>
+                                        </Box>
+                                    )}
+
+                                    {tabletStatus === 'complete' && (
+                                        <Box sx={{ py: 3 }}>
+                                            <Alert icon={<CheckIcon fontSize="inherit" />} severity="success" sx={{ mb: 2 }}>
+                                                {t.members.tabletEnrollSuccess}
+                                            </Alert>
+                                            {tabletQualityScore !== null && (
+                                                <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
+                                                    {t.members.tabletQualityScore}: {tabletQualityScore.toFixed(1)}%
+                                                </Typography>
+                                            )}
+                                            {tabletResultMessage && (
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {tabletResultMessage}
+                                                </Typography>
+                                            )}
+                                        </Box>
+                                    )}
+
+                                    {tabletStatus === 'failed' && (
+                                        <Box sx={{ py: 3 }}>
+                                            <Alert severity="error" sx={{ mb: 2 }}>
+                                                {t.members.tabletEnrollError}
+                                            </Alert>
+                                            {tabletResultMessage && (
+                                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                                    {tabletResultMessage}
+                                                </Typography>
+                                            )}
+                                            <Button
+                                                variant="contained"
+                                                onClick={() => {
+                                                    setTabletStatus('idle');
+                                                    setTabletRequestId(null);
+                                                    setTabletQualityScore(null);
+                                                    setTabletResultMessage(null);
+                                                }}
+                                            >
+                                                Reintentar
+                                            </Button>
+                                        </Box>
+                                    )}
+
+                                    {tabletStatus === 'cancelled' && (
+                                        <Box sx={{ py: 3 }}>
+                                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                                {t.members.tabletCancelled}
+                                            </Alert>
+                                            <Button
+                                                variant="contained"
+                                                onClick={() => {
+                                                    setTabletStatus('idle');
+                                                    setTabletRequestId(null);
+                                                    setTabletQualityScore(null);
+                                                    setTabletResultMessage(null);
+                                                }}
+                                            >
+                                                Reintentar
+                                            </Button>
+                                        </Box>
+                                    )}
                                 </Box>
                             )}
                         </CardContent>

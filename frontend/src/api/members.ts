@@ -61,6 +61,18 @@ export interface BiometricStatus {
     last_updated?: string;
 }
 
+export interface EnrollmentRequest {
+    id: string;
+    status: 'pending' | 'processing' | 'complete' | 'failed' | 'cancelled';
+    quality_score: number | null;
+    result_message: string | null;
+    member_name: string | null;
+    member_id: string;
+    device_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
 export const membersApi = {
     /**
      * Get list of members with pagination and filtering.
@@ -129,5 +141,31 @@ export const membersApi = {
     enrollBiometricFromCamera: async (id: string, cameraId: string): Promise<any> => {
         const response = await apiClient.post(`/enrollment/${id}/enroll/camera`, { camera_id: cameraId });
         return response.data;
+    },
+
+    /**
+     * Create a tablet enrollment request.
+     */
+    createEnrollmentRequest: async (memberId: string): Promise<EnrollmentRequest> => {
+        const response = await apiClient.post<EnrollmentRequest>('/enrollment-requests', {
+            member_id: memberId,
+            device_id: 'kiosk-android',
+        });
+        return response.data;
+    },
+
+    /**
+     * Get enrollment request status by ID.
+     */
+    getEnrollmentRequest: async (requestId: string): Promise<EnrollmentRequest> => {
+        const response = await apiClient.get<EnrollmentRequest>(`/enrollment-requests/${requestId}`);
+        return response.data;
+    },
+
+    /**
+     * Cancel an enrollment request.
+     */
+    cancelEnrollmentRequest: async (requestId: string): Promise<void> => {
+        await apiClient.post(`/enrollment-requests/${requestId}/cancel`);
     },
 };
