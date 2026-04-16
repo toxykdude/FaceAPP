@@ -63,6 +63,14 @@ export const eventsApi = {
         const response = await apiClient.get("/events/today-recognized");
         return response.data;
     },
+
+    /**
+     * Get members whose membership expires today or recently expired.
+     */
+    getExpiringToday: async (limit = 20): Promise<{ expiring: any[]; date: string; count: number }> => {
+        const response = await apiClient.get("/events/expiring-today", { params: { limit } });
+        return response.data;
+    },
 };
 
 export default eventsApi;

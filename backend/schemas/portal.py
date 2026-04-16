@@ -77,9 +77,9 @@ class ActiveMembershipResponse(BaseModel):
 class PaymentHistoryItem(BaseModel):
     """Schema for payment history item in portal."""
     id: Any
-    invoice_number: str
+    invoice_number: Optional[str] = None
     amount: Any
-    payment_method: str
+    payment_method: Optional[str] = None
     transaction_date: datetime
 
     @field_serializer('id')

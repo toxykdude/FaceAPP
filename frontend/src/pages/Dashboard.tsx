@@ -48,7 +48,6 @@ import {
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { camerasApi } from "@/api/cameras";
-import { membershipsApi } from "@/api/memberships";
 import { salesApi } from '@/api/sales';
 import { cvServiceApi } from "@/api/cvService";
 
@@ -75,14 +74,15 @@ export const Dashboard: React.FC = () => {
         queryFn: () => salesApi.getReportSummary(),
     });
 
-    const { data: expiredMemberships } = useQuery({
-        queryKey: ["expired-memberships"],
-        queryFn: async () => {
-            const response = await membershipsApi.getMemberships(0, 20, undefined, "expired");
-            return response;
-        },
-        staleTime: 1000 * 60 * 60,
+    const { data: expiringTodayData } = useQuery({
+        queryKey: ["expiring-today"],
+        queryFn: () => eventsApi.getExpiringToday(20),
+        staleTime: 1000 * 60 * 30,
     });
+    const expiringToday = expiringTodayData?.expiring || [];
+
+    // Check if user has reports permission
+    const hasReportsAccess = user?.role === 'admin' || user?.permissions?.pages?.includes('all') || user?.permissions?.pages?.includes('reports');
 
     const { data: recognizedData } = useQuery({
         queryKey: ["today-recognized"],
@@ -299,59 +299,63 @@ export const Dashboard: React.FC = () => {
                         </Box>
                     </Paper>
 
-                    {/* Expired Memberships Widget */}
+                    {/* Expiring Today Widget - Dynamic Daily */}
                     <Paper
                         elevation={0}
                         sx={{
                             p: { xs: 2, md: 3 },
                             mt: { xs: 2, md: 3 },
                             borderRadius: "var(--radius-xl)",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--bg-secondary)",
+                            border: expiringToday.length > 0 ? "1px solid #ff9800" : "1px solid var(--border-color)",
+                            background: expiringToday.length > 0 ? "#fff8e1" : "var(--bg-secondary)",
                         }}
                     >
                         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                             <Box display="flex" alignItems="center">
-                                <WarningIcon sx={{ mr: 1.5, color: "#f44336" }} />
-                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' } }}>{t.dashboard.expiredMemberships}</Typography>
+                                <WarningIcon sx={{ mr: 1.5, color: expiringToday.length > 0 ? "#f44336" : "#aaa" }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', md: '1.25rem' }, color: expiringToday.length > 0 ? "#e65100" : "inherit" }}>
+                                    Membresías Vencidas Hoy
+                                </Typography>
                             </Box>
-                            <Button size="small" onClick={() => navigate("/memberships")}>{t.dashboard.viewAll}</Button>
+                            <Chip label={expiringToday.length} color={expiringToday.length > 0 ? "warning" : "default" as any} size="small" />
                         </Box>
                         <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>{t.dashboard.member}</TableCell>
-                                        <TableCell>{t.dashboard.plan}</TableCell>
-                                        <TableCell>{t.dashboard.expired}</TableCell>
+                                        <TableCell>Miembro</TableCell>
+                                        <TableCell>Plan</TableCell>
+                                        <TableCell>Venció</TableCell>
+                                        <TableCell>Días</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {[...(expiredMemberships || [])]
-                                        .sort((a: any, b: any) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime())
-                                        .slice(0, 20)
-                                        .map((m: any) => (
-                                            <MemberTooltip key={m.id} member={{
-                                                member_id: m.member_id,
-                                                member_name: m.member_name,
-                                                membership_plan: m.plan_name,
-                                                membership_end: m.end_date,
-                                                membership_status: "expired",
-                                            }}>
-                                            <TableRow
-                                                hover
-                                                onClick={() => navigate(`/members/${m.member_id}`)}
-                                                sx={{ cursor: "pointer" }}
-                                            >
-                                                <TableCell>{m.member_name || t.dashboard.unknown}</TableCell>
-                                                <TableCell>{m.plan_name || m.type}</TableCell>
-                                                <TableCell>{format(new Date(m.end_date), "MMM d, yyyy")}</TableCell>
-                                            </TableRow>
-                                            </MemberTooltip>
-                                        ))}
-                                    {(!expiredMemberships || expiredMemberships.length === 0) && (
+                                    {expiringToday.map((m: any) => (
+                                        <TableRow
+                                            key={m.member_id + m.end_date}
+                                            hover
+                                            onClick={() => navigate(`/members/${m.member_id}`)}
+                                            sx={{ cursor: "pointer" }}
+                                        >
+                                            <TableCell>{m.member_name}</TableCell>
+                                            <TableCell>{m.plan_name || "-"}</TableCell>
+                                            <TableCell sx={{ color: m.days_expired > 0 ? "#f44336" : "#ff9800", fontWeight: "bold" }}>
+                                                {format(new Date(m.end_date), "MMM d")}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={m.days_expired === 0 ? "Hoy" : `${m.days_expired}d`}
+                                                    color={m.days_expired === 0 ? "warning" : "error" as any}
+                                                    size="small"
+                                                />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {expiringToday.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={3} align="center">{t.dashboard.noExpired}</TableCell>
+                                            <TableCell colSpan={4} align="center" sx={{ py: 3, color: "#999" }}>
+                                                No hay membresías vencidas hoy
+                                            </TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -525,8 +529,8 @@ export const Dashboard: React.FC = () => {
                         </CardContent>
                     </Card>
 
-                    {/* Quick Stats */}
-                    <Paper
+                    {/* Quick Stats - Only visible with reports permission */}
+                    {hasReportsAccess && (<Paper
                         elevation={0}
                         sx={{
                             p: { xs: 2, md: 3 },
@@ -579,7 +583,7 @@ export const Dashboard: React.FC = () => {
                                 </Typography>
                             </Box>
                         </Box>
-                    </Paper>
+                    </Paper>)}
 
                     {/* Recent Activity */}
                     <Paper
@@ -598,7 +602,9 @@ export const Dashboard: React.FC = () => {
                             </Typography>
                         </Box>
                         <Box>
-                            {recentEvents?.slice(0, 3).map((event, index) => (
+                            {recentEvents?.slice(0, 3).map((event, index) => {
+                                const conf = event.confidence ?? event.confidence_score ?? 0;
+                                return (
                                 <Box
                                     key={event.id}
                                     sx={{
@@ -616,27 +622,30 @@ export const Dashboard: React.FC = () => {
                                             background: "var(--primary-gradient)",
                                         }}
                                     >
-                                        {event.member_name?.[0] || "M"}
+                                        {(event.member_name || "M")[0]}
                                     </Avatar>
                                     <Box sx={{ flex: 1, minWidth: 0 }}>
                                         <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {event.member_name || (event?.member_id ? `${t.dashboard.member} ${event.member_id.substring(0, 8)}` : t.dashboard.unknown)}
+                                            {event.member_name || t.dashboard.unknown}
                                         </Typography>
                                         <Typography variant="caption" sx={{ color: "var(--text-secondary)" }}>
-                                            {event.event_type} • {event.timestamp ? format(new Date(event.timestamp), "h:mm a") : ""}
+                                            {(event as any).access_granted ? "✅ Acceso" : "⛔ Denegado"} • {event.timestamp ? format(new Date(event.timestamp), "h:mm a") : ""}
                                         </Typography>
                                     </Box>
-                                    <Chip
-                                        label={`${(event.confidence * 100).toFixed(0)}%`}
-                                        size="small"
-                                        sx={{
-                                            background: "var(--status-progress)",
-                                            color: "var(--status-progress-text)",
-                                            fontWeight: 600,
-                                        }}
-                                    />
+                                    {conf > 0 && (
+                                        <Chip
+                                            label={`${(conf * 100).toFixed(0)}%`}
+                                            size="small"
+                                            sx={{
+                                                background: "var(--status-progress)",
+                                                color: "var(--status-progress-text)",
+                                                fontWeight: 600,
+                                            }}
+                                        />
+                                    )}
                                 </Box>
-                            ))}
+                                );
+                            })}
                             {(!recentEvents || recentEvents.length === 0) && (
                                 <Typography variant="body2" sx={{ color: "var(--text-secondary)", py: 2 }}>
                                     {t.dashboard.noActivity}

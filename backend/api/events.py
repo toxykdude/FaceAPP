@@ -152,17 +152,32 @@ def get_today_recognized(
         if not member:
             continue
         
-        # Get latest membership
-        latest_membership = db.query(Membership).filter(
+        # Get the ACTIVE membership (status='active' AND end_date >= today)
+        today = date.today()
+        active_membership = db.query(Membership).filter(
+            Membership.member_id == evt.member_id,
+            Membership.end_date >= today
+        ).order_by(Membership.end_date.desc()).first()
+        
+        # If no active membership, get the most recent one to show expiry info
+        latest_membership = active_membership or db.query(Membership).filter(
             Membership.member_id == evt.member_id
         ).order_by(Membership.end_date.desc()).first()
+        
+        # Determine real membership status by date
+        if active_membership:
+            real_status = "active"
+        elif latest_membership:
+            real_status = "expired"
+        else:
+            real_status = "none"
         
         result.append({
             "member_id": mid,
             "member_name": f"{member.first_name} {member.last_name}",
             "member_id_number": member.id_number,
-            "membership_status": latest_membership.status if latest_membership else "none",
-            "membership_plan": latest_membership.type if latest_membership else None,
+            "membership_status": real_status,
+            "membership_plan": (active_membership or latest_membership).type if (active_membership or latest_membership) else None,
             "membership_end": latest_membership.end_date.isoformat() if latest_membership and latest_membership.end_date else None,
             "photo_url": f"/api/members/{mid}/photo",
             "last_seen": evt.timestamp.isoformat(),
@@ -170,6 +185,47 @@ def get_today_recognized(
         })
     
     return {"recognized": result}
+
+
+@router.get("/expiring-today")
+def get_expiring_today(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """
+    Get members whose membership expires today.
+    Dynamically updated - shows today's expirations + recently expired (last 3 days).
+    """
+    from models.member import Member
+    from models.membership import Membership, MembershipPlan
+    
+    today = date.today()
+    three_days_ago = today - __import__("datetime").timedelta(days=3)
+    
+    # Memberships expiring today or expired in last 3 days, sorted by end_date desc
+    expiring = db.query(Membership).filter(
+        Membership.end_date <= today,
+        Membership.end_date >= three_days_ago,
+    ).order_by(Membership.end_date.desc()).limit(limit).all()
+    
+    result = []
+    for m in expiring:
+        member = db.query(Member).filter(Member.id == m.member_id).first()
+        if not member:
+            continue
+        plan = db.query(MembershipPlan).filter(MembershipPlan.id == m.plan_id).first() if m.plan_id else None
+        
+        result.append({
+            "member_id": str(m.member_id),
+            "member_name": f"{member.first_name} {member.last_name}",
+            "plan_name": plan.name if plan else m.type,
+            "end_date": m.end_date.isoformat(),
+            "days_expired": (today - m.end_date).days,
+            "price": float(m.price) if m.price else 0,
+        })
+    
+    return {"expiring": result, "date": today.isoformat(), "count": len(result)}
 
 
 @router.get("/stats/summary", response_model=AccessStatsResponse)
