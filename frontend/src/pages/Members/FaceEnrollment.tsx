@@ -96,7 +96,7 @@ export const FaceEnrollment: React.FC = () => {
         },
         onError: (error) => {
             setTabletStatus('failed');
-            setTabletResultMessage(error.response?.data?.detail || error.message);
+            setTabletResultMessage((error as any)?.response?.data?.detail || error.message);
         },
     });
 
@@ -150,7 +150,7 @@ export const FaceEnrollment: React.FC = () => {
     }
 
     function handleError(error: any) {
-        alert(`${t.members.enrollmentFailed}: ${error.response?.data?.detail || error.message}`);
+        alert(`${t.members.enrollmentFailed}: ${(error as any)?.response?.data?.detail || error.message}`);
     }
 
     React.useEffect(() => {
@@ -399,21 +399,21 @@ export const FaceEnrollment: React.FC = () => {
                                                 <Step completed={tabletStatus !== 'creating'}>
                                                     <StepLabel>{t.members.tabletRequestSent}</StepLabel>
                                                 </Step>
-                                                <Step completed={tabletStatus === 'processing' || tabletStatus === 'complete' || tabletStatus === 'failed'}>
+                                                <Step completed={tabletStatus === 'processing' || (tabletStatus as string) === 'complete' || (tabletStatus as string) === 'failed'}>
                                                     <StepLabel StepIconComponent={() => (
                                                         tabletStatus === 'pending' ? <CircularProgress size={20} /> : undefined
                                                     )}>
                                                         {t.members.tabletWaiting}
                                                     </StepLabel>
                                                 </Step>
-                                                <Step completed={tabletStatus === 'complete'}>
+                                                <Step completed={(tabletStatus as string) === 'complete'}>
                                                     <StepLabel StepIconComponent={() => (
                                                         tabletStatus === 'processing' ? <CircularProgress size={20} /> : undefined
                                                     )}>
                                                         {t.members.tabletCapturing}
                                                     </StepLabel>
                                                 </Step>
-                                                <Step completed={tabletStatus === 'complete'}>
+                                                <Step completed={(tabletStatus as string) === 'complete'}>
                                                     <StepLabel>{t.members.tabletCompleted}</StepLabel>
                                                 </Step>
                                             </Stepper>
@@ -440,7 +440,7 @@ export const FaceEnrollment: React.FC = () => {
                                         </Box>
                                     )}
 
-                                    {tabletStatus === 'complete' && (
+                                    {(tabletStatus as string) === 'complete' && (
                                         <Box sx={{ py: 3 }}>
                                             <Alert icon={<CheckIcon fontSize="inherit" />} severity="success" sx={{ mb: 2 }}>
                                                 {t.members.tabletEnrollSuccess}
@@ -458,7 +458,7 @@ export const FaceEnrollment: React.FC = () => {
                                         </Box>
                                     )}
 
-                                    {tabletStatus === 'failed' && (
+                                    {(tabletStatus as string) === 'failed' && (
                                         <Box sx={{ py: 3 }}>
                                             <Alert severity="error" sx={{ mb: 2 }}>
                                                 {t.members.tabletEnrollError}
