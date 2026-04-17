@@ -126,6 +126,7 @@ export const Reports: React.FC = () => {
     const [timeRange, setTimeRange] = useState('30days');
 
     const daysMap: Record<string, number> = {
+        'today': 1,
         '7days': 7,
         '30days': 30,
         '90days': 90,
@@ -154,7 +155,7 @@ export const Reports: React.FC = () => {
     const expiredMembers = reportData?.active_vs_expired?.expired || 0;
     const totalMemberships = activeMembers + expiredMembers;
     const retentionRate = totalMemberships > 0 ? ((activeMembers / totalMemberships) * 100) : 0;
-    const periodLabel = timeRange === '7days' ? t.reports.last7Days : timeRange === '90days' ? t.reports.last90Days : timeRange === 'year' ? t.reports.thisYear : t.reports.last30Days;
+    const periodLabel = timeRange === 'today' ? (t.reports.today || 'Hoy') : timeRange === '7days' ? t.reports.last7Days : timeRange === '90days' ? t.reports.last90Days : timeRange === 'year' ? t.reports.thisYear : t.reports.last30Days;
 
     const metrics = {
         totalRevenue: {
@@ -305,6 +306,7 @@ export const Reports: React.FC = () => {
                             label={t.reports.timeRange}
                             onChange={(e) => setTimeRange(e.target.value)}
                         >
+                            <MenuItem value="today">{t.reports.today || 'Hoy'}</MenuItem>
                             <MenuItem value="7days">{t.reports.last7Days}</MenuItem>
                             <MenuItem value="30days">{t.reports.last30Days}</MenuItem>
                             <MenuItem value="90days">{t.reports.last90Days}</MenuItem>

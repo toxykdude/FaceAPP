@@ -15,6 +15,10 @@ import {
     CircularProgress,
     Avatar,
     Alert,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
     useMediaQuery,
     useTheme,
 } from '@mui/material';
@@ -45,6 +49,7 @@ const DEFAULT_SETTINGS = [
     { key: 'currency', value: 'USD', category: 'membership', description: 'Currency symbol or code' },
     { key: 'payment_grace_period', value: 3, category: 'membership', description: 'Days before suspending overdue members' },
     { key: 'data_retention_days', value: 90, category: 'system', description: 'Days to keep access logs' },
+    { key: 'timezone', value: 'America/Bogota', category: 'system', description: 'System timezone (affects reports and schedules)' },
     { key: 'debug_mode', value: false, category: 'system', description: 'Enable debug logging' },
 ];
 
@@ -144,6 +149,31 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     <Typography gutterBottom>Minimum Confidence: {(value * 100).toFixed(0)}%</Typography>
                     <Slider value={value} min={0.5} max={1.0} step={0.01} onChange={(_, val) => handleChange(setting.key, val)} valueLabelDisplay="auto" />
                 </Box>
+            );
+        }
+        if (setting.key === 'timezone') {
+            const tzOptions = [
+                { value: 'America/Bogota', label: 'Colombia (UTC-5)' },
+                { value: 'America/New_York', label: 'Eastern (UTC-5/-4)' },
+                { value: 'America/Chicago', label: 'Central (UTC-6/-5)' },
+                { value: 'America/Denver', label: 'Mountain (UTC-7/-6)' },
+                { value: 'America/Los_Angeles', label: 'Pacific (UTC-8/-7)' },
+                { value: 'America/Mexico_City', label: 'Mexico (UTC-6)' },
+                { value: 'America/Lima', label: 'Peru (UTC-5)' },
+                { value: 'America/Santiago', label: 'Chile (UTC-4/-3)' },
+                { value: 'America/Buenos_Aires', label: 'Argentina (UTC-3)' },
+                { value: 'Europe/Madrid', label: 'España (UTC+1/+2)' },
+                { value: 'UTC', label: 'UTC' },
+            ];
+            return (
+                <FormControl fullWidth>
+                    <InputLabel>{setting.key.replace(/_/g, ' ')}</InputLabel>
+                    <Select value={value || 'America/Bogota'} label={setting.key.replace(/_/g, ' ')} onChange={(e) => handleChange(setting.key, e.target.value)}>
+                        {tzOptions.map((tz) => (
+                            <MenuItem key={tz.value} value={tz.value}>{tz.label}</MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
             );
         }
         return (

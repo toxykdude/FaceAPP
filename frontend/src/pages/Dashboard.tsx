@@ -75,7 +75,8 @@ export const Dashboard: React.FC = () => {
     const { data: expiringTodayData } = useQuery({
         queryKey: ["expiring-today"],
         queryFn: () => eventsApi.getExpiringToday(20),
-        staleTime: 1000 * 60 * 30,
+        staleTime: 1000 * 60 * 5,
+        refetchInterval: 1000 * 60 * 5,
     });
     const expiringToday = expiringTodayData?.expiring || [];
 
