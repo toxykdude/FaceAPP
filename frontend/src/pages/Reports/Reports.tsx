@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '@/api/sales';
-import { membersApi } from '@/api/members';
 import {
     Box,
     Typography,
@@ -143,33 +142,30 @@ export const Reports: React.FC = () => {
         queryFn: () => salesApi.getReportSummary(),
     });
 
-    const { data: membersData } = useQuery({
-        queryKey: ['members-count'],
-        queryFn: () => membersApi.getMembers({ limit: 1 }),
-    });
 
     const { data: recentSales } = useQuery({
         queryKey: ['recent-sales'],
         queryFn: () => salesApi.getTransactions({ skip: 0, limit: 10 }),
     });
 
-    const totalMembers = membersData?.total || 0;
+    const periodRevenue = (reportData?.revenue_trend || []).reduce((sum: number, d: any) => sum + (d.amount || 0), 0);
     const totalRevenue = salesReport?.total_revenue || 0;
     const activeMembers = reportData?.active_vs_expired?.active || 0;
     const expiredMembers = reportData?.active_vs_expired?.expired || 0;
     const totalMemberships = activeMembers + expiredMembers;
     const retentionRate = totalMemberships > 0 ? ((activeMembers / totalMemberships) * 100) : 0;
+    const periodLabel = timeRange === '7days' ? t.reports.last7Days : timeRange === '90days' ? t.reports.last90Days : timeRange === 'year' ? t.reports.thisYear : t.reports.last30Days;
 
     const metrics = {
         totalRevenue: {
-            value: `$${Number(totalRevenue).toLocaleString()}`,
+            value: `$${Number(periodRevenue).toLocaleString()}`,
             change: reportData?.revenue_change_pct || 0,
-            label: t.reports.vsLastMonth,
+            label: periodLabel,
         },
         activeMembers: {
             value: activeMembers.toLocaleString(),
             change: 0,
-            label: t.reports.activeMemberships,
+            label: `${t.reports.activeMemberships} (${retentionRate.toFixed(0)}%)`,
         },
         newSignups: {
             value: (reportData?.new_signups?.this_month || 0).toLocaleString(),
@@ -181,17 +177,15 @@ export const Reports: React.FC = () => {
             change: 0,
             label: `${reportData?.checkins_week || 0} ${t.reports.thisWeek}`,
         },
-        avgRevPerMember: {
-            value: totalMembers > 0
-                ? `$${(Number(totalRevenue) / totalMembers).toFixed(2)}`
-                : '$0',
+        totalTransactions: {
+            value: salesReport?.total_transactions?.toLocaleString() || '0',
             change: 0,
-            label: t.reports.perMember,
+            label: `${periodLabel} — $${Number(totalRevenue).toLocaleString()} acumulado`,
         },
         retention: {
             value: `${retentionRate.toFixed(1)}%`,
             change: 0,
-            label: `${activeMembers}/${totalMemberships} ${t.reports.active}`,
+            label: `${activeMembers} activas / ${totalMemberships} total`,
         },
     };
 
@@ -351,7 +345,7 @@ export const Reports: React.FC = () => {
                     <MetricCard title={t.reports.checkinsToday} value={metrics.checkIns.value} change={metrics.checkIns.change} changeLabel={metrics.checkIns.label} icon={<FitnessCenterIcon />} color="#f57c00" />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                    <MetricCard title={t.reports.avgRevPerMember} value={metrics.avgRevPerMember.value} change={metrics.avgRevPerMember.change} changeLabel={metrics.avgRevPerMember.label} icon={<MoneyIcon />} color="#00897b" />
+                    <MetricCard title={t.reports.avgRevPerMember || 'Transacciones'} value={metrics.totalTransactions.value} change={metrics.totalTransactions.change} changeLabel={metrics.totalTransactions.label} icon={<MoneyIcon />} color="#00897b" />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
                     <MetricCard title={t.reports.retentionRate} value={metrics.retention.value} change={metrics.retention.change} changeLabel={metrics.retention.label} icon={<CalendarIcon />} color="#d32f2f" />
