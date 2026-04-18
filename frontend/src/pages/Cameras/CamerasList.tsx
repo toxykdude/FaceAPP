@@ -37,7 +37,7 @@ import {
     Delete as DeleteIcon,
     Edit as EditIcon,
 } from '@mui/icons-material';
-import { camerasApi, CameraCreate, VideoDevice } from '@/api/cameras';
+import { camerasApi, CameraCreate } from '@/api/cameras';
 import { useLanguage } from '@/i18n/LanguageContext';
 
 export const CamerasList: React.FC = () => {
@@ -54,7 +54,7 @@ export const CamerasList: React.FC = () => {
         description: '',
     });
     const [isUsbMode, setIsUsbMode] = useState(false);
-    const [detectedDevices, setDetectedDevices] = useState<VideoDevice[]>([]);
+    const [localDevices, setLocalDevices] = useState<MediaDeviceInfo[]>([]);
     const [isDetecting, setIsDetecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -71,6 +71,7 @@ export const CamerasList: React.FC = () => {
             setOpenAddDialog(false);
             setNewCamera({ name: '', location: '', rtsp_url: '', enabled: true, description: '' });
             setIsUsbMode(false);
+            setLocalDevices([]);
             setError(null);
         },
         onError: (err: any) => {
@@ -94,6 +95,7 @@ export const CamerasList: React.FC = () => {
         setNewCamera({ name: '', location: '', rtsp_url: '', enabled: true, description: '' });
         setEditingId(null);
         setIsUsbMode(false);
+        setLocalDevices([]);
         setError(null);
     };
 
@@ -111,24 +113,28 @@ export const CamerasList: React.FC = () => {
         },
     });
 
-    const detectDevices = async () => {
+    const detectLocalCameras = async () => {
         setIsDetecting(true);
-        const allDevices: VideoDevice[] = [];
         try {
-            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-                try { await navigator.mediaDevices.getUserMedia({ video: true }); } catch (e) { console.warn('Permission denied'); }
-                const clientDevs = await navigator.mediaDevices.enumerateDevices();
-                const videoInputs = clientDevs.filter(d => d.kind === 'videoinput');
-                videoInputs.forEach((d, i) => {
-                    allDevices.push({ path: `client:${d.deviceId}`, name: `Local: ${d.label || `Camera ${i + 1}`}` });
-                });
+            // First request permission
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            } catch (e) {
+                console.warn('Camera permission denied:', e);
             }
-        } catch (err) { console.warn('Local device detection failed:', err); }
-        try {
-            const serverDevices = await camerasApi.detectDevices();
-            allDevices.push(...serverDevices.map(d => ({ ...d, name: `Server: ${d.name}` })));
-        } catch (err: any) { console.error('Failed to detect server devices', err); }
-        setDetectedDevices(allDevices);
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(d => d.kind === 'videoinput');
+            setLocalDevices(videoDevices);
+
+            // Auto-select first device if none selected
+            if (videoDevices.length > 0 && !newCamera.rtsp_url) {
+                setNewCamera(prev => ({ ...prev, rtsp_url: `browser:${videoDevices[0].deviceId}` }));
+            }
+        } catch (err) {
+            console.error('Failed to detect local cameras:', err);
+        }
         setIsDetecting(false);
     };
 
@@ -145,7 +151,7 @@ export const CamerasList: React.FC = () => {
             const { rtsp_url } = await camerasApi.getRtspUrl(camera.id);
             setNewCamera({ name: camera.name, location: camera.location, rtsp_url, enabled: camera.enabled, description: camera.description });
             setEditingId(camera.id);
-            setIsUsbMode(rtsp_url.startsWith('/') || /^\d+$/.test(rtsp_url));
+            setIsUsbMode(rtsp_url.startsWith('/') || /^\d+$/.test(rtsp_url) || rtsp_url.startsWith('browser:'));
             setOpenAddDialog(true);
         } catch (e) { alert('Failed to fetch RTSP URL'); }
     };
@@ -186,10 +192,10 @@ export const CamerasList: React.FC = () => {
                                 <TableCell>{camera.location}</TableCell>
                                 <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {camera.rtsp_url ? (
-                                        (camera.rtsp_url.startsWith('/') || /^\d+$/.test(camera.rtsp_url)) ?
+                                        (camera.rtsp_url.startsWith('/') || /^\d+$/.test(camera.rtsp_url) || camera.rtsp_url.startsWith('browser:')) ?
                                             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                 <Typography variant="caption" sx={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>{t.cameras.usb}</Typography>
-                                                {camera.rtsp_url}
+                                                {camera.rtsp_url.startsWith('browser:') ? 'Local Camera' : camera.rtsp_url}
                                             </Box>
                                             : camera.rtsp_url
                                     ) : (
@@ -222,55 +228,63 @@ export const CamerasList: React.FC = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             <Typography variant="body2" sx={{ mr: 2, fontWeight: 500 }}>{t.cameras.sourceType}</Typography>
                             <FormControlLabel
-                                control={<Switch checked={isUsbMode} onChange={(e) => { setIsUsbMode(e.target.checked); setNewCamera({ ...newCamera, rtsp_url: '' }); if (e.target.checked) { detectDevices(); } }} color="secondary" />}
+                                control={
+                                    <Switch
+                                        checked={isUsbMode}
+                                        onChange={(e) => {
+                                            setIsUsbMode(e.target.checked);
+                                            setNewCamera({ ...newCamera, rtsp_url: '' });
+                                            if (e.target.checked) { detectLocalCameras(); }
+                                        }}
+                                        color="secondary"
+                                    />
+                                }
                                 label={isUsbMode ? t.cameras.usbWebcam : t.cameras.rtspStream}
                             />
-                            {isUsbMode && (
-                                <Button size="small" onClick={detectDevices} disabled={isDetecting} sx={{ ml: 1 }}>
-                                    {isDetecting ? t.cameras.detecting : t.common.search}
-                                </Button>
-                            )}
                         </Box>
                         {isUsbMode && (
                             <>
-                                {detectedDevices.length > 0 && (
-                                    <FormControl fullWidth>
-                                        <InputLabel>{t.cameras.videoDevice}</InputLabel>
-                                        <Select 
-                                            value={detectedDevices.some(d => d.path === newCamera.rtsp_url) ? newCamera.rtsp_url : ''} 
-                                            label={t.cameras.videoDevice} 
+                                <Alert severity="info" sx={{ mb: 1 }}>
+                                    USB camera mode: The camera connected to THIS computer will be used.
+                                    The browser captures video and sends it to the server for facial recognition via WebSocket.
+                                </Alert>
+                                {localDevices.length > 0 && (
+                                    <FormControl fullWidth sx={{ mb: 2 }}>
+                                        <InputLabel>{t.cameras.videoDevice || 'Local Camera'}</InputLabel>
+                                        <Select
+                                            value={newCamera.rtsp_url || ''}
+                                            label={t.cameras.videoDevice || 'Local Camera'}
                                             onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
                                         >
-                                            <MenuItem value=""><em>{t.cameras.enterManualPath}</em></MenuItem>
-                                            {detectedDevices.map((dev) => (
-                                                <MenuItem key={dev.path} value={dev.path} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-                                                    <Typography variant="body2">{dev.name}</Typography>
-                                                    {dev.info && (
-                                                        <Typography variant="caption" sx={{ color: 'warning.main' }}>
-                                                            ⚠ {dev.info}
-                                                        </Typography>
-                                                    )}
+                                            {localDevices.map((dev) => (
+                                                <MenuItem key={dev.deviceId} value={`browser:${dev.deviceId}`}>
+                                                    {dev.label || `Camera ${localDevices.indexOf(dev) + 1}`}
                                                 </MenuItem>
                                             ))}
                                         </Select>
                                     </FormControl>
                                 )}
-                                {detectedDevices.some(d => d.status === 'needs_passthrough') && (
-                                    <Alert severity="warning" sx={{ mt: 1 }}>
-                                        USB device detected but /dev/video* nodes missing. Run on Proxmox host:
-                                        <br />
-                                        <code style={{ fontSize: '0.8em', background: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: 4 }}>
-                                            pct set CONTAINER_ID -devices 0 -lxc.cgroup2.devices.allow: c 81:0 rwm -lxc.mount.entry: /dev/video0 dev/video0 none bind,create=file
-                                        </code>
+                                {localDevices.length === 0 && !isDetecting && (
+                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                        No cameras detected. Please allow camera access in your browser and click "Detect Cameras".
                                     </Alert>
                                 )}
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={detectLocalCameras}
+                                    disabled={isDetecting}
+                                    sx={{ mb: 2 }}
+                                >
+                                    {isDetecting ? t.cameras.detecting || 'Detecting...' : 'Detect Cameras'}
+                                </Button>
                                 <TextField
-                                    label={t.cameras.devicePath || 'Device Path'}
-                                    placeholder="/dev/video0"
-                                    fullWidth 
-                                    value={newCamera.rtsp_url} 
+                                    label="Camera Identifier"
+                                    placeholder="browser:default"
+                                    fullWidth
+                                    value={newCamera.rtsp_url}
                                     onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
-                                    helperText={detectedDevices.length === 0 ? 'No USB devices auto-detected. Enter device path manually (e.g., /dev/video0 or 0)' : 'Or enter a custom device path'}
+                                    helperText="Auto-filled when you select a camera above, or enter manually"
                                 />
                             </>
                         )}
