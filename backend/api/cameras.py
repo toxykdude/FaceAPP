@@ -225,14 +225,59 @@ def get_available_devices(
 ):
     """
     Detect available USB video devices on the server.
+    Checks both /dev/video* nodes and /sys/class/video4linux/ entries.
     """
     devices = []
+    seen_paths = set()
     
     if platform.system() == "Linux":
-        # Check /dev/video*
+        # Method 1: Check /dev/video* (normal systems)
         video_devices = sorted(glob.glob("/dev/video*"))
         for dev in video_devices:
-            devices.append({"path": dev, "name": f"USB Camera ({dev})"})
+            if dev not in seen_paths:
+                name = f"USB Camera ({dev})"
+                sys_name_path = f"/sys/class/video4linux/{os.path.basename(dev)}/name"
+                if os.path.exists(sys_name_path):
+                    try:
+                        with open(sys_name_path) as f:
+                            sys_name = f.read().strip()
+                        if sys_name:
+                            name = f"{sys_name} ({dev})"
+                    except:
+                        pass
+                devices.append({"path": dev, "name": name})
+                seen_paths.add(dev)
+        
+        # Method 2: Check /sys/class/video4linux/ (LXC containers without /dev nodes)
+        sys_v4l_dir = "/sys/class/video4linux"
+        if os.path.isdir(sys_v4l_dir):
+            for entry in sorted(os.listdir(sys_v4l_dir)):
+                if entry.startswith("video"):
+                    dev_path = f"/dev/{entry}"
+                    if dev_path in seen_paths:
+                        continue
+                    
+                    name = f"USB Camera (/{entry})"
+                    sys_name_path = f"{sys_v4l_dir}/{entry}/name"
+                    dev_exists = os.path.exists(dev_path)
+                    
+                    if os.path.exists(sys_name_path):
+                        try:
+                            with open(sys_name_path) as f:
+                                sys_name = f.read().strip()
+                            if sys_name:
+                                name = f"{sys_name} (/{entry})"
+                        except:
+                            pass
+                    
+                    status = "ready" if dev_exists else "needs_passthrough"
+                    devices.append({
+                        "path": dev_path if dev_exists else entry,
+                        "name": name,
+                        "status": status,
+                        "info": "Device detected but /dev node missing — USB passthrough needed in Proxmox" if not dev_exists else None,
+                    })
+                    seen_paths.add(dev_path)
     else:
         # Fallback for Windows/Mac - return common indices
         devices = [
@@ -242,6 +287,7 @@ def get_available_devices(
         ]
         
     return {"devices": devices}
+
 
 
 @router.post("/{camera_id}/test")

@@ -231,19 +231,54 @@ export const CamerasList: React.FC = () => {
                                 </Button>
                             )}
                         </Box>
-                        {isUsbMode && detectedDevices.length > 0 ? (
-                            <FormControl fullWidth required>
-                                <InputLabel>{t.cameras.videoDevice}</InputLabel>
-                                <Select value={newCamera.rtsp_url} label={t.cameras.videoDevice} onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}>
-                                    {detectedDevices.map((dev) => (<MenuItem key={dev.path} value={dev.path}>{dev.name}</MenuItem>))}
-                                    <MenuItem value="manual"><em>{t.cameras.enterManualPath}</em></MenuItem>
-                                </Select>
-                            </FormControl>
-                        ) : (
+                        {isUsbMode && (
+                            <>
+                                {detectedDevices.length > 0 && (
+                                    <FormControl fullWidth>
+                                        <InputLabel>{t.cameras.videoDevice}</InputLabel>
+                                        <Select 
+                                            value={detectedDevices.some(d => d.path === newCamera.rtsp_url) ? newCamera.rtsp_url : ''} 
+                                            label={t.cameras.videoDevice} 
+                                            onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
+                                        >
+                                            <MenuItem value=""><em>{t.cameras.enterManualPath}</em></MenuItem>
+                                            {detectedDevices.map((dev) => (
+                                                <MenuItem key={dev.path} value={dev.path} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                                                    <Typography variant="body2">{dev.name}</Typography>
+                                                    {dev.info && (
+                                                        <Typography variant="caption" sx={{ color: 'warning.main' }}>
+                                                            ⚠ {dev.info}
+                                                        </Typography>
+                                                    )}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                )}
+                                {detectedDevices.some(d => d.status === 'needs_passthrough') && (
+                                    <Alert severity="warning" sx={{ mt: 1 }}>
+                                        USB device detected but /dev/video* nodes missing. Run on Proxmox host:
+                                        <br />
+                                        <code style={{ fontSize: '0.8em', background: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: 4 }}>
+                                            pct set CONTAINER_ID -devices 0 -lxc.cgroup2.devices.allow: c 81:0 rwm -lxc.mount.entry: /dev/video0 dev/video0 none bind,create=file
+                                        </code>
+                                    </Alert>
+                                )}
+                                <TextField
+                                    label={t.cameras.devicePath || 'Device Path'}
+                                    placeholder="/dev/video0"
+                                    fullWidth 
+                                    value={newCamera.rtsp_url} 
+                                    onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
+                                    helperText={detectedDevices.length === 0 ? 'No USB devices auto-detected. Enter device path manually (e.g., /dev/video0 or 0)' : 'Or enter a custom device path'}
+                                />
+                            </>
+                        )}
+                        {!isUsbMode && (
                             <TextField
-                                label={isUsbMode ? t.cameras.devicePath : t.cameras.rtspUrl}
+                                label={t.cameras.rtspUrl}
                                 fullWidth required value={newCamera.rtsp_url} onChange={(e) => setNewCamera({ ...newCamera, rtsp_url: e.target.value })}
-                                helperText={isUsbMode ? t.cameras.devicePathHelper : t.cameras.rtspHelper}
+                                helperText={t.cameras.rtspHelper}
                             />
                         )}
                         <TextField label={t.cameras.location} fullWidth value={newCamera.location || ''} onChange={(e) => setNewCamera({ ...newCamera, location: e.target.value })} />

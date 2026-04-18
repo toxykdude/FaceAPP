@@ -33,6 +33,8 @@ export interface CameraUpdate {
 export interface VideoDevice {
     path: string;
     name: string;
+    status?: 'ready' | 'needs_passthrough';
+    info?: string;
 }
 
 export const camerasApi = {
