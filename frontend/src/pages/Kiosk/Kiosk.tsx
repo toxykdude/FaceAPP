@@ -14,6 +14,7 @@ import {
     styled,
     Tooltip,
     IconButton,
+    Button,
     Chip,
     useMediaQuery,
     useTheme,
@@ -168,6 +169,7 @@ export const Kiosk: React.FC = () => {
     const [latestRecognition, setLatestRecognition] = useState<WsRecognitionResult | null>(null);
 
     const [recognitionState, setRecognitionState] = useState<RecognitionState>('idle');
+    const [streamError, setStreamError] = useState(false);
     const [recognizedName, setRecognizedName] = useState<string>('');
     const [, setDenialReason] = useState('' );
     const [membershipExpiry, setMembershipExpiry] = useState<string | null>(null);
@@ -395,6 +397,7 @@ export const Kiosk: React.FC = () => {
             setLocalEvents([]);
             startUsbCamera(selectedCameraId);
         }
+        setStreamError(false);
     }, [usbMode, selectedCameraId, stopUsbCamera, startUsbCamera]);
 
     useEffect(() => {
@@ -407,6 +410,7 @@ export const Kiosk: React.FC = () => {
             startUsbCamera(selectedCameraId);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+        setStreamError(false);
     }, [selectedCameraId]);
 
     const handleCameraChange = (e: any) => {
@@ -565,7 +569,34 @@ export const Kiosk: React.FC = () => {
                                 )}
                             </>
                         ) : (
-                            <img src={cvServiceApi.getStreamUrl(selectedCameraId)} alt="Live Camera Feed" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <>
+                            <img
+                                src={cvServiceApi.getStreamUrl(selectedCameraId)}
+                                alt="Live Camera Feed"
+                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                                onError={() => setStreamError(true)}
+                            />
+                            {streamError && (
+                                <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: alpha('#000', 0.9) }}>
+                                    <VideocamOffIcon sx={{ fontSize: 48, color: '#ff9800', mb: 1 }} />
+                                    <Typography sx={{ color: '#ff9800', fontWeight: 600, fontSize: '1.1rem' }}>
+                                        No se pudo conectar al stream de la cámara
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: 'grey.500', mt: 1, maxWidth: 400, textAlign: 'center' }}>
+                                        Verificá que la cámara esté encendida y conectada a la red.
+                                        Si el problema persiste, intentá reiniciar el servicio CV desde Configuración.
+                                    </Typography>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        sx={{ mt: 2, color: '#ff9800', borderColor: '#ff9800', '&:hover': { borderColor: '#ffa726', bgcolor: 'rgba(255,152,0,0.08)' } }}
+                                        onClick={() => setStreamError(false)}
+                                    >
+                                        Reintentar
+                                    </Button>
+                                </Box>
+                            )}
+                            </>
                         )
                     ) : (
                         <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: '#0d0d0d' }}>
