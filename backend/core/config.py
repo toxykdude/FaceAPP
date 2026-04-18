@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     
     # Admin User
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_PASSWORD: str = ""  # REQUIRED: Set in .env with strong password
     
     # Facial Recognition
     FACE_CONFIDENCE_THRESHOLD: float = 0.85
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     
     # Evolution API (WhatsApp)
     EVOLUTION_API_URL: str = "https://wappbot.powerhousegym.co"
-    EVOLUTION_API_KEY: str = "UJrZ7tMU93YaNX"
+    EVOLUTION_API_KEY: str = ""  # REQUIRED: Set in .env — never use default
     EVOLUTION_INSTANCE_NAME: str = "Powerbt"
     
     # Email (optional)
@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: Optional[str] = None
     SMTP_USE_SSL: bool = False
     
+    # Wompi Payment Integration
+    WOMPI_PUBLIC_KEY: Optional[str] = None  # Public key for frontend widget
+    WOMPI_INTEGRITY_SECRET: Optional[str] = None  # HMAC-SHA256 webhook verification
+    WOMPI_EVENT_URL: Optional[str] = None  # Wompi events API URL
+
     # Frontend & CORS
     FRONTEND_URL: str = "http://localhost"
     CORS_ORIGINS: str = "http://localhost"  # Comma-separated list

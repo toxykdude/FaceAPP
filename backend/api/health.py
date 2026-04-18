@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import redis
+import logging
+
+logger = logging.getLogger(__name__)
 
 from api.deps import get_db
 from core.config import settings
@@ -36,7 +39,8 @@ def health_check_database(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
-        db_status = f"error: {str(e)}"
+        logger.error(f"Health check failed: {e}")
+        db_status = "error"
     
     return {
         "status": "healthy" if db_status == "connected" else "unhealthy",
@@ -57,7 +61,8 @@ def health_check_redis():
         r.ping()
         redis_status = "connected"
     except Exception as e:
-        redis_status = f"error: {str(e)}"
+        logger.error(f"Health check failed: {e}")
+        redis_status = "error"
     
     return {
         "status": "healthy" if redis_status == "connected" else "unhealthy",
@@ -77,7 +82,8 @@ def health_check_full(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
-        db_status = f"error: {str(e)}"
+        logger.error(f"Health check failed: {e}")
+        db_status = "error"
     
     # Check Redis
     try:
@@ -85,7 +91,8 @@ def health_check_full(db: Session = Depends(get_db)):
         r.ping()
         redis_status = "connected"
     except Exception as e:
-        redis_status = f"error: {str(e)}"
+        logger.error(f"Health check failed: {e}")
+        redis_status = "error"
     
     overall_status = "healthy" if (db_status == "connected" and redis_status == "connected") else "unhealthy"
     

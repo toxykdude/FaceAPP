@@ -33,7 +33,7 @@ class StopCameraRequest(BaseModel):
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     """Verify API key for management endpoints."""
     if not settings.API_KEY:
-        return  # No key configured, auth disabled
+        raise HTTPException(status_code=500, detail="API key not configured — service misconfigured")
     if x_api_key != settings.API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -519,7 +519,7 @@ async def reload_templates(_: None = Depends(verify_api_key)):
     return {"status": "ok", "message": "Templates reloaded"}
 
 @app.post("/invalidate/{member_id}")
-async def invalidate_member(member_id: str):
+async def invalidate_member(member_id: str, _: None = Depends(verify_api_key)):
     """Invalidate specific member template (called by backend on member update/deactivation)."""
     from recognition.template_cache import TemplateCache
     cache = TemplateCache()

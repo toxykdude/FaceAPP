@@ -1,10 +1,12 @@
 """
 Member Portal endpoints — member self-service.
 """
+import hashlib
+import hmac
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_member
@@ -178,38 +180,83 @@ def portal_renew(
     )
 
 
+def verify_wompi_signature(request_body: bytes, signature_header: str) -> bool:
+    """
+    Verify Wompi webhook HMAC-SHA256 signature.
+    The signature is computed from the raw request body using the integrity secret.
+    """
+    from core.config import settings
+
+    if not settings.WOMPI_INTEGRITY_SECRET:
+        import logging
+        logging.getLogger(__name__).error("WOMPI_INTEGRITY_SECRET not configured — webhook verification disabled")
+        return False
+
+    expected = hmac.new(
+        settings.WOMPI_INTEGRITY_SECRET.encode(),
+        request_body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(expected, signature_header)
+
+
 @router.post("/webhook-renew")
-def portal_webhook_renew(
-    request: PortalWebhookRenewRequest,
+async def portal_webhook_renew(
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
     Renew membership from Wompi webhook — no JWT required.
     Called server-to-server by the Cloudflare Pages Function webhook.
-    
+    Verified via HMAC-SHA256 signature from Wompi.
+
     Uses plan_id + member_id from the request (stored in Redis by the
     pending-payment endpoint and passed through by the webhook handler).
     """
     import logging
+    import json
     logger = logging.getLogger(__name__)
+
+    # Verify Wompi signature
+    signature = request.headers.get("X-Signature", "")
+    body = await request.body()
+
+    if not verify_wompi_signature(body, signature):
+        logger.warning("Webhook renew: invalid or missing Wompi signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook signature",
+        )
+
+    # Parse the body as the expected schema
+    try:
+        body_data = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON body",
+        )
+
+    request_data = PortalWebhookRenewRequest(**body_data)
 
     # Verify plan exists and is active
     plan = db.query(MembershipPlan).filter(
-        MembershipPlan.id == request.plan_id,
+        MembershipPlan.id == request_data.plan_id,
         MembershipPlan.is_active == True,
     ).first()
 
     if not plan:
-        logger.error(f"Webhook renew: plan {request.plan_id} not found or inactive")
+        logger.error(f"Webhook renew: plan {request_data.plan_id} not found or inactive")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado o inactivo",
         )
 
     # Verify member exists
-    member = db.query(Member).filter(Member.id == request.member_id).first()
+    member = db.query(Member).filter(Member.id == request_data.member_id).first()
     if not member:
-        logger.error(f"Webhook renew: member {request.member_id} not found")
+        logger.error(f"Webhook renew: member {request_data.member_id} not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Miembro no encontrado",
@@ -217,10 +264,10 @@ def portal_webhook_renew(
 
     # Idempotency check: avoid duplicate memberships for the same Wompi reference
     existing_tx = db.query(SalesTransaction).filter(
-        SalesTransaction.notes.like(f"%{request.wompi_reference}%")
+        SalesTransaction.notes.like(f"%{request_data.wompi_reference}%")
     ).first()
     if existing_tx:
-        logger.info(f"Webhook renew: already processed reference {request.wompi_reference}, skipping")
+        logger.info(f"Webhook renew: already processed reference {request_data.wompi_reference}, skipping")
         return {"status": "already_processed", "membership_id": str(existing_tx.membership_id)}
 
     today = date.today()
@@ -246,7 +293,7 @@ def portal_webhook_renew(
         type=plan.name,
         start_date=start_date,
         end_date=end_date,
-        price=Decimal(str(request.amount)),
+        price=Decimal(str(request_data.amount)),
         status="active",
     )
     db.add(new_membership)
@@ -259,10 +306,10 @@ def portal_webhook_renew(
     transaction = SalesTransaction(
         member_id=str(member.id),
         membership_id=new_membership.id,
-        amount=Decimal(str(request.amount)),
+        amount=Decimal(str(request_data.amount)),
         payment_method="card",
         invoice_number=invoice_number,
-        notes=f"Wompi ref: {request.wompi_reference} | Wompi tx: {request.wompi_transaction_id}",
+        notes=f"Wompi ref: {request_data.wompi_reference} | Wompi tx: {request_data.wompi_transaction_id}",
     )
     db.add(transaction)
     db.commit()
@@ -314,14 +361,26 @@ def portal_pending_payment(
 
 
 @router.get("/pending-payment/{reference}")
-def get_pending_payment(reference: str):
+def get_pending_payment(
+    reference: str,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+):
     """
-    Look up pending payment by Wompi reference (public — used by webhook).
-    Returns the stored plan_id, member_id, and amount.
+    Look up pending payment by Wompi reference.
+    Requires internal API key for access.
     """
+    from core.config import settings
+
+    # Require internal API key
+    internal_key = settings.SECRET_KEY
+    if not x_api_key or x_api_key != internal_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
     import redis
     import json
-    from core.config import settings
 
     r = redis.from_url(settings.REDIS_URL)
     key = f"pending-payment:{reference}"
