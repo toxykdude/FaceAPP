@@ -65,10 +65,14 @@ def login(
     from core.audit import log_action
     log_action(db, action="login", resource_type="session", user_id=str(user.id), username=user.username)
     
+    # Serialize user manually to avoid ResponseValidationError with SQLAlchemy objects
+    from schemas.user import UserResponse
+    user_data = UserResponse.model_validate(user, from_attributes=True)
+    
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user
+        "user": user_data
     }
 
 

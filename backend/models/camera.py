@@ -33,7 +33,7 @@ class Camera(Base):
     last_seen = Column(DateTime, nullable=True)  # Last successful frame
     
     # Relationships
-    access_events = relationship("AccessEvent", back_populates="camera")
+    access_events = relationship("AccessEvent", back_populates="camera", passive_deletes=True)
     
     def __repr__(self):
         status = "ENABLED" if self.enabled else "DISABLED"

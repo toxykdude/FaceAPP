@@ -18,7 +18,7 @@ class AccessEvent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
     
-    camera_id = Column(UUID(as_uuid=True), ForeignKey("cameras.id"), nullable=False, index=True)
+    camera_id = Column(UUID(as_uuid=True), ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True, index=True)
     member_id = Column(UUID(as_uuid=True), ForeignKey("members.id"), nullable=True, index=True)
     
     confidence_score = Column(Float, nullable=True)

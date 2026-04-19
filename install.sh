@@ -40,7 +40,7 @@ apt-get install -y \
     nodejs npm \
     postgresql postgresql-contrib \
     nginx \
-    libgl1-mesa-glx libglib2.0-0 \
+    libgl1 libglib2.0-0 \
     libsm6 libxext6 libxrender-dev \
     ffmpeg \
     curl wget git \

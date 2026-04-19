@@ -2,6 +2,7 @@
 RTSP stream processor for real-time face recognition.
 """
 import cv2
+import urllib.request
 import numpy as np
 import time
 from typing import Optional, Callable, Dict, Any
@@ -97,6 +98,7 @@ class RTSPStreamProcessor:
         
         if self.capture:
             self.capture.release()
+        self._is_http_snapshot = False
         
         logger.info(f"Stopped stream processing for camera {self.camera_id}")
 
@@ -115,11 +117,26 @@ class RTSPStreamProcessor:
             True if connected, False otherwise
         """
         try:
-            # Support both RTSP URLs and V4L2 device paths
+            # Support RTSP, HTTP snapshot, V4L2, and browser/client modes
+            self._is_http_snapshot = False
+            
+            if self.rtsp_url.startswith(("browser:", "client:")):
+                # Browser/client cameras use WebSocket, not RTSP
+                logger.info(f"Camera {self.camera_id} uses browser/client mode — skipping RTSP connection")
+                self.connected = True
+                self._is_browser_mode = True
+                return True
+            
             if self.rtsp_url.startswith("/dev/video"):
                 device_index = int(self.rtsp_url.replace("/dev/video", ""))
                 self.capture = cv2.VideoCapture(device_index)
                 logger.info(f"Opening V4L2 device: {self.rtsp_url} (index {device_index})")
+            elif self.rtsp_url.startswith("http://") or self.rtsp_url.startswith("https://"):
+                # HTTP snapshot URL — poll mode
+                self._is_http_snapshot = True
+                self.connected = True
+                logger.info(f"Camera {self.camera_id} using HTTP snapshot polling: {self.rtsp_url[:50]}...")
+                return True
             else:
                 self.capture = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
             self.capture.set(cv2.CAP_PROP_BUFFERSIZE, settings.FRAME_BUFFER_SIZE)
@@ -142,6 +159,11 @@ class RTSPStreamProcessor:
     
     def _process_stream(self):
         """Main stream processing loop."""
+        # Browser/client mode cameras skip RTSP processing
+        if getattr(self, '_is_browser_mode', False):
+            logger.info(f"Camera {self.camera_id} in browser mode - skipping stream processing")
+            return
+
         reconnect_attempts = 0
         
         while self.is_running and not self.stop_event.is_set():
@@ -172,8 +194,15 @@ class RTSPStreamProcessor:
                     time.sleep(0.01)
                     continue
                 
-                # Read frame
-                ret, frame = self.capture.read()
+                # Read frame (HTTP snapshot or video capture)
+                if getattr(self, '_is_http_snapshot', False):
+                    ret, frame = self._read_http_snapshot()
+                    if not ret:
+                        # HTTP snapshot failed, wait and retry (don't reconnect)
+                        time.sleep(0.5)
+                        continue
+                else:
+                    ret, frame = self.capture.read()
                 
                 if not ret:
                     logger.warning(f"Failed to read frame from camera {self.camera_id}")
@@ -258,6 +287,20 @@ class RTSPStreamProcessor:
         
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
+
+
+    def _read_http_snapshot(self):
+        """Fetch a single frame from an HTTP snapshot URL."""
+        try:
+            resp = urllib.request.urlopen(self.rtsp_url, timeout=5)
+            img_array = np.frombuffer(resp.read(), dtype=np.uint8)
+            frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            if frame is not None:
+                return True, frame
+            return False, None
+        except Exception as e:
+            self.last_error = f"HTTP snapshot error: {e}"
+            return False, None
 
     def get_health(self) -> Dict[str, Any]:
         """Get stream health status."""
