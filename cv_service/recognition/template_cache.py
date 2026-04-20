@@ -17,12 +17,20 @@ class TemplateCache:
         """Initialize Redis connection."""
         self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=False)
         self.ttl = settings.CACHE_TTL
-        # Shared version stored in Redis so all instances stay in sync
-        self._version = int(self.redis_client.get("template_cache:version") or 0)
+
+    @property
+    def _version(self):
+        """Read current cache version from Redis on every access.
+
+        This ensures all TemplateCache instances (including long-lived ones
+        in RTSPStreamProcessor threads) always read the latest version,
+        preventing stale version references after periodic refreshes.
+        """
+        return int(self.redis_client.get("template_cache:version") or 0)
     
     def increment_version(self):
         """Increment cache version for atomic reloads."""
-        self._version = self.redis_client.incr("template_cache:version")
+        self.redis_client.incr("template_cache:version")
     
     def _make_key(self, member_id: str) -> str:
         """Build versioned cache key."""
@@ -132,7 +140,8 @@ class TemplateCache:
     def clear_all_templates(self):
         """Clear all member templates from current and old versions."""
         # Clear all versions (0..current)
-        for v in range(self._version + 1):
+        current_v = self._version
+        for v in range(current_v + 1):
             pattern = f"member:template:v{v}:*"
             keys = self._scan_keys(pattern)
             if keys:
