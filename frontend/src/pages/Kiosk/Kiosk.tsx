@@ -52,7 +52,7 @@ interface WsRecognitionResult {
 }
 
 interface WsStatusMessage {
-    type: 'status';
+    type: 'status' | 'ping';
     fps?: number;
     frames_processed?: number;
     faces?: number;
