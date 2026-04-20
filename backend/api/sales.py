@@ -152,7 +152,7 @@ def create_transaction(
 
 @router.get("/dashboard")
 def get_dashboard_report(
-    days: int = Query(30, ge=7, le=365),
+    days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
