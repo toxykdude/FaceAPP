@@ -7,6 +7,7 @@ running on the same server, communicating via localhost.
 """
 import json
 import numpy as np
+from sqlalchemy import func
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -39,10 +40,12 @@ def sync_templates(db: Session = Depends(get_db)):
     ).outerjoin(
         Membership,
         (Membership.member_id == Member.id) &
-        (Membership.status == MembershipStatus.ACTIVE.value)
+        (Membership.status == MembershipStatus.ACTIVE.value) &
+        (Membership.start_date <= func.current_date()) &
+        (Membership.end_date >= func.current_date())
     ).filter(
         Member.status == "active"
-    ).all()
+    ).distinct()
     
     result = []
     for template, member, membership in templates:
@@ -160,3 +163,4 @@ def get_enabled_cameras(db: Session = Depends(get_db)):
         })
     
     return {"total": len(result), "cameras": result}
+

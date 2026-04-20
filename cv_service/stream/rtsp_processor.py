@@ -238,21 +238,20 @@ class RTSPStreamProcessor:
             frame: Frame from camera
         """
         try:
-            # Detect faces
-            faces = self.detector.detect_faces(frame)
+            # Detect faces with landmarks for alignment
+            faces_with_lm = self.detector.detect_faces_with_landmarks(frame)
             
-            if faces:
+            if faces_with_lm:
                 self.total_faces_detected += 1
             else:
                 return  # No faces detected
             
-            # Process largest face only
-            largest_face = self.detector.get_largest_face(faces)
-            if not largest_face:
-                return
+            # Process largest face only (sort by area)
+            faces_with_lm.sort(key=lambda f: f[0][2] * f[0][3], reverse=True)
+            largest_face, largest_landmarks = faces_with_lm[0]
             
-            # Extract face ROI
-            face_roi = self.detector.extract_face_roi(frame, largest_face)
+            # Align face using eye landmarks (matches enrollment pipeline)
+            face_roi = self.detector.align_face(frame, largest_face, largest_landmarks)
             
             # Assess quality
             quality_score, metrics = self.quality_assessor.assess_quality(face_roi)
@@ -319,3 +318,4 @@ class RTSPStreamProcessor:
             "fps_target": self.fps,
             "frames_dropped": self._frames_dropped,
         }
+

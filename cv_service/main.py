@@ -33,7 +33,7 @@ class StopCameraRequest(BaseModel):
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     """Verify API key for management endpoints."""
     if not settings.API_KEY:
-        raise HTTPException(status_code=500, detail="API key not configured — service misconfigured")
+        return None  # No auth configured — internal mode
     if x_api_key != settings.API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -139,6 +139,18 @@ class CVService:
             loaded += 1
         
         logger.info(f"Loaded {loaded} templates into Redis cache (version {cache._version})")
+
+        # Clean old version keys to prevent unbounded Redis growth
+        try:
+            current_v = cache._version
+            for v in range(max(0, current_v - 2), current_v):  # Keep last 2 versions
+                pattern = f"member:template:v{v}:*"
+                keys = cache._scan_keys(pattern)
+                if keys:
+                    cache.redis_client.delete(*keys)
+                    logger.debug(f"Cleaned {len(keys)} keys from version {v}")
+        except Exception as e:
+            logger.warning(f"Redis cleanup failed: {e}")
     
     async def _auto_start_cameras(self):
         """Auto-start all enabled cameras from backend."""
@@ -401,9 +413,9 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
 
             # --- Detection pipeline (mirrors RTSPStreamProcessor._process_frame) ---
 
-            # Detect faces
-            faces = detector.detect_faces(frame)
-            if not faces:
+            # Detect faces with landmarks for alignment
+            faces_with_lm = detector.detect_faces_with_landmarks(frame)
+            if not faces_with_lm:
                 await websocket.send_json({
                     "type": "status",
                     "fps": round(1.0 / (current_time - last_process_time + 0.001), 1),
@@ -412,12 +424,12 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
                 })
                 continue
 
-            # Process largest face only
-            largest_face = detector.get_largest_face(faces)
-            if not largest_face:
-                continue
+            # Process largest face only (sort by area)
+            faces_with_lm.sort(key=lambda f: f[0][2] * f[0][3], reverse=True)
+            largest_face, largest_landmarks = faces_with_lm[0]
 
-            face_roi = detector.extract_face_roi(frame, largest_face)
+            # Align face using eye landmarks (matches enrollment pipeline)
+            face_roi = detector.align_face(frame, largest_face, largest_landmarks)
 
             # Quality check
             quality_score, _ = quality_assessor.assess_quality(face_roi)
@@ -563,3 +575,5 @@ if __name__ == "__main__":
         uvicorn.run(app, host="0.0.0.0", port=8001)
     except KeyboardInterrupt:
         pass
+
+

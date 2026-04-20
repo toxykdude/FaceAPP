@@ -124,3 +124,56 @@ class FaceDetector:
         y2 = min(frame.shape[0], y + h + padding)
         
         return frame[y1:y2, x1:x2]
+
+    def detect_faces_with_landmarks(self, frame):
+        """Detect faces and return bounding boxes with landmarks for alignment."""
+        if self.model_type != "mtcnn":
+            return [(f, None) for f in self._detect_haar(frame)]
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        boxes, probs, landmarks = self.detector.detect(rgb_frame, landmarks=True)
+
+        if boxes is None:
+            return []
+
+        results = []
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = box.astype(int)
+            x, y = x1, y1
+            w, h = x2 - x1, y2 - y1
+            if w >= settings.MIN_FACE_SIZE and h >= settings.MIN_FACE_SIZE:
+                lm = landmarks[i] if landmarks is not None else None
+                results.append(((x, y, w, h), lm))
+        return results
+
+    def align_face(self, frame, bbox, landmarks):
+        """Align face using eye landmarks for better recognition."""
+        if landmarks is None:
+            return self.extract_face_roi(frame, bbox)
+
+        left_eye = landmarks[0]   # (x, y)
+        right_eye = landmarks[1]  # (x, y)
+
+        dy = right_eye[1] - left_eye[1]
+        dx = right_eye[0] - left_eye[0]
+        angle = np.degrees(np.arctan2(dy, dx))
+
+        center = ((left_eye[0] + right_eye[0]) / 2.0,
+                  (left_eye[1] + right_eye[1]) / 2.0)
+
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        h_frame, w_frame = frame.shape[:2]
+        aligned = cv2.warpAffine(frame, M, (w_frame, h_frame), flags=cv2.INTER_CUBIC)
+
+        return self.extract_face_roi(aligned, bbox)
+
+    def extract_face_roi_padded(self, frame, bbox, padding_ratio=0.3):
+        """Extract face ROI with generous padding (matches enrollment)."""
+        x, y, w, h = bbox
+        padding = int(min(w, h) * padding_ratio)
+        x1 = max(0, x - padding)
+        y1 = max(0, y - padding)
+        x2 = min(frame.shape[1], x + w + padding)
+        y2 = min(frame.shape[0], y + h + padding)
+        return frame[y1:y2, x1:x2]
+
