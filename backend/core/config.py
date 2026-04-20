@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str
+    MEMBER_PORTAL_DATABASE_URL: str = ""
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

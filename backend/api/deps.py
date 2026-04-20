@@ -5,6 +5,7 @@ from typing import Generator, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from core.database import SessionLocal
 from core.security import decode_access_token
@@ -184,6 +185,26 @@ async def get_current_member(
         )
     
     return member
+
+
+def get_portal_session(
+    member: Member = Depends(get_current_member),
+) -> Generator[Session, None, None]:
+    """
+    Database session using member_portal role with RLS enforced.
+    Automatically sets app.member_id from the authenticated member's JWT.
+    """
+    from core.database import PortalSessionLocal
+    db = PortalSessionLocal()
+    try:
+        db.execute(text("SET LOCAL app.member_id = :mid"), {"mid": str(member.id)})
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def require_page(page: str):

@@ -9,7 +9,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, get_current_member
+from api.deps import get_db, get_current_member, get_portal_session
 from models.member import Member
 from models.membership import Membership, MembershipPlan
 from models.sale import SalesTransaction
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/portal", tags=["Member Portal"])
 @router.get("/me", response_model=PortalMeResponse)
 def portal_me(
     member: Member = Depends(get_current_member),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_portal_session),
 ):
     """
     Get current member's profile, active membership, and recent payments.
@@ -96,7 +96,7 @@ def portal_plans(
 def portal_renew(
     request: PortalRenewRequest,
     member: Member = Depends(get_current_member),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_portal_session),
 ):
     """
     Renew membership using a Wompi payment reference.

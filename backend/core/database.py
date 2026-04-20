@@ -1,12 +1,12 @@
 """
 Database configuration and session management.
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from core.config import settings
 
-# Create database engine
+# Create database engine (backend_app role — admin/staff operations)
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,  # Verify connections before using
@@ -19,21 +19,53 @@ engine = create_engine(
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Member portal engine (member_portal role — member self-service with RLS)
+# Only created if MEMBER_PORTAL_DATABASE_URL is configured
+_portal_engine = None
+PortalSessionLocal = None
+
+if settings.MEMBER_PORTAL_DATABASE_URL:
+    _portal_engine = create_engine(
+        settings.MEMBER_PORTAL_DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        echo=settings.DEBUG,
+        connect_args={'options': '-c client_encoding=UTF8'}
+    )
+    PortalSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_portal_engine)
+
 # Base class for models
 Base = declarative_base()
 
-# Dependency for FastAPI routes
+# Dependency for FastAPI routes (admin/staff)
 def get_db():
     """
-    Database session dependency for FastAPI.
-    
-    Usage:
-        @app.get("/items")
-        def read_items(db: Session = Depends(get_db)):
-            return db.query(Item).all()
+    Database session dependency for FastAPI (backend_app role).
     """
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+def get_portal_db(member_id: str = None):
+    """
+    Database session dependency for member portal endpoints (member_portal role).
+    Sets app.member_id for RLS policies to enforce row-level filtering.
+    """
+    if not PortalSessionLocal:
+        raise RuntimeError("MEMBER_PORTAL_DATABASE_URL not configured")
+
+    db = PortalSessionLocal()
+    try:
+        if member_id:
+            db.execute(text("SET LOCAL app.member_id = :mid"), {"mid": str(member_id)})
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
