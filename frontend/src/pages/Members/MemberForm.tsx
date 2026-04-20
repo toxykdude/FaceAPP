@@ -477,7 +477,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         if (membership.plan_id) {
             setSelectedPlanId(membership.plan_id);
         }
-        const nextDay = addDays(new Date(membership.end_date), 1);
+        const nextDay = addDays(new Date(membership.end_date + 'T12:00:00'), 1);
         setStartDate(format(nextDay, 'yyyy-MM-dd'));
         setPaymentMethod('cash');
         setShowForm(true);
@@ -511,7 +511,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
 
     const formatDate = (dateStr: string) => {
         try {
-            return format(new Date(dateStr), 'MMM d, yyyy');
+            return format(new Date(dateStr + 'T12:00:00'), 'MMM d, yyyy');
         } catch {
             return dateStr;
         }

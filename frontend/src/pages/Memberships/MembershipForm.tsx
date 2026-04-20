@@ -80,7 +80,7 @@ export const MembershipForm: React.FC = () => {
         if (plan) {
             setValue('type', plan.name);
             setValue('price', Number(plan.price));
-            const start = watchStartDate ? new Date(watchStartDate) : new Date();
+            const start = watchStartDate ? new Date(watchStartDate + 'T12:00:00') : new Date();
             let end = start;
             if (plan.duration_months) end = addMonths(end, plan.duration_months);
             if (plan.duration_days) end = addDays(end, plan.duration_days);

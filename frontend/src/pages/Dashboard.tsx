@@ -355,7 +355,7 @@ export const Dashboard: React.FC = () => {
                                             <TableCell>{m.member_name}</TableCell>
                                             <TableCell>{m.plan_name || "-"}</TableCell>
                                             <TableCell sx={{ color: m.days_expired > 0 ? errorMain : warningMain, fontWeight: "bold" }}>
-                                                {format(new Date(m.end_date), "MMM d")}
+                                                {format(new Date(m.end_date + 'T12:00:00'), "MMM d")}
                                             </TableCell>
                                             <TableCell>
                                                 <Chip
@@ -406,7 +406,7 @@ export const Dashboard: React.FC = () => {
                                                 <TableCell>{r.member_name}</TableCell>
                                                 <TableCell>{r.membership_plan || "-"}</TableCell>
                                                 <TableCell sx={{ color: successMain }}>
-                                                    {r.membership_end ? format(new Date(r.membership_end), "MMM d, yyyy") : "-"}
+                                                    {r.membership_end ? format(new Date(r.membership_end + 'T12:00:00'), "MMM d, yyyy") : "-"}
                                                 </TableCell>
                                                 <TableCell>{r.last_seen ? format(new Date(r.last_seen), "h:mm a") : "-"}</TableCell>
                                             </TableRow>

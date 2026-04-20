@@ -530,7 +530,7 @@ export const Kiosk: React.FC = () => {
                                 </Typography>
                                 {membershipExpiry && (
                                     <Typography variant="body2" sx={{ color: 'rgba(76,175,80,0.8)', mt: 0.5, fontSize: { xs: '0.8rem', sm: '0.9rem' }, fontWeight: 400 }}>
-                                        Membresia hasta: {new Date(membershipExpiry).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                        Membresia hasta: {new Date(membershipExpiry + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
                                     </Typography>
                                 )}
                             </Box>

@@ -203,8 +203,8 @@ export const MembershipsList: React.FC = () => {
                                         {!isMobile && <Typography variant="caption" color="textSecondary">{m.member_id_number || t.memberships.noId}</Typography>}
                                     </TableCell>
                                     <TableCell>{m.plan_name || m.type}</TableCell>
-                                    {!isMobile && <TableCell>{format(new Date(m.start_date), 'PPP')}</TableCell>}
-                                    <TableCell>{format(new Date(m.end_date), 'PPP')}</TableCell>
+                                    {!isMobile && <TableCell>{format(new Date(m.start_date + 'T12:00:00'), 'PPP')}</TableCell>}
+                                    <TableCell>{format(new Date(m.end_date + 'T12:00:00'), 'PPP')}</TableCell>
                                     <TableCell>{getStatusChip(m.status)}</TableCell>
                                     <TableCell align="right">
                                         <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title={t.memberships.viewMember} sx={{ minWidth: 44, minHeight: 44 }}><ViewIcon /></IconButton>
