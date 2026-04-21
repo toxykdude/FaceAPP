@@ -96,9 +96,9 @@ def start_scheduler():
             replace_existing=True,
         )
         scheduler.start()
-        logger.info("Email report scheduler started (every 2 hours)")
+        print(f"✅ Email report scheduler started (every 2 hours). SMTP enabled: {bool(settings.SMTP_HOST)}")
     except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
+        print(f"❌ Failed to start scheduler: {e}")
 
 
 # Serve frontend static files (for when tunnel hits backend directly)
