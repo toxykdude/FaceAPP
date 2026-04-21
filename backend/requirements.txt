@@ -30,6 +30,12 @@ email-validator==2.1.0
 opencv-python==4.9.0.80
 numpy==1.26.3
 
+# Rate Limiting
+slowapi==0.1.9
+
+# Scheduler
+APScheduler==3.10.4
+
 # Utilities
 aiofiles==23.2.1
 python-dateutil==2.8.2

@@ -19,6 +19,7 @@ class EmailService:
         self.smtp_port = getattr(settings, 'SMTP_PORT', 587)
         self.smtp_user = getattr(settings, 'SMTP_USER', None)
         self.smtp_password = getattr(settings, 'SMTP_PASSWORD', None)
+        self.smtp_from_name = getattr(settings, 'SMTP_FROM_NAME', 'PowerHouse Gym')
         self.smtp_from = getattr(settings, 'SMTP_FROM_EMAIL', 'noreply@powerhousegym.co')
         self.enabled = bool(self.smtp_host and self.smtp_user)
     
@@ -36,7 +37,7 @@ class EmailService:
             
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = self.smtp_from
+            msg["From"] = f"{self.smtp_from_name} <{self.smtp_from}>"
             msg["To"] = to
             
             msg.attach(MIMEText(body, "plain"))
