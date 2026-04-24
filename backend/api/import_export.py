@@ -11,11 +11,12 @@ from api.deps import get_db, require_staff
 from models.user import User
 from models.member import Member
 from core.audit import log_action
+from schemas.import_export import ImportResponse
 
 router = APIRouter(prefix="/members", tags=["Import/Export"])
 
 
-@router.post("/import")
+@router.post("/import", response_model=ImportResponse)
 async def import_members(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),

@@ -80,6 +80,13 @@ def auth_headers(admin_token):
 
 
 @pytest.fixture
+def auth_client(client, auth_headers):
+    """FastAPI test client with authentication headers pre-set."""
+    client.headers.update(auth_headers)
+    return client
+
+
+@pytest.fixture
 def sample_member(db_session):
     """Create a sample member for testing with unique email."""
     unique_suffix = uuid.uuid4().hex[:8]

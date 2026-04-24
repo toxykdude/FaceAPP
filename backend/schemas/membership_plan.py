@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, Any, List
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 class MembershipPlanBase(BaseModel):
     name: str
@@ -26,7 +27,7 @@ class MembershipPlanUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class MembershipPlanResponse(MembershipPlanBase):
-    id: Any
+    id: UUID
     created_at: datetime
     updated_at: datetime
     

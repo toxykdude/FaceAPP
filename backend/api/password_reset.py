@@ -14,6 +14,7 @@ from core.security import get_password_hash
 from core.email import email_service
 from core.config import settings
 from core.audit import log_action
+from schemas.sync import MessageResponse
 
 router = APIRouter(prefix="/auth", tags=["Password Reset"])
 
@@ -27,7 +28,7 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", response_model=MessageResponse)
 def forgot_password(
     request: ForgotPasswordRequest,
     db: Session = Depends(get_db)
@@ -120,7 +121,7 @@ If you didn't request this, ignore this email.
     return {"message": "If an account with that email exists, a reset link has been sent."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", response_model=MessageResponse)
 def reset_password(
     request: ResetPasswordRequest,
     db: Session = Depends(get_db)

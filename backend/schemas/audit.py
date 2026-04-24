@@ -4,12 +4,13 @@ Pydantic schemas for audit logs.
 from pydantic import BaseModel, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class AuditLogResponse(BaseModel):
     """Schema for audit log response."""
-    id: Any
-    user_id: Optional[Any] = None
+    id: UUID
+    user_id: Optional[UUID] = None
     username: Optional[str] = None
     action: str
     resource_type: str

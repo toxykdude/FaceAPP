@@ -19,14 +19,16 @@ services:
 
   backend:
     build: ./backend
-    ports:
-      - "8000:8000"
+    # Only expose internally — nginx reverse proxy is the external entry point
+    expose:
+      - "8000"
     environment:
       DATABASE_URL: postgresql://facegym:facegym_dev@db:5432/facegym
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev-secret-key-change-in-production
       ENCRYPTION_KEY: dev-encryption-key-change-in-production
       JWT_SECRET: dev-jwt-secret-change-in-production
+      INTERNAL_API_SECRET: dev-internal-secret-change-in-production
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123
       CORS_ORIGINS: http://localhost:3000
@@ -36,12 +38,15 @@ services:
 
   cv-service:
     build: ./cv_service
-    ports:
-      - "8001:8001"
+    # Only expose internally — NOT accessible from outside the Docker network
+    expose:
+      - "8001"
     environment:
       BACKEND_API_URL: http://backend:8000/api
       REDIS_URL: redis://redis:6379/0
       USE_GPU: "false"
+      API_KEY: dev-cv-api-key-change-in-production
+      INTERNAL_API_SECRET: dev-internal-secret-change-in-production
     depends_on:
       - backend
       - redis

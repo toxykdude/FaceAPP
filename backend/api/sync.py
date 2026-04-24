@@ -17,6 +17,7 @@ from models.membership import Membership, MembershipPlan
 from models.sale import SalesTransaction
 from models.event import AccessEvent
 from models.camera import Camera
+from schemas.sync import SyncPullResponse, SyncPushResponse, SyncStatusResponse
 
 router = APIRouter(prefix="/sync", tags=["Sync"])
 
@@ -92,7 +93,7 @@ class OperationResult(BaseModel):
 
 # ---- Endpoints ----
 
-@router.post("/pull")
+@router.post("/pull", response_model=SyncPullResponse)
 def sync_pull(
     req: PullRequest,
     db: Session = Depends(get_db),
@@ -140,7 +141,7 @@ def sync_pull(
     return response
 
 
-@router.post("/push")
+@router.post("/push", response_model=SyncPushResponse)
 def sync_push(
     req: PushRequest,
     db: Session = Depends(get_db),
@@ -309,7 +310,7 @@ def sync_push(
     }
 
 
-@router.get("/status")
+@router.get("/status", response_model=SyncStatusResponse)
 def sync_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),

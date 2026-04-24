@@ -16,6 +16,7 @@ from models.membership import Membership
 from models.sale import SalesTransaction
 from models.event import AccessEvent
 from core.email import email_service
+from schemas.sync import MessageResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports-email", tags=["Reports Email"])
@@ -240,7 +241,7 @@ def send_scheduled_report(db_session_factory):
 
 # --- Manual trigger endpoint ---
 
-@router.post("/send-now")
+@router.post("/send-now", response_model=MessageResponse)
 def send_report_now(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -2,8 +2,7 @@
 Database configuration and session management.
 """
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from core.config import settings
 
 # Create database engine (backend_app role — admin/staff operations)
@@ -35,19 +34,9 @@ if settings.MEMBER_PORTAL_DATABASE_URL:
     )
     PortalSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_portal_engine)
 
-# Base class for models
-Base = declarative_base()
 
-# Dependency for FastAPI routes (admin/staff)
-def get_db():
-    """
-    Database session dependency for FastAPI (backend_app role).
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+class Base(DeclarativeBase):
+    pass
 
 
 def get_portal_db(member_id: str = None):

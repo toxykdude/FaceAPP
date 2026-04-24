@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 from models.membership import MembershipType, MembershipStatus
 
 
@@ -43,9 +44,9 @@ class MembershipUpdate(BaseModel):
 
 class MembershipResponse(MembershipBase):
     """Schema for membership response."""
-    id: Any
-    member_id: Any
-    plan_id: Optional[Any] = None
+    id: UUID
+    member_id: UUID
+    plan_id: Optional[UUID] = None
     status: str
     created_at: datetime
     updated_at: datetime

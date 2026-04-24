@@ -2,12 +2,13 @@
 Access Events API endpoints.
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Query
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import datetime, date, timezone
 
 from api.deps import get_db, require_staff
+from core.config import settings
 from models.user import User
 from models.event import AccessEvent
 from schemas.event import (
@@ -18,6 +19,18 @@ from schemas.event import (
 )
 
 router = APIRouter(prefix="/events", tags=["Access Events"])
+
+
+async def verify_internal_secret(x_internal_secret: str = Header(None, alias="X-Internal-Secret")):
+    """
+    Verify shared secret for internal service-to-service communication.
+    Used by the CV service to create access events.
+    """
+    if not settings.INTERNAL_API_SECRET:
+        return None  # Development mode
+    if x_internal_secret != settings.INTERNAL_API_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid internal service credentials")
+    return x_internal_secret
 
 
 @router.get("", response_model=AccessEventListResponse)
@@ -67,7 +80,10 @@ def list_events(
     total = query.count()
     
     # Get paginated results
-    events = query.order_by(AccessEvent.timestamp.desc()).offset(skip).limit(limit).all()
+    events = query.order_by(AccessEvent.timestamp.desc()).offset(skip).limit(limit).options(
+        joinedload(AccessEvent.member),
+        joinedload(AccessEvent.camera),
+    ).all()
     
     return {
         "total": total,
@@ -78,14 +94,19 @@ def list_events(
 @router.post("", response_model=AccessEventResponse, status_code=status.HTTP_201_CREATED)
 def create_event(
     event: AccessEventCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_internal_secret)
 ):
     """
     Create a new access event.
     
     This endpoint is called by the CV service during recognition.
-    No authentication required for CV service.
+    Protected by internal shared secret (X-Internal-Secret header).
     """
+    # Validate snapshot path to prevent path traversal (VULN-010)
+    if event.frame_snapshot_path and not is_safe_path(event.frame_snapshot_path):
+        raise HTTPException(status_code=400, detail="Invalid snapshot path")
+
     # Create event
     db_event = AccessEvent(
         camera_id=event.camera_id,

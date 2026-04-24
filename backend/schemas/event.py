@@ -4,12 +4,13 @@ Pydantic schemas for Access Events.
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class AccessEventBase(BaseModel):
     """Base access event schema."""
-    camera_id: Any
-    member_id: Optional[Any] = None
+    camera_id: UUID
+    member_id: Optional[UUID] = None
     confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0)
     access_granted: bool
     denial_reason: Optional[str] = None
@@ -22,7 +23,7 @@ class AccessEventCreate(AccessEventBase):
 
 class AccessEventResponse(AccessEventBase):
     """Schema for access event response."""
-    id: Any
+    id: UUID
     timestamp: datetime
     frame_snapshot_path: Optional[str] = None
     

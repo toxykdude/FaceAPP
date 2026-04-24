@@ -14,12 +14,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Body, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from config import settings
 from stream.rtsp_processor import RTSPStreamProcessor
 from validation.access_validator import AccessValidator
 from api.backend_client import BackendAPIClient
+
 
 # Models
 class StartCameraRequest(BaseModel):
@@ -27,15 +28,36 @@ class StartCameraRequest(BaseModel):
     rtsp_url: str
     fps: int = 5
 
+    @field_validator('rtsp_url')
+    @classmethod
+    def validate_rtsp_url(cls, v: str) -> str:
+        """Validate RTSP URL to prevent crashes and injection (VULN-015)."""
+        if not v or not v.strip():
+            raise ValueError('RTSP URL cannot be empty')
+        v = v.strip()
+        allowed_schemes = ('rtsp://', 'http://', 'https://', '/dev/video', 'browser:', 'client:')
+        if not any(v.lower().startswith(scheme) for scheme in allowed_schemes):
+            raise ValueError(f'URL must start with one of: {", ".join(allowed_schemes)}')
+        if '..' in v or '\n' in v or '\r' in v:
+            raise ValueError('Invalid characters in URL')
+        return v
+
 class StopCameraRequest(BaseModel):
     camera_id: str
 
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
-    """Verify API key for management endpoints."""
+    """
+    Verify API key for CV service endpoints.
+    
+    When API_KEY is set in environment, ALL requests must include a matching
+    X-API-Key header. When empty (development only), auth is skipped.
+    """
     if not settings.API_KEY:
-        return None  # No auth configured — internal mode
+        # Development mode: no auth configured
+        return None
     if x_api_key != settings.API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_api_key
 
 
 def save_member_photo(member_id: str, frame, face_bbox=None):
@@ -246,9 +268,15 @@ class CVService:
                     filename = f"denied_{camera_id[:8]}_{timestamp}.jpg"
                     filepath = os.path.join(snapshot_dir, filename)
                     
-                    cv2.imwrite(filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                    snapshot_path = filepath
-                    logger.info(f"Saved denied access snapshot: {filepath}")
+                    # Validate path to prevent traversal
+                    real_dir = os.path.realpath(snapshot_dir)
+                    if not os.path.realpath(filepath).startswith(real_dir + os.sep):
+                        logger.warning(f"Invalid snapshot path rejected: {filepath}")
+                        snapshot_path = None
+                    else:
+                        cv2.imwrite(filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                        snapshot_path = filepath
+                        logger.info(f"Saved denied access snapshot: {filepath}")
                 except Exception as e:
                     logger.error(f"Failed to save snapshot: {e}")
             
@@ -301,24 +329,36 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PowerHouse CV Service",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,  # Never expose docs — internal service
+    redoc_url=None,
 )
+
+# Configure CORS — strict origin allowlist (VULN-011)
+_cv_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+# Remove localhost origins in production-like setups when API_KEY is set
+if settings.API_KEY:
+    _blocked = {"http://localhost", "http://localhost:3000", "http://localhost:8080"}
+    _cv_cors_origins = [o for o in _cv_cors_origins if o not in _blocked]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",")],
+    allow_origins=_cv_cors_origins if _cv_cors_origins else ["http://localhost"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 @app.get("/")
-async def root():
+async def root(_: str = Depends(verify_api_key)):
     return {"status": "running", "cameras": list(service.processors.keys())}
 
 @app.post("/cameras/start")
 async def start_camera_endpoint(request: StartCameraRequest, _: None = Depends(verify_api_key)):
-    await service.start_camera(request.camera_id, request.rtsp_url, request.fps)
-    return {"status": "started", "camera_id": request.camera_id}
+    try:
+        await service.start_camera(request.camera_id, request.rtsp_url, request.fps)
+        return {"status": "started", "camera_id": request.camera_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to start camera: {str(e)}")
 
 @app.post("/cameras/stop")
 async def stop_camera_endpoint(request: StopCameraRequest, _: None = Depends(verify_api_key)):
@@ -326,7 +366,7 @@ async def stop_camera_endpoint(request: StopCameraRequest, _: None = Depends(ver
     return {"status": "stopped", "camera_id": request.camera_id}
 
 @app.get("/stream/{camera_id}")
-def video_feed(camera_id: str):
+def video_feed(camera_id: str, _: str = Depends(verify_api_key)):
     """MJPEG Video Feed — works for both RTSP and WebSocket-sourced cameras."""
     if camera_id not in service.processors and camera_id not in service._ws_frames:
         raise HTTPException(status_code=404, detail="Camera not running")
@@ -368,7 +408,19 @@ async def generate_mjpeg(camera_id: str):
 
 @app.websocket("/ws/camera/{camera_id}")
 async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
-    """WebSocket endpoint for browser-pushed camera frames."""
+    """
+    WebSocket endpoint for browser-pushed camera frames.
+    
+    Note: WebSocket auth uses query parameter ?api_key=... when API_KEY is set.
+    Connection is rejected if key doesn't match.
+    """
+    # Validate API key via query parameter for WebSocket (headers not available)
+    if settings.API_KEY:
+        api_key = websocket.query_params.get("api_key")
+        if api_key != settings.API_KEY:
+            await websocket.close(code=4001, reason="Invalid API key")
+            return
+    
     await websocket.accept()
     logger.info(f"WebSocket connected for camera {camera_id}")
 
@@ -475,10 +527,16 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
                         timestamp = time.strftime("%Y%m%d_%H%M%S")
                         filename = f"denied_{camera_id[:8]}_{timestamp}.jpg"
                         filepath = os.path.join(snapshot_dir, filename)
-                        cv2.imwrite(
-                            filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85]
-                        )
-                        snapshot_path = filepath
+
+                        # Validate path to prevent traversal
+                        real_dir = os.path.realpath(snapshot_dir)
+                        if not os.path.realpath(filepath).startswith(real_dir + os.sep):
+                            logger.warning(f"Invalid snapshot path rejected: {filepath}")
+                        else:
+                            cv2.imwrite(
+                                filepath, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                            )
+                            snapshot_path = filepath
                     except Exception as e:
                         logger.error(f"Failed to save snapshot: {e}")
 
@@ -540,7 +598,7 @@ async def invalidate_member(member_id: str, _: None = Depends(verify_api_key)):
     return {"status": "ok", "member_id": member_id}
 
 @app.get("/health")
-async def health_check():
+async def health_check(_: str = Depends(verify_api_key)):
     """Comprehensive health check with camera status and metrics."""
     from recognition.template_cache import TemplateCache
     
@@ -554,7 +612,8 @@ async def health_check():
     try:
         if cache.ping():
             template_count = len(cache.get_all_active_templates())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Template cache ping failed: {e}")
         pass
     
     return {

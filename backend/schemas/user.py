@@ -34,7 +34,7 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     """Schema for user response."""
-    id: Any  # Accept UUID or str
+    id: UUID  # Accept UUID or str
     is_active: bool
     permissions: Optional[dict] = None
     created_at: datetime

@@ -4,6 +4,7 @@ Pydantic schemas for Member Portal authentication and data.
 from decimal import Decimal
 from typing import Optional, List, Any
 from datetime import date, datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, field_serializer
 
 
@@ -25,7 +26,7 @@ class MemberVerifyRequest(BaseModel):
 
 class MemberPortalResponse(BaseModel):
     """Schema for member data in portal responses."""
-    id: Any
+    id: UUID
     first_name: str
     last_name: str
     phone: Optional[str] = None
@@ -51,7 +52,7 @@ class MemberPortalToken(BaseModel):
 
 class ActiveMembershipResponse(BaseModel):
     """Schema for active membership data in portal."""
-    id: Any
+    id: UUID
     type: str
     plan_name: Optional[str] = None
     start_date: date
@@ -76,7 +77,7 @@ class ActiveMembershipResponse(BaseModel):
 
 class PaymentHistoryItem(BaseModel):
     """Schema for payment history item in portal."""
-    id: Any
+    id: UUID
     invoice_number: Optional[str] = None
     amount: Any
     payment_method: Optional[str] = None
@@ -105,7 +106,7 @@ class PortalMeResponse(BaseModel):
 
 class PortalPlanResponse(BaseModel):
     """Schema for membership plan in portal (public)."""
-    id: Any
+    id: UUID
     name: str
     duration_days: int
     duration_months: Optional[int] = None

@@ -11,7 +11,6 @@ import numpy as np
 import cv2
 import logging
 import json
-import torch
 from typing import List, Tuple
 
 import httpx
@@ -21,6 +20,7 @@ from models.member import Member
 from models.biometric import BiometricTemplate
 from models.user import User
 from models.camera import Camera
+from core.config import settings
 from core.encryption import encrypt_template, decrypt_string
 from schemas.member import BiometricEnrollmentResponse
 from pydantic import BaseModel
@@ -40,6 +40,7 @@ def _get_mtcnn():
     """Lazy-load MTCNN detector (same config as CV service)."""
     global _mtcnn_detector
     if _mtcnn_detector is None:
+        import torch
         from facenet_pytorch import MTCNN
         _mtcnn_detector = MTCNN(
             keep_all=True,
@@ -55,6 +56,7 @@ def _get_face_net():
     """Lazy-load FaceNet model."""
     global _face_net_model
     if _face_net_model is None:
+        import torch
         from facenet_pytorch import InceptionResnetV1
         _face_net_model = InceptionResnetV1(
             pretrained='vggface2'
@@ -76,7 +78,7 @@ async def notify_cv_reload():
     """
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post("http://localhost:8001/reload")
+            resp = await client.post(f"{settings.CV_SERVICE_URL}/reload")
             logger.info(f"CV service reload after enrollment: {resp.status_code}")
     except Exception as e:
         logger.warning(f"Failed to reload CV templates: {e}")
@@ -161,6 +163,7 @@ def _augment_face(face_roi: np.ndarray) -> List[np.ndarray]:
 
 def _generate_single_embedding(face_roi: np.ndarray) -> np.ndarray:
     """Generate one FaceNet 512-d embedding from a face ROI."""
+    import torch
     model = _get_face_net()
 
     # BGR -> RGB, resize to 160x160

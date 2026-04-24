@@ -11,6 +11,8 @@ import httpx
 import io
 
 from api.deps import get_db, require_staff
+from core.config import settings
+from core.path_validation import validate_path
 from models.user import User
 from models.member import Member, MemberStatus
 from models.event import AccessEvent
@@ -30,7 +32,7 @@ async def notify_cv_invalidation(member_id: str):
     """Notify CV service to invalidate a member's cached template."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"http://localhost:8001/invalidate/{member_id}")
+            await client.post(f"{settings.CV_SERVICE_URL}/invalidate/{member_id}")
     except Exception:
         pass  # CV service might be down, non-critical
 
@@ -191,7 +193,11 @@ def get_member_photo(
     # 1. Check dedicated member photo first
     photo_path = f"/var/lib/powerhouse/member-photos/{member_id}.jpg"
     if os.path.exists(photo_path):
-        return FileResponse(photo_path, media_type="image/jpeg")
+        try:
+            safe_path = validate_path(photo_path)
+            return FileResponse(safe_path, media_type="image/jpeg")
+        except ValueError:
+            pass  # Path traversal attempt — skip
 
     # 2. Try to find latest granted event with snapshot
     event = db.query(AccessEvent).filter(
@@ -201,7 +207,11 @@ def get_member_photo(
     ).order_by(AccessEvent.timestamp.desc()).first()
 
     if event and event.frame_snapshot_path and os.path.exists(event.frame_snapshot_path):
-        return FileResponse(event.frame_snapshot_path, media_type="image/jpeg")
+        try:
+            safe_path = validate_path(event.frame_snapshot_path)
+            return FileResponse(safe_path, media_type="image/jpeg")
+        except ValueError:
+            pass  # Path traversal attempt — skip
 
     # Try any event with snapshot (denied events always have snapshots)
     event = db.query(AccessEvent).filter(
@@ -210,7 +220,11 @@ def get_member_photo(
     ).order_by(AccessEvent.timestamp.desc()).first()
 
     if event and event.frame_snapshot_path and os.path.exists(event.frame_snapshot_path):
-        return FileResponse(event.frame_snapshot_path, media_type="image/jpeg")
+        try:
+            safe_path = validate_path(event.frame_snapshot_path)
+            return FileResponse(safe_path, media_type="image/jpeg")
+        except ValueError:
+            pass  # Path traversal attempt — skip
 
     # Fallback: generate initials avatar
     member = db.query(Member).filter(Member.id == member_id).first()

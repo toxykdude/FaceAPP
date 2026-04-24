@@ -4,6 +4,7 @@ Pydantic schemas for Camera model.
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class CameraBase(BaseModel):
@@ -39,7 +40,7 @@ class CameraUpdate(BaseModel):
 
 class CameraResponse(BaseModel):
     """Schema for camera response."""
-    id: Any
+    id: UUID
     name: str
     location: Optional[str] = None
     location_id: Optional[str] = None

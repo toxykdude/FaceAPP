@@ -3,6 +3,7 @@ Pydantic schemas for enrollment request queue (remote Android enrollment).
 """
 from datetime import datetime
 from typing import Optional, Any
+from uuid import UUID
 from pydantic import BaseModel, Field, field_serializer
 
 
@@ -14,8 +15,8 @@ class EnrollmentRequestCreate(BaseModel):
 
 class EnrollmentRequestResponse(BaseModel):
     """Enrollment request status (returned to both frontend and Android)."""
-    id: Any
-    member_id: Any
+    id: UUID
+    member_id: UUID
     member_name: Optional[str] = None
     device_id: str
     status: str  # pending, processing, complete, failed, cancelled

@@ -2,7 +2,7 @@
 Backend API client for CV service.
 
 Communicates with the backend's /api/cv/ internal endpoints
-(no auth required — same-server internal communication).
+using a shared secret (X-Internal-Secret header) for authentication.
 """
 import httpx
 from typing import Optional, Dict, Any, List
@@ -18,7 +18,10 @@ class BackendAPIClient:
         """Initialize API client."""
         self.base_url = settings.BACKEND_API_URL
         self.timeout = settings.API_TIMEOUT
-        self.client = httpx.AsyncClient(timeout=self.timeout)
+        self._headers = {}
+        if settings.INTERNAL_API_SECRET:
+            self._headers["X-Internal-Secret"] = settings.INTERNAL_API_SECRET
+        self.client = httpx.AsyncClient(timeout=self.timeout, headers=self._headers)
     
     async def sync_templates(self) -> List[Dict[str, Any]]:
         """

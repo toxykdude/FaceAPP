@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # API Authentication
     API_KEY: str = ""  # Empty = no auth required (for development)
     
+    # Shared secret for backend ↔ CV service internal communication
+    INTERNAL_API_SECRET: str = ""  # MUST match backend's INTERNAL_API_SECRET
+    
     # Backend API
     BACKEND_API_URL: str = "http://localhost:8000/api"
     API_TIMEOUT: int = 30

@@ -4,6 +4,7 @@ Pydantic schemas for Member model.
 from pydantic import BaseModel, EmailStr, Field, field_serializer
 from typing import Optional, Any
 from datetime import datetime
+from uuid import UUID
 from models.member import MemberStatus
 
 
@@ -33,7 +34,7 @@ class MemberUpdate(BaseModel):
 
 class MemberResponse(MemberBase):
     """Schema for member response."""
-    id: Any
+    id: UUID
     status: str
     facial_data_enrolled: bool
     consent_given_at: Optional[datetime] = None
@@ -41,10 +42,7 @@ class MemberResponse(MemberBase):
     created_at: datetime
     updated_at: datetime
     last_seen: Optional[datetime] = None
-    membership_status: Optional[str] = None  # 'active', 'expired', or None
-    membership_end_date: Optional[str] = None
-    membership_plan_name: Optional[str] = None
-    membership_status: Optional[str] = None  # 'active', 'expired', or None
+    membership_status: Optional[str] = None
     membership_end_date: Optional[str] = None
     membership_plan_name: Optional[str] = None
     

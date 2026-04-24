@@ -3,7 +3,7 @@ Memberships API endpoints.
 """
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, date, timedelta, timezone
 
 from api.deps import get_db, require_staff
@@ -51,13 +51,16 @@ def list_memberships(
     total = query.count()
     
     # Get paginated results
-    memberships = query.order_by(Membership.created_at.desc()).offset(skip).limit(limit).all()
+    memberships = query.order_by(Membership.created_at.desc()).offset(skip).limit(limit).options(
+        joinedload(Membership.member),
+        joinedload(Membership.plan),
+    ).all()
     
     # Enrich with member and plan names
     result = []
     for m in memberships:
-        member = db.query(Member).filter(Member.id == m.member_id).first()
-        plan = db.query(MembershipPlan).filter(MembershipPlan.id == m.plan_id).first() if m.plan_id else None
+        member = m.member
+        plan = m.plan if m.plan_id else None
         
         m_dict = {
             "id": str(m.id),

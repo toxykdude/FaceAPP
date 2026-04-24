@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
+    # Internal service authentication (shared with CV service)
+    INTERNAL_API_SECRET: str = ""  # Shared secret for backend ↔ CV service communication
+    
     # Admin User
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = ""  # REQUIRED: Set in .env with strong password
@@ -51,7 +54,7 @@ class Settings(BaseSettings):
     # Evolution API (WhatsApp)
     EVOLUTION_API_URL: str = "https://wappbot.powerhousegym.co"
     EVOLUTION_API_KEY: str = ""  # REQUIRED: Set in .env — never use default
-    EVOLUTION_INSTANCE_NAME: str = "Powerbt"
+    EVOLUTION_INSTANCE_NAME: str = "SMS-Verification"
     
     # Email (optional)
     SMTP_HOST: Optional[str] = None
@@ -74,6 +77,9 @@ class Settings(BaseSettings):
     
     # Monitoring
     LOG_LEVEL: str = "INFO"
+    
+    # CV Service
+    CV_SERVICE_URL: str = "http://localhost:8001"
     
     class Config:
         env_file = ".env"
