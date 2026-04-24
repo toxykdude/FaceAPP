@@ -124,14 +124,14 @@ def create_event(
         from models.member import Member
         member = db.query(Member).filter(Member.id == event.member_id).first()
         if member:
-            member.last_seen = datetime.now()
+            member.last_seen = datetime.now(timezone.utc)
     
     # Update camera last_seen
     if event.camera_id:
         from models.camera import Camera
         camera = db.query(Camera).filter(Camera.id == event.camera_id).first()
         if camera:
-            camera.last_seen = datetime.now()
+            camera.last_seen = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(db_event)
@@ -152,7 +152,7 @@ def get_today_recognized(
     from models.member import Member
     from models.membership import Membership
     
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Get all access events with member_id from today
     events = db.query(AccessEvent).filter(
@@ -201,7 +201,7 @@ def get_today_recognized(
             "membership_plan": (active_membership or latest_membership).type if (active_membership or latest_membership) else None,
             "membership_end": latest_membership.end_date.isoformat() if latest_membership and latest_membership.end_date else None,
             "photo_url": f"/api/members/{mid}/photo",
-            "last_seen": evt.timestamp.isoformat(),
+            "last_seen": evt.timestamp.replace(tzinfo=timezone.utc).isoformat() if evt.timestamp else None,
             "confidence": evt.confidence_score,
         })
     

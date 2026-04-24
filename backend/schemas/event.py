@@ -3,7 +3,7 @@ Pydantic schemas for Access Events.
 """
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 
@@ -27,6 +27,15 @@ class AccessEventResponse(AccessEventBase):
     timestamp: datetime
     frame_snapshot_path: Optional[str] = None
     
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, value: datetime) -> Optional[str]:
+        """Ensure timestamp always includes UTC timezone info for correct frontend display."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+
     @field_serializer('id', 'camera_id', 'member_id')
     def serialize_uuid(self, value: Any) -> Optional[str]:
         """Convert UUID to string."""

@@ -123,7 +123,7 @@ def list_members(
             'id_number': m.id_number,
             'created_at': m.created_at,
             'updated_at': m.updated_at,
-            'last_seen': m.last_seen,
+            'last_seen': m.last_seen.replace(tzinfo=timezone.utc).isoformat() if m.last_seen else None,
             'membership_status': 'active' if active_mem else ('expired' if expired_mem else None),
             'membership_end_date': str(active_mem.end_date) if active_mem else (str(expired_mem.end_date) if expired_mem and expired_mem.end_date else None),
             'membership_plan_name': plan_name or (active_mem.type if active_mem else None),

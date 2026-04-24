@@ -4,7 +4,7 @@ Extracts dashboard logic from route handlers for testability and reuse.
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
@@ -21,7 +21,7 @@ class DashboardService:
         self.db = db
 
     def get_revenue_trend(self, days: int = 30) -> List[Dict[str, Any]]:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         period_start = now - timedelta(days=days)
 
         sales = self.db.query(SalesTransaction).filter(
@@ -40,7 +40,7 @@ class DashboardService:
         return revenue_trend
 
     def get_member_growth(self, months: int = 6) -> List[Dict[str, Any]]:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         member_growth = []
         for i in range(months - 1, -1, -1):
             m = now.month - i
@@ -91,7 +91,7 @@ class DashboardService:
         return peak_hours
 
     def get_checkin_trend(self, days: int = 30) -> List[Dict[str, Any]]:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         period_start = now - timedelta(days=days)
 
         events = self.db.query(AccessEvent).filter(
@@ -111,7 +111,7 @@ class DashboardService:
         return checkin_trend
 
     def get_new_signups(self) -> Dict[str, Any]:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         last_month_start = (month_start - timedelta(days=1)).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
@@ -137,7 +137,7 @@ class DashboardService:
         return {"active": active_count, "expired": expired_count}
 
     def get_checkins_today(self) -> int:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return self.db.query(AccessEvent).filter(
             AccessEvent.access_granted == True,
@@ -145,7 +145,7 @@ class DashboardService:
         ).count()
 
     def get_checkins_week(self) -> int:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=today_start.weekday())
         return self.db.query(AccessEvent).filter(
@@ -154,7 +154,7 @@ class DashboardService:
         ).count()
 
     def get_revenue_change_pct(self, days: int = 30) -> float:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         last_month_start = (month_start - timedelta(days=1)).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
