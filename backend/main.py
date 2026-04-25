@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 import os
 
@@ -54,6 +55,7 @@ app = FastAPI(
     description="AI-Powered Membership Management with Facial Recognition",
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",  # VULN-8 fix
     lifespan=lifespan,
 )
 
@@ -97,7 +99,27 @@ class CloudflareCacheBustMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CRLFSanitizationMiddleware)
 app.add_middleware(CloudflareCacheBustMiddleware)
 
-# === Production Error Hardening (VULN-022) ===
+# === Production Error Hardening (VULN-022, VULN-6) ===
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """
+    VULN-6 fix: Return generic validation errors without revealing
+    Pydantic/FastAPI internals (framework names, error URLs, etc).
+    """
+    request_id = str(uuid.uuid4())[:8]
+    # Extract only field-level info, no framework URLs
+    errors = []
+    for err in exc.errors():
+        errors.append({
+            "field": ".".join(str(l) for l in err.get("loc", [])),
+            "message": err.get("msg", "Invalid value"),
+        })
+    logger.warning(f"[{request_id}] Validation error on {request.method} {request.url.path}: {errors}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "errors": errors, "request_id": request_id},
+    )
 
 @app.exception_handler(Exception)
 async def production_error_handler(request: Request, exc: Exception):

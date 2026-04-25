@@ -31,15 +31,47 @@ class StartCameraRequest(BaseModel):
     @field_validator('rtsp_url')
     @classmethod
     def validate_rtsp_url(cls, v: str) -> str:
-        """Validate RTSP URL to prevent crashes and injection (VULN-015)."""
+        """Validate RTSP URL to prevent SSRF and injection (VULN-2 fix)."""
+        import ipaddress
+        from urllib.parse import urlparse
+
         if not v or not v.strip():
             raise ValueError('RTSP URL cannot be empty')
         v = v.strip()
-        allowed_schemes = ('rtsp://', 'http://', 'https://', '/dev/video', 'browser:', 'client:')
-        if not any(v.lower().startswith(scheme) for scheme in allowed_schemes):
-            raise ValueError(f'URL must start with one of: {", ".join(allowed_schemes)}')
+
         if '..' in v or '\n' in v or '\r' in v:
             raise ValueError('Invalid characters in URL')
+
+        # Local device paths (USB cameras)
+        if v.startswith('/dev/video'):
+            return v
+        # Browser/WebRTC sources (kiosk internal)
+        if v.startswith('browser:') or v.startswith('client:'):
+            return v
+
+        # Network URLs — validate scheme and block internal IPs
+        allowed_schemes = ('rtsp://', 'http://', 'https://')
+        if not any(v.lower().startswith(scheme) for scheme in allowed_schemes):
+            raise ValueError(f'URL must start with one of: rtsp://, http://, https://, /dev/video')
+
+        # Block internal/private IPs to prevent SSRF
+        try:
+            parsed = urlparse(v)
+            hostname = parsed.hostname
+            if hostname:
+                # Block common internal hostnames
+                if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1'):
+                    raise ValueError('URLs pointing to internal addresses are not allowed')
+                # Block private IP ranges
+                try:
+                    ip = ipaddress.ip_address(hostname)
+                    if ip.is_private or ip.is_loopback or ip.is_reserved:
+                        raise ValueError('URLs pointing to private/internal addresses are not allowed')
+                except ValueError:
+                    pass  # Not an IP, could be a hostname — allow
+        except Exception as e:
+            if 'not allowed' in str(e):
+                raise
         return v
 
 class StopCameraRequest(BaseModel):
@@ -332,6 +364,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=None,  # Never expose docs — internal service
     redoc_url=None,
+    openapi_url=None,  # VULN-4 fix: block OpenAPI spec disclosure
 )
 
 # Configure CORS — strict origin allowlist (VULN-011)
