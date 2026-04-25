@@ -5,6 +5,16 @@ Extracts dashboard logic from route handlers for testability and reuse.
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, date, timedelta, timezone
+
+# Colombia timezone (UTC-5) — for "today" date calculations
+COLOMBIA_TZ = timezone(timedelta(hours=-5))
+
+
+def _colombia_today_start_utc() -> datetime:
+    """Midnight Colombia time expressed as UTC datetime, for DB queries."""
+    now_col = datetime.now(COLOMBIA_TZ)
+    midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight_col.astimezone(timezone.utc)
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
@@ -111,11 +121,10 @@ class DashboardService:
         return checkin_trend
 
     def get_new_signups(self) -> Dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_month_start = (month_start - timedelta(days=1)).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        col_now = datetime.now(COLOMBIA_TZ)
+        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_start = last_month_col.astimezone(timezone.utc)
 
         new_this_month = self.db.query(Member).filter(Member.created_at >= month_start).count()
         new_last_month = self.db.query(Member).filter(
@@ -137,31 +146,32 @@ class DashboardService:
         return {"active": active_count, "expired": expired_count}
 
     def get_checkins_today(self) -> int:
-        now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = _colombia_today_start_utc()
         return self.db.query(AccessEvent).filter(
             AccessEvent.access_granted == True,
             AccessEvent.timestamp >= today_start
         ).count()
 
     def get_checkins_week(self) -> int:
-        now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = today_start - timedelta(days=today_start.weekday())
+        today_start = _colombia_today_start_utc()
+        # Colombia's Monday of this week
+        col_now = datetime.now(COLOMBIA_TZ)
+        days_since_monday = col_now.weekday()
+        monday_col = col_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_since_monday)
+        week_start_utc = monday_col.astimezone(timezone.utc)
         return self.db.query(AccessEvent).filter(
             AccessEvent.access_granted == True,
-            AccessEvent.timestamp >= week_start
+            AccessEvent.timestamp >= week_start_utc
         ).count()
 
     def get_revenue_change_pct(self, days: int = 30) -> float:
-        now = datetime.now(timezone.utc)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_month_start = (month_start - timedelta(days=1)).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        col_now = datetime.now(COLOMBIA_TZ)
+        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_start = last_month_col.astimezone(timezone.utc)
 
         sales = self.db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= now - timedelta(days=days)
+            SalesTransaction.transaction_date >= col_now.astimezone(timezone.utc) - timedelta(days=days)
         ).all()
 
         rev_this_month = sum(float(s.amount) for s in sales if s.transaction_date >= month_start)

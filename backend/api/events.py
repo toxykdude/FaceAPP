@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, status, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 
 from api.deps import get_db, require_staff
 from core.config import settings
@@ -19,6 +19,22 @@ from schemas.event import (
 )
 
 router = APIRouter(prefix="/events", tags=["Access Events"])
+
+# Colombia timezone (UTC-5) — used for all "today" date calculations
+# so the dashboard reflects the business local date, not the server UTC date.
+COLOMBIA_TZ = timezone(timedelta(hours=-5))
+
+
+def colombia_today() -> date:
+    """Return today's date in Colombia (UTC-5)."""
+    return datetime.now(COLOMBIA_TZ).date()
+
+
+def colombia_today_start_utc() -> datetime:
+    """Return midnight Colombia time expressed as a UTC datetime, for DB queries."""
+    now_col = datetime.now(COLOMBIA_TZ)
+    midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight_col.astimezone(timezone.utc)
 
 
 async def verify_internal_secret(x_internal_secret: str = Header(None, alias="X-Internal-Secret")):
@@ -152,7 +168,7 @@ def get_today_recognized(
     from models.member import Member
     from models.membership import Membership
     
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = colombia_today_start_utc()
     
     # Get all access events with member_id from today
     events = db.query(AccessEvent).filter(
@@ -174,7 +190,7 @@ def get_today_recognized(
             continue
         
         # Get the ACTIVE membership (status='active' AND end_date >= today)
-        today = date.today()
+        today = colombia_today()
         active_membership = db.query(Membership).filter(
             Membership.member_id == evt.member_id,
             Membership.end_date >= today
@@ -221,7 +237,7 @@ def get_expiring_today(
     from models.member import Member
     from models.membership import Membership, MembershipPlan
     
-    today = date.today()
+    today = colombia_today()
     three_days_ago = today - __import__("datetime").timedelta(days=3)
     
     # Memberships expiring today or expired in last 3 days
