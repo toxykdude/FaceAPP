@@ -77,8 +77,11 @@ async def notify_cv_reload():
     instead of waiting for the next periodic refresh (10 minutes).
     """
     try:
+        headers = {}
+        if settings.CV_API_KEY:
+            headers["X-API-Key"] = settings.CV_API_KEY
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(f"{settings.CV_SERVICE_URL}/reload")
+            resp = await client.post(f"{settings.CV_SERVICE_URL}/reload", headers=headers)
             logger.info(f"CV service reload after enrollment: {resp.status_code}")
     except Exception as e:
         logger.warning(f"Failed to reload CV templates: {e}")

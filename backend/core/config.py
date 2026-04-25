@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     
     # CV Service
     CV_SERVICE_URL: str = "http://localhost:8001"
+    CV_API_KEY: str = ""  # API key for authenticating with CV service
     
     class Config:
         env_file = ".env"

@@ -31,8 +31,11 @@ router = APIRouter(prefix="/members", tags=["Members"])
 async def notify_cv_invalidation(member_id: str):
     """Notify CV service to invalidate a member's cached template."""
     try:
+        headers = {}
+        if settings.CV_API_KEY:
+            headers["X-API-Key"] = settings.CV_API_KEY
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{settings.CV_SERVICE_URL}/invalidate/{member_id}")
+            await client.post(f"{settings.CV_SERVICE_URL}/invalidate/{member_id}", headers=headers)
     except Exception:
         pass  # CV service might be down, non-critical
 
