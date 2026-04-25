@@ -11,10 +11,12 @@ COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 
 def _colombia_today_start_utc() -> datetime:
-    """Midnight Colombia time expressed as UTC datetime, for DB queries."""
+    """Midnight Colombia time expressed as a naive UTC datetime, for DB queries.
+    DB columns are 'timestamp without time zone', so we must strip tzinfo."""
     now_col = datetime.now(COLOMBIA_TZ)
     midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight_col.astimezone(timezone.utc)
+    utc_dt = midnight_col.astimezone(timezone.utc)
+    return utc_dt.replace(tzinfo=None)  # Strip for naive DB columns
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
@@ -122,9 +124,9 @@ class DashboardService:
 
     def get_new_signups(self) -> Dict[str, Any]:
         col_now = datetime.now(COLOMBIA_TZ)
-        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
         last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_month_start = last_month_col.astimezone(timezone.utc)
+        last_month_start = last_month_col.astimezone(timezone.utc).replace(tzinfo=None)
 
         new_this_month = self.db.query(Member).filter(Member.created_at >= month_start).count()
         new_last_month = self.db.query(Member).filter(
@@ -158,7 +160,7 @@ class DashboardService:
         col_now = datetime.now(COLOMBIA_TZ)
         days_since_monday = col_now.weekday()
         monday_col = col_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_since_monday)
-        week_start_utc = monday_col.astimezone(timezone.utc)
+        week_start_utc = monday_col.astimezone(timezone.utc).replace(tzinfo=None)  # Strip for naive DB columns
         return self.db.query(AccessEvent).filter(
             AccessEvent.access_granted == True,
             AccessEvent.timestamp >= week_start_utc
@@ -166,12 +168,13 @@ class DashboardService:
 
     def get_revenue_change_pct(self, days: int = 30) -> float:
         col_now = datetime.now(COLOMBIA_TZ)
-        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        col_now_utc = col_now.astimezone(timezone.utc).replace(tzinfo=None)
+        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
         last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_month_start = last_month_col.astimezone(timezone.utc)
+        last_month_start = last_month_col.astimezone(timezone.utc).replace(tzinfo=None)
 
         sales = self.db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= col_now.astimezone(timezone.utc) - timedelta(days=days)
+            SalesTransaction.transaction_date >= col_now_utc - timedelta(days=days)
         ).all()
 
         rev_this_month = sum(float(s.amount) for s in sales if s.transaction_date >= month_start)

@@ -3,7 +3,7 @@ Sales/Transactions API endpoints.
 """
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal

@@ -9,6 +9,7 @@ from datetime import datetime, date, timezone, timedelta
 
 from api.deps import get_db, require_staff
 from core.config import settings
+from core.path_validation import is_safe_path
 from models.user import User
 from models.event import AccessEvent
 from schemas.event import (
@@ -31,10 +32,11 @@ def colombia_today() -> date:
 
 
 def colombia_today_start_utc() -> datetime:
-    """Return midnight Colombia time expressed as a UTC datetime, for DB queries."""
+    """Return midnight Colombia time as a naive UTC datetime, for DB queries.
+    DB columns are 'timestamp without time zone', so we must strip tzinfo."""
     now_col = datetime.now(COLOMBIA_TZ)
     midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight_col.astimezone(timezone.utc)
+    return midnight_col.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 async def verify_internal_secret(x_internal_secret: str = Header(None, alias="X-Internal-Secret")):
