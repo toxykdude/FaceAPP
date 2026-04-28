@@ -74,6 +74,13 @@ export const membershipsApi = {
         const response = await apiClient.post<Membership>(`/memberships/${id}/cancel`);
         return response.data;
     },
+
+    /**
+     * Delete a membership. Admin only.
+     */
+    deleteMembership: async (id: string): Promise<void> => {
+        await apiClient.delete(`/memberships/${id}`);
+    },
 };
 
 export default membershipsApi;

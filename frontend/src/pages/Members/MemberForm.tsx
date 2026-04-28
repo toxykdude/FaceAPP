@@ -25,14 +25,20 @@ import {
     CircularProgress,
     useMediaQuery,
     useTheme,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
 } from '@mui/material';
-import { PhotoCamera, Edit as EditIcon } from '@mui/icons-material';
+import { PhotoCamera, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
 import { membershipsApi } from '@/api/memberships';
 import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
 import { salesApi } from '@/api/sales';
 import { addDays, format } from 'date-fns';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 const memberSchema = z.object({
     first_name: z.string().min(1, 'First name is required'),
@@ -334,6 +340,8 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const { t } = useLanguage();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin';
 
     const [showForm, setShowForm] = React.useState(false);
     const [renewFromMembership, setRenewFromMembership] = React.useState<MembershipHistoryItem | null>(null);
@@ -345,7 +353,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const [startDate, setStartDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
     const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
     const [paymentAmount, setPaymentAmount] = React.useState<string>('');
-
+    const [deleteTarget, setDeleteTarget] = React.useState<MembershipHistoryItem | null>(null);
     const { data: memberships, isLoading: membershipsLoading } = useQuery({
         queryKey: ['memberships', 'member', memberId],
         queryFn: () => membershipsApi.getMemberships(0, 50, memberId),
@@ -421,6 +429,21 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
             queryClient.invalidateQueries({ queryKey: ['memberships'] });
             queryClient.invalidateQueries({ queryKey: ['members'] });
             setEditingMembership(null);
+        },
+        onError: (error: any) => {
+            alert('Error: ' + (error.response?.data?.detail || error.message));
+        }
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: async (membershipId: string) => {
+            await membershipsApi.deleteMembership(membershipId);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['memberships', 'member', memberId] });
+            queryClient.invalidateQueries({ queryKey: ['memberships'] });
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            setDeleteTarget(null);
         },
         onError: (error: any) => {
             alert('Error: ' + (error.response?.data?.detail || error.message));
@@ -655,6 +678,17 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                                 >
                                                     <EditIcon fontSize="small" />
                                                 </Button>
+                                                {isAdmin && (
+                                                    <Button
+                                                        variant="outlined"
+                                                        size="small"
+                                                        color="error"
+                                                        onClick={() => setDeleteTarget(m)}
+                                                        sx={{ minWidth: 36, minHeight: 44, px: 1 }}
+                                                    >
+                                                        <DeleteIcon fontSize="small" />
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     variant="outlined"
                                                     size="small"
@@ -812,6 +846,41 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                     </>
                 )}
             </CardContent>
+
+            {/* Delete Membership Confirmation Dialog — Admin only */}
+            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} fullWidth fullScreen={isMobile}>
+                <DialogTitle>{t.members.deleteMembership}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t.members.deleteMembershipConfirm}
+                    </DialogContentText>
+                    {deleteTarget && (
+                        <Box mt={2} p={2} bgcolor="grey.100" borderRadius={1}>
+                            <Typography variant="body2">
+                                <strong>{deleteTarget.plan_name || deleteTarget.type}</strong>
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                                {formatDate(deleteTarget.start_date)} → {formatDate(deleteTarget.end_date)}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="500">
+                                ${Number(deleteTarget.price).toLocaleString()}
+                            </Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setDeleteTarget(null)} fullWidth={isMobile}>{t.members.cancel}</Button>
+                    <Button
+                        onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+                        color="error"
+                        variant="contained"
+                        disabled={deleteMutation.isPending}
+                        fullWidth={isMobile}
+                    >
+                        {deleteMutation.isPending ? t.members.deleting : t.members.delete}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Card>
     );
 };

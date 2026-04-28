@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, date, timedelta, timezone
 
-from api.deps import get_db, require_staff
+from api.deps import get_db, require_staff, require_admin
 from models.user import User
 from models.member import Member
 from models.membership import Membership, MembershipStatus, MembershipPlan
@@ -186,10 +186,10 @@ def update_membership(
 def delete_membership(
     membership_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_admin)
 ):
     """
-    Delete a membership.
+    Delete a membership. Admin only.
     """
     membership = db.query(Membership).filter(Membership.id == membership_id).first()
     
