@@ -669,15 +669,17 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                         </Box>
                                         {editingMembership?.id !== m.id && (
                                             <Box display="flex" gap={1} flexShrink={0}>
-                                                <Button
-                                                    variant="outlined"
-                                                    size="small"
-                                                    color="primary"
-                                                    onClick={() => handleEdit(m)}
-                                                    sx={{ minWidth: 36, minHeight: 44, px: 1 }}
-                                                >
-                                                    <EditIcon fontSize="small" />
-                                                </Button>
+                                                {isAdmin && (
+                                                    <Button
+                                                        variant="outlined"
+                                                        size="small"
+                                                        color="primary"
+                                                        onClick={() => handleEdit(m)}
+                                                        sx={{ minWidth: 36, minHeight: 44, px: 1 }}
+                                                    >
+                                                        <EditIcon fontSize="small" />
+                                                    </Button>
+                                                )}
                                                 {isAdmin && (
                                                     <Button
                                                         variant="outlined"
