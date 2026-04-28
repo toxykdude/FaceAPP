@@ -39,6 +39,7 @@ import {
 } from '@mui/icons-material';
 import { membersApi, Member } from '@/api/members';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 export const MembersList: React.FC = () => {
     const navigate = useNavigate();
@@ -46,6 +47,8 @@ export const MembersList: React.FC = () => {
     const { t } = useLanguage();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const deleteMutation = useMutation({
@@ -213,9 +216,11 @@ export const MembersList: React.FC = () => {
                                                     >
                                                         <EnrollIcon />
                                                     </IconButton>
-                                                    <IconButton size="small" title={t.members.delete} color="error" onClick={() => setDeleteTarget(member.id)} sx={{ minWidth: 44, minHeight: 44 }}>
-                                                        <DeleteIcon />
-                                                    </IconButton>
+                                                    {isAdmin && (
+                                                        <IconButton size="small" title={t.members.delete} color="error" onClick={() => setDeleteTarget(member.id)} sx={{ minWidth: 44, minHeight: 44 }}>
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    )}
                                                 </Box>
                                             </TableCell>
                                         </TableRow>
