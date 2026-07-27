@@ -259,6 +259,10 @@ export const translations = {
       noSalesData: 'Sin datos de ventas aún',
       noTransactionsYet: 'Sin transacciones aún',
       transactions: 'transacciones',
+      customRange: 'Rango personalizado',
+      startDate: 'Inicio',
+      endDate: 'Fin',
+      invalidRange: 'El inicio no puede ser posterior al fin',
     },
     cameras: {
       title: 'Cámaras',
@@ -672,6 +676,10 @@ export const translations = {
       noSalesData: 'No sales data yet',
       noTransactionsYet: 'No transactions yet',
       transactions: 'transactions',
+      customRange: 'Custom range',
+      startDate: 'Start',
+      endDate: 'End',
+      invalidRange: 'Start date must not be after the end date',
     },
     cameras: {
       title: 'Cameras',

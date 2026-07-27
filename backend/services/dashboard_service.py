@@ -32,7 +32,40 @@ class DashboardService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_revenue_trend(self, days: int = 30) -> List[Dict[str, Any]]:
+    def get_revenue_trend(
+        self,
+        days: int = 30,
+        window: Optional[tuple] = None,
+        range_start: Optional[date] = None,
+        range_end: Optional[date] = None,
+    ) -> List[Dict[str, Any]]:
+        # Custom half-open window path: bucket by application-timezone date so
+        # the sum of the series always agrees with /sales/report/summary for the
+        # same window (both filter on the identical [start, end) UTC interval).
+        if window is not None:
+            start_utc, end_utc = window
+            sales = self.db.query(SalesTransaction).filter(
+                SalesTransaction.transaction_date >= start_utc,
+                SalesTransaction.transaction_date < end_utc,
+            ).all()
+
+            daily_revenue = defaultdict(float)
+            for s in sales:
+                col_date = (
+                    s.transaction_date.replace(tzinfo=timezone.utc).astimezone(COLOMBIA_TZ).date()
+                )
+                key = col_date.strftime("%Y-%m-%d")
+                daily_revenue[key] += float(s.amount)
+
+            revenue_trend = []
+            cur = range_start
+            while cur <= range_end:
+                key = cur.strftime("%Y-%m-%d")
+                revenue_trend.append({"date": key, "amount": daily_revenue.get(key, 0)})
+                cur += timedelta(days=1)
+            return revenue_trend
+
+        # Preset path: last `days` days (unchanged behaviour).
         now = datetime.now(timezone.utc)
         period_start = now - timedelta(days=days)
 
@@ -186,9 +219,17 @@ class DashboardService:
         revenue_change = ((rev_this_month - rev_last_month) / rev_last_month * 100) if rev_last_month > 0 else 0
         return round(revenue_change, 1)
 
-    def get_dashboard(self, days: int = 30) -> Dict[str, Any]:
+    def get_dashboard(
+        self,
+        days: int = 30,
+        window: Optional[tuple] = None,
+        range_start: Optional[date] = None,
+        range_end: Optional[date] = None,
+    ) -> Dict[str, Any]:
         return {
-            "revenue_trend": self.get_revenue_trend(days),
+            "revenue_trend": self.get_revenue_trend(
+                days=days, window=window, range_start=range_start, range_end=range_end
+            ),
             "member_growth": self.get_member_growth(),
             "membership_distribution": self.get_membership_distribution(),
             "peak_hours": self.get_peak_hours(),

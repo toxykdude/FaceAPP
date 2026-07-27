@@ -2,6 +2,7 @@
  * Sales/Transactions API methods.
  */
 import apiClient from './client';
+import type { ReportRangeParams } from './reportRange';
 
 export interface SalesTransaction {
     id: string;
@@ -71,9 +72,12 @@ export const salesApi = {
 
     /**
      * Get dashboard report with aggregated data for Reports page.
+     *
+     * Accepts either a preset (`{ days }`) or a custom interval
+     * (`{ start_date, end_date }`). See buildReportRange in ./reportRange.
      */
-    getDashboardReport: async (days = 30): Promise<any> => {
-        const response = await apiClient.get('/sales/dashboard', { params: { days } });
+    getDashboardReport: async (params: ReportRangeParams = { days: 30 }): Promise<any> => {
+        const response = await apiClient.get('/sales/dashboard', { params });
         return response.data;
     },
 
