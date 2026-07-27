@@ -352,7 +352,24 @@ export const Kiosk: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!latestRecognition || !latestRecognition.member_name) return;
+        if (!latestRecognition || !latestRecognition.member_name) {
+            // No active recognition (e.g. the USB camera was just stopped —
+            // stopUsbCamera() sets latestRecognition to null). Cancel any
+            // pending reveal/dismiss timers and make sure the UI doesn't stay
+            // frozen on whatever state was last shown.
+            if (verifyTimerRef.current) {
+                clearTimeout(verifyTimerRef.current);
+                verifyTimerRef.current = null;
+            }
+            if (resetTimerRef.current) {
+                clearTimeout(resetTimerRef.current);
+                resetTimerRef.current = null;
+            }
+            if (activeResultKeyRef.current !== null) {
+                resetRecognition();
+            }
+            return;
+        }
 
         const { access_granted, denial_reason, member_name, membership_end_date, member_id } = latestRecognition;
         const resultKey = `${member_id ?? 'unknown'}:${access_granted}`;
@@ -363,8 +380,19 @@ export const Kiosk: React.FC = () => {
         // (5fps capture) and the 500ms verifying timer below would never win
         // the race to actually fire.
         if (activeResultKeyRef.current === resultKey) {
-            if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-            resetTimerRef.current = setTimeout(resetRecognition, RESULT_RESET_DELAY_MS);
+            if (!verifyTimerRef.current) {
+                // The result has already been revealed (granted/denied) — keep
+                // refreshing the auto-dismiss timer as long as this same
+                // person/outcome keeps sending frames.
+                if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+                resetTimerRef.current = setTimeout(resetRecognition, RESULT_RESET_DELAY_MS);
+            }
+            // Still verifying (verifyTimerRef is still pending): let it keep
+            // counting down uninterrupted. This effect intentionally does NOT
+            // return a cleanup function that clears verifyTimerRef, because
+            // that cleanup would otherwise re-run (and cancel the pending
+            // reveal) on every duplicate frame — which is exactly what used
+            // to leave the kiosk stuck showing "verifying" forever.
             return;
         }
         activeResultKeyRef.current = resultKey;
@@ -379,6 +407,7 @@ export const Kiosk: React.FC = () => {
         setRecognitionState('verifying');
 
         verifyTimerRef.current = setTimeout(() => {
+            verifyTimerRef.current = null;
             setRecognizedName(member_name);
             setMembershipExpiry(membership_end_date || null);
 
@@ -389,16 +418,24 @@ export const Kiosk: React.FC = () => {
                 setRecognitionState(classifyDenial(denial_reason) === 'unknown' ? 'unknown_denied' : 'membership_denied');
             }
 
+            if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
             resetTimerRef.current = setTimeout(() => {
                 resetRecognition();
             }, RESULT_RESET_DELAY_MS);
         }, VERIFYING_DURATION_MS);
+    }, [latestRecognition, resetRecognition]);
 
+    // Unmount-only teardown for the recognition timers. The effect above
+    // manages verifyTimerRef/resetTimerRef explicitly across repeated
+    // same-person frames instead of clearing them on every re-render (see
+    // comment above) — this dedicated effect is the only place they get
+    // cancelled on unmount.
+    useEffect(() => {
         return () => {
             if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
             if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
         };
-    }, [latestRecognition, resetRecognition]);
+    }, []);
 
     // -----------------------------------------------------------------------
     // USB Camera Lifecycle
@@ -528,9 +565,15 @@ export const Kiosk: React.FC = () => {
             : classifyDenial(latestRecognition.denial_reason) === 'unknown'
                 ? COLORS.danger
                 : COLORS.warning;
+        // Unknown-classified denials (e.g. member_not_found, which can surface
+        // a stale cached name from the CV service until its template cache
+        // expires) must never disclose identity — mirror the same gating
+        // already applied to the border color above.
         const label = granted
             ? `ACCESS GRANTED - ${latestRecognition.member_name} (${Math.round(latestRecognition.confidence * 100)}%)`
-            : `ACCESS DENIED - ${latestRecognition.member_name || 'Unknown'} (${Math.round(latestRecognition.confidence * 100)}%)`;
+            : classifyDenial(latestRecognition.denial_reason) === 'unknown'
+                ? `ACCESS DENIED - Unknown (${Math.round(latestRecognition.confidence * 100)}%)`
+                : `ACCESS DENIED - ${latestRecognition.member_name || 'Unknown'} (${Math.round(latestRecognition.confidence * 100)}%)`;
 
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -750,6 +793,14 @@ export const Kiosk: React.FC = () => {
                                         <WifiOffIcon sx={{ fontSize: 44, color: COLORS.secondaryText, mb: 1, animation: `${breathe} 2s ease-in-out infinite` }} />
                                         <Typography sx={{ color: COLORS.text, fontWeight: 600, textAlign: 'center' }}>{t.kiosk.cameraReconnecting}</Typography>
                                         <Typography variant="body2" sx={{ color: COLORS.secondaryText, textAlign: 'center' }}>{t.kiosk.cameraReconnectingDetail}</Typography>
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            sx={{ mt: 2, color: COLORS.accent, borderColor: alpha(COLORS.accent, 0.5), '&:hover': { borderColor: COLORS.accent, bgcolor: alpha(COLORS.accent, 0.08) } }}
+                                            onClick={() => startUsbCamera(selectedCameraId)}
+                                        >
+                                            {t.kiosk.retry}
+                                        </Button>
                                     </Box>
                                 )}
                             </>
