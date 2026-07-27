@@ -7,7 +7,6 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-import httpx
 import io
 
 from api.deps import get_db, require_staff
@@ -24,20 +23,9 @@ from schemas.member import (
     MemberListResponse,
     BiometricStatusResponse
 )
+from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/members", tags=["Members"])
-
-
-async def notify_cv_invalidation(member_id: str):
-    """Notify CV service to invalidate a member's cached template."""
-    try:
-        headers = {}
-        if settings.CV_API_KEY:
-            headers["X-API-Key"] = settings.CV_API_KEY
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{settings.CV_SERVICE_URL}/invalidate/{member_id}", headers=headers)
-    except Exception:
-        pass  # CV service might be down, non-critical
 
 
 @router.get("", response_model=MemberListResponse)

@@ -49,10 +49,17 @@ def sync_templates(
 ):
     """
     Return all enrolled member templates for CV service to load into Redis.
-    
+
     Each template includes the decrypted FaceNet embedding and minimal
     member metadata required for recognition display and access validation.
-    
+
+    DISPLAY PREDICATE (not access): status='active' AND end_date>=today —
+    deliberately WITHOUT a start_date filter, so a member who paid ahead
+    sees their furthest expiration immediately, even before that period
+    starts. Ties (same end_date) break on MAX(created_at) then MAX(id) for
+    a deterministic single winner per member. Display never grants entry —
+    access is validated separately by `get_member_membership` below.
+
     DATA SENSITIVITY NOTE:
     - `embedding`: 512-dim facial vector (irreversible biometric — GDPR Art. 9)
     - `name`: Required for kiosk recognition overlay display
@@ -60,7 +67,29 @@ def sync_templates(
     This endpoint is protected by X-Internal-Secret and should ONLY be
     accessible by the CV service via internal network (localhost).
     """
-    # Get all enrolled members with their templates and active memberships
+    # Rank each member's active, non-expired memberships by end_date desc,
+    # tie-broken by created_at desc then id desc — rn=1 is the deterministic
+    # "furthest paid expiration" winner for DISPLAY purposes.
+    display_rank = db.query(
+        Membership.id.label("membership_id"),
+        func.row_number().over(
+            partition_by=Membership.member_id,
+            order_by=(
+                Membership.end_date.desc(),
+                Membership.created_at.desc(),
+                Membership.id.desc(),
+            )
+        ).label("rn")
+    ).filter(
+        Membership.status == MembershipStatus.ACTIVE.value,
+        Membership.end_date >= func.current_date(),
+    ).subquery()
+
+    display_winning_ids = db.query(display_rank.c.membership_id).filter(
+        display_rank.c.rn == 1
+    )
+
+    # Get all enrolled members with their templates and DISPLAY membership
     templates = db.query(
         BiometricTemplate,
         Member,
@@ -70,9 +99,7 @@ def sync_templates(
     ).outerjoin(
         Membership,
         (Membership.member_id == Member.id) &
-        (Membership.status == MembershipStatus.ACTIVE.value) &
-        (Membership.start_date <= func.current_date()) &
-        (Membership.end_date >= func.current_date())
+        (Membership.id.in_(display_winning_ids))
     ).filter(
         Member.status == "active"
     ).distinct()

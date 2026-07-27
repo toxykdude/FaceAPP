@@ -16,6 +16,7 @@ from schemas.membership import (
     MembershipResponse,
     MembershipListResponse
 )
+from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/memberships", tags=["Memberships"])
 
@@ -206,7 +207,7 @@ def delete_membership(
 
 
 @router.post("/{membership_id}/renew", response_model=MembershipResponse)
-def renew_membership(
+async def renew_membership(
     membership_id: str,
     extend_days: int = Query(30, ge=1, description="Days to extend the membership"),
     db: Session = Depends(get_db),
@@ -214,27 +215,30 @@ def renew_membership(
 ):
     """
     Renew/extend a membership by adding days to the end_date.
-    
+
     If the membership is expired, the new period starts from today.
     If active, the days are added to the current end_date.
     """
     membership = db.query(Membership).filter(Membership.id == membership_id).first()
-    
+
     if not membership:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found"
         )
-    
+
     # If expired, start from today; otherwise extend from current end_date
     base_date = max(membership.end_date, date.today())
     membership.end_date = base_date + timedelta(days=extend_days)
     membership.status = MembershipStatus.ACTIVE.value
     membership.updated_at = datetime.now(timezone.utc)
-    
+
     db.commit()
     db.refresh(membership)
-    
+
+    # Post-commit only — never on a failed/rolled-back write
+    await notify_cv_invalidation(str(membership.member_id))
+
     return membership
 
 
