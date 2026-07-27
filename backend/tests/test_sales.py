@@ -1,4 +1,5 @@
 """Tests for sales API endpoints."""
+
 import pytest
 
 

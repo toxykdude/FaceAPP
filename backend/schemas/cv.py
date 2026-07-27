@@ -1,6 +1,7 @@
 """
 CV internal API response schemas.
 """
+
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 

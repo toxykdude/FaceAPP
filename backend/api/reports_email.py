@@ -2,6 +2,7 @@
 Scheduled email reports for admin users.
 Sends a summary every 2 hours with sales, new members, and recognized expired members.
 """
+
 import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
@@ -32,7 +33,7 @@ def generate_report_html(
     hours: int = 2,
 ) -> str:
     """Generate HTML email report."""
-    
+
     # Sales section
     sales_html = f"""
     <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
@@ -44,7 +45,7 @@ def generate_report_html(
             <li>Transfer: ${sales_by_method.get("transfer", 0):,.0f}</li>
         </ul>
     </div>"""
-    
+
     # New members section
     if new_members:
         members_rows = "".join(f"""
@@ -70,7 +71,7 @@ def generate_report_html(
             <h3 style="margin: 0 0 10px 0; color: #333;">👤 New Members</h3>
             <p style="color: #666;">No new members in this period.</p>
         </div>"""
-    
+
     # Recognized expired section
     if recognized_expired:
         expired_rows = "".join(f"""
@@ -122,65 +123,87 @@ def generate_report_html(
 def send_scheduled_report(db_session_factory):
     """Generate and send the 2-hour report to all admin users."""
     from core.database import SessionLocal
-    
+
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
         two_hours_ago = now - timedelta(hours=2)
-        
+
         # 1. Sales in last 2 hours
-        sales = db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= two_hours_ago
-        ).all()
-        
+        sales = (
+            db.query(SalesTransaction)
+            .filter(SalesTransaction.transaction_date >= two_hours_ago)
+            .all()
+        )
+
         sales_count = len(sales)
         sales_total = sum(float(s.amount) for s in sales) if sales else 0
         sales_by_method = {}
         for s in sales:
             method = s.payment_method
             sales_by_method[method] = sales_by_method.get(method, 0) + float(s.amount)
-        
+
         # 2. New members in last 2 hours
-        new_members_q = db.query(Member).filter(
-            Member.created_at >= two_hours_ago
-        ).all()
-        new_members = [{
-            "name": f"{m.first_name} {m.last_name}",
-            "id_number": m.id_number,
-            "created_at": m.created_at.strftime("%I:%M %p") if m.created_at else "",
-        } for m in new_members_q]
-        
+        new_members_q = (
+            db.query(Member).filter(Member.created_at >= two_hours_ago).all()
+        )
+        new_members = [
+            {
+                "name": f"{m.first_name} {m.last_name}",
+                "id_number": m.id_number,
+                "created_at": m.created_at.strftime("%I:%M %p") if m.created_at else "",
+            }
+            for m in new_members_q
+        ]
+
         # 3. Recognized members with expired membership (last 2 hours)
         recognized_expired = []
-        events_with_member = db.query(AccessEvent).filter(
-            AccessEvent.member_id.isnot(None),
-            AccessEvent.timestamp >= two_hours_ago
-        ).all()
-        
+        events_with_member = (
+            db.query(AccessEvent)
+            .filter(
+                AccessEvent.member_id.isnot(None),
+                AccessEvent.timestamp >= two_hours_ago,
+            )
+            .all()
+        )
+
         seen_member_ids = set()
         for evt in events_with_member:
             if str(evt.member_id) in seen_member_ids:
                 continue
             seen_member_ids.add(str(evt.member_id))
-            
+
             member = db.query(Member).filter(Member.id == evt.member_id).first()
             if not member:
                 continue
-            
+
             # Check for any expired membership
-            expired_ms = db.query(Membership).filter(
-                Membership.member_id == evt.member_id,
-                Membership.status == "expired"
-            ).order_by(Membership.end_date.desc()).first()
-            
+            expired_ms = (
+                db.query(Membership)
+                .filter(
+                    Membership.member_id == evt.member_id,
+                    Membership.status == "expired",
+                )
+                .order_by(Membership.end_date.desc())
+                .first()
+            )
+
             if expired_ms:
-                recognized_expired.append({
-                    "name": f"{member.first_name} {member.last_name}",
-                    "id_number": member.id_number,
-                    "expired_date": expired_ms.end_date.strftime("%b %d, %Y") if expired_ms.end_date else "N/A",
-                    "last_seen": evt.timestamp.strftime("%I:%M %p") if evt.timestamp else "",
-                })
-        
+                recognized_expired.append(
+                    {
+                        "name": f"{member.first_name} {member.last_name}",
+                        "id_number": member.id_number,
+                        "expired_date": (
+                            expired_ms.end_date.strftime("%b %d, %Y")
+                            if expired_ms.end_date
+                            else "N/A"
+                        ),
+                        "last_seen": (
+                            evt.timestamp.strftime("%I:%M %p") if evt.timestamp else ""
+                        ),
+                    }
+                )
+
         # 4. Recognized active members (for info)
         recognized_active = []
         active_member_ids = set()
@@ -192,23 +215,28 @@ def send_scheduled_report(db_session_factory):
                     continue
             if mid in active_member_ids:
                 continue
-            
+
             member = db.query(Member).filter(Member.id == evt.member_id).first()
             if not member:
                 continue
-            
-            active_ms = db.query(Membership).filter(
-                Membership.member_id == evt.member_id,
-                Membership.status == "active"
-            ).first()
-            
+
+            active_ms = (
+                db.query(Membership)
+                .filter(
+                    Membership.member_id == evt.member_id, Membership.status == "active"
+                )
+                .first()
+            )
+
             if active_ms:
                 active_member_ids.add(mid)
-                recognized_active.append({
-                    "member_id": mid,
-                    "name": f"{member.first_name} {member.last_name}",
-                })
-        
+                recognized_active.append(
+                    {
+                        "member_id": mid,
+                        "name": f"{member.first_name} {member.last_name}",
+                    }
+                )
+
         # Generate email
         html = generate_report_html(
             sales_count=sales_count,
@@ -218,21 +246,33 @@ def send_scheduled_report(db_session_factory):
             recognized_expired=recognized_expired,
             recognized_active=recognized_active,
         )
-        
+
         # Send to all admin users
         admin_users = db.query(User).filter(User.role == "admin").all()
+        time_label = now.strftime("%I:%M %p")
         for admin in admin_users:
             if admin.email:
+                subject = (
+                    f"PowerHouse Gym Report - {time_label} - "
+                    f"{sales_count} sales, {len(new_members)} new members"
+                )
+                body = (
+                    f"PowerHouse Gym Report: {sales_count} sales "
+                    f"(${sales_total:,.0f}), {len(new_members)} new members, "
+                    f"{len(recognized_expired)} expired members recognized."
+                )
                 email_service._send_email(
                     to=admin.email,
-                    subject=f"PowerHouse Gym Report - {now.strftime("%I:%M %p")} - {sales_count} sales, {len(new_members)} new members",
-                    body=f"PowerHouse Gym Report: {sales_count} sales (${sales_total:,.0f}), {len(new_members)} new members, {len(recognized_expired)} expired members recognized.",
+                    subject=subject,
+                    body=body,
                     html=html,
                 )
                 logger.info(f"Report sent to {admin.email}")
-        
-        logger.info(f"Scheduled report complete: {sales_count} sales, {len(new_members)} new members, {len(recognized_expired)} expired recognized")
-        
+
+        logger.info(
+            f"Scheduled report complete: {sales_count} sales, {len(new_members)} new members, {len(recognized_expired)} expired recognized"
+        )
+
     except Exception as e:
         logger.error(f"Failed to send scheduled report: {e}", exc_info=True)
     finally:
@@ -241,6 +281,7 @@ def send_scheduled_report(db_session_factory):
 
 # --- Manual trigger endpoint ---
 
+
 @router.post("/send-now", response_model=MessageResponse)
 def send_report_now(
     db: Session = Depends(get_db),
@@ -248,5 +289,6 @@ def send_report_now(
 ):
     """Manually trigger the email report."""
     from core.database import SessionLocal
+
     send_scheduled_report(SessionLocal)
     return {"message": "Report sent successfully"}

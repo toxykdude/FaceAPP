@@ -1,6 +1,7 @@
 """
 Pydantic schemas for Membership model.
 """
+
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import date, datetime
@@ -11,13 +12,17 @@ from models.membership import MembershipType, MembershipStatus
 
 class AccessRules(BaseModel):
     """Access rules schema."""
+
     allowed_days: Optional[List[str]] = None  # ["monday", "tuesday", ...]
-    time_windows: Optional[List[dict]] = None  # [{"start_time": "06:00:00", "end_time": "22:00:00"}]
+    time_windows: Optional[List[dict]] = (
+        None  # [{"start_time": "06:00:00", "end_time": "22:00:00"}]
+    )
     location_ids: Optional[List[str]] = None  # ["location-uuid-1", ...]
 
 
 class MembershipBase(BaseModel):
     """Base membership schema."""
+
     type: str = Field(..., description="Membership type")
     start_date: date
     end_date: date
@@ -27,12 +32,14 @@ class MembershipBase(BaseModel):
 
 class MembershipCreate(MembershipBase):
     """Schema for creating a membership."""
+
     member_id: str
     plan_id: Optional[str] = None
 
 
 class MembershipUpdate(BaseModel):
     """Schema for updating a membership."""
+
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     price: Optional[Decimal] = None
@@ -44,6 +51,7 @@ class MembershipUpdate(BaseModel):
 
 class MembershipResponse(MembershipBase):
     """Schema for membership response."""
+
     id: UUID
     member_id: UUID
     plan_id: Optional[UUID] = None
@@ -54,18 +62,18 @@ class MembershipResponse(MembershipBase):
     member_name: Optional[str] = None
     member_id_number: Optional[str] = None
     plan_name: Optional[str] = None
-    
-    @field_serializer('id')
+
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
 
-    @field_serializer('member_id')
+    @field_serializer("member_id")
     def serialize_member_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
 
-    @field_serializer('plan_id')
+    @field_serializer("plan_id")
     def serialize_plan_id(self, value: Any) -> Optional[str]:
         """Convert UUID to string."""
         return str(value) if value else None
@@ -76,5 +84,6 @@ class MembershipResponse(MembershipBase):
 
 class MembershipListResponse(BaseModel):
     """Schema for paginated membership list."""
+
     total: int
     memberships: List[MembershipResponse]

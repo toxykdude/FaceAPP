@@ -1,6 +1,7 @@
 """
 Audit log API endpoints.
 """
+
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -21,21 +22,21 @@ def list_audit_logs(
     resource_type: Optional[str] = None,
     user_id: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     List audit logs with filtering. Admin only.
     """
     query = db.query(AuditLog)
-    
+
     if action:
         query = query.filter(AuditLog.action == action)
     if resource_type:
         query = query.filter(AuditLog.resource_type == resource_type)
     if user_id:
         query = query.filter(AuditLog.user_id == user_id)
-    
+
     total = query.count()
     logs = query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
-    
+
     return {"total": total, "logs": logs}

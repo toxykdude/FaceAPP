@@ -1,6 +1,7 @@
 """
 FastAPI main application.
 """
+
 import logging
 import uuid
 import traceback
@@ -16,7 +17,28 @@ import os
 
 from core.config import settings
 from core.rate_limiter import limiter
-from api import auth, members, health, memberships, sales, events, cameras, enrollment, membership_plans, settings as api_settings, users, cv_internal, audit, import_export, password_reset, reports_email, portal_auth, portal, enrollment_requests, sync
+from api import (
+    auth,
+    members,
+    health,
+    memberships,
+    sales,
+    events,
+    cameras,
+    enrollment,
+    membership_plans,
+    settings as api_settings,
+    users,
+    cv_internal,
+    audit,
+    import_export,
+    password_reset,
+    reports_email,
+    portal_auth,
+    portal,
+    enrollment_requests,
+    sync,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +52,7 @@ async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     from api.reports_email import send_scheduled_report
     from core.database import SessionLocal
-    
+
     try:
         scheduler = BackgroundScheduler()
         scheduler.add_job(
@@ -42,10 +64,12 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
         scheduler.start()
-        print(f"✅ Email report scheduler started (every 2 hours). SMTP enabled: {bool(settings.SMTP_HOST)}")
+        print(
+            f"✅ Email report scheduler started (every 2 hours). SMTP enabled: {bool(settings.SMTP_HOST)}"
+        )
     except Exception as e:
         print(f"❌ Failed to start scheduler: {e}")
-    
+
     yield
 
 
@@ -62,25 +86,31 @@ app = FastAPI(
 # Rate limiting (global fallback — Nginx handles per-endpoint limits)
 app.state.limiter = limiter
 from slowapi import _rate_limit_exceeded_handler
+
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # === Security Middleware ===
 
+
 class CRLFSanitizationMiddleware(BaseHTTPMiddleware):
     """Strip CR/LF characters from all request inputs (VULN-013)."""
+
     async def dispatch(self, request: Request, call_next):
         # Sanitize query parameters
         if request.query_params:
             sanitized = {}
             has_crlf = False
             for key, value in request.query_params.items():
-                clean = value.replace('\r', '').replace('\n', '')
+                clean = value.replace("\r", "").replace("\n", "")
                 if clean != value:
                     has_crlf = True
                 sanitized[key] = clean
             if has_crlf:
                 from urllib.parse import urlencode
-                request.scope.update(query_string=urlencode(sanitized).encode('latin-1'))
+
+                request.scope.update(
+                    query_string=urlencode(sanitized).encode("latin-1")
+                )
         response = await call_next(request)
         return response
 
@@ -101,6 +131,7 @@ app.add_middleware(CloudflareCacheBustMiddleware)
 
 # === Production Error Hardening (VULN-022, VULN-6) ===
 
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     """
@@ -111,15 +142,24 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     # Extract only field-level info, no framework URLs
     errors = []
     for err in exc.errors():
-        errors.append({
-            "field": ".".join(str(l) for l in err.get("loc", [])),
-            "message": err.get("msg", "Invalid value"),
-        })
-    logger.warning(f"[{request_id}] Validation error on {request.method} {request.url.path}: {errors}")
+        errors.append(
+            {
+                "field": ".".join(str(l) for l in err.get("loc", [])),
+                "message": err.get("msg", "Invalid value"),
+            }
+        )
+    logger.warning(
+        f"[{request_id}] Validation error on {request.method} {request.url.path}: {errors}"
+    )
     return JSONResponse(
         status_code=422,
-        content={"detail": "Validation error", "errors": errors, "request_id": request_id},
+        content={
+            "detail": "Validation error",
+            "errors": errors,
+            "request_id": request_id,
+        },
     )
+
 
 @app.exception_handler(Exception)
 async def production_error_handler(request: Request, exc: Exception):
@@ -129,13 +169,13 @@ async def production_error_handler(request: Request, exc: Exception):
     Full error details are logged server-side with a request ID.
     """
     request_id = str(uuid.uuid4())[:8]
-    
+
     # Always log the full error server-side
     logger.error(
         f"[{request_id}] {request.method} {request.url.path}: "
         f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
     )
-    
+
     if _is_production:
         # Generic response — no stack traces, no internal details
         return JSONResponse(
@@ -153,15 +193,20 @@ async def production_error_handler(request: Request, exc: Exception):
             },
         )
 
+
 # Configure CORS — strict origin allowlist (VULN-011)
-cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+cors_origins = [
+    origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()
+]
 
 # In production, remove localhost origins and validate
 if _is_production:
     _blocked = {"http://localhost", "http://localhost:3000", "http://localhost:8080"}
     cors_origins = [o for o in cors_origins if o not in _blocked]
     if not cors_origins:
-        logger.warning("CORS: No valid production origins configured — API will reject cross-origin requests")
+        logger.warning(
+            "CORS: No valid production origins configured — API will reject cross-origin requests"
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -206,17 +251,24 @@ if os.path.isdir(FRONTEND_DIST):
     # Serve other static files (favicon, logos, etc.)
     app.mount("/static", StaticFiles(directory=FRONTEND_DIST), name="static-files")
 
+
 @app.get("/")
 def serve_frontend_root():
     """Serve frontend index.html at root."""
     from fastapi.responses import FileResponse as FR
+
     index_path = os.path.join(FRONTEND_DIST, "index.html")
     if os.path.exists(index_path):
         response = FR(index_path)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["CDN-Cache-Control"] = "no-store"
         return response
-    return {"name": settings.APP_NAME, "version": settings.APP_VERSION, "status": "running"}
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "status": "running",
+    }
+
 
 @app.get("/api-status")
 def api_status():
@@ -224,15 +276,16 @@ def api_status():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "status": "running"
+        "status": "running",
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
-        reload=settings.DEBUG
+        reload=settings.DEBUG,
     )

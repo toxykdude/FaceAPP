@@ -2,6 +2,7 @@
 Dashboard service — SQL aggregation methods.
 Extracts dashboard logic from route handlers for testability and reuse.
 """
+
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, date, timedelta, timezone
@@ -17,6 +18,8 @@ def _colombia_today_start_utc() -> datetime:
     midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
     utc_dt = midnight_col.astimezone(timezone.utc)
     return utc_dt.replace(tzinfo=None)  # Strip for naive DB columns
+
+
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
@@ -44,15 +47,21 @@ class DashboardService:
         # same window (both filter on the identical [start, end) UTC interval).
         if window is not None:
             start_utc, end_utc = window
-            sales = self.db.query(SalesTransaction).filter(
-                SalesTransaction.transaction_date >= start_utc,
-                SalesTransaction.transaction_date < end_utc,
-            ).all()
+            sales = (
+                self.db.query(SalesTransaction)
+                .filter(
+                    SalesTransaction.transaction_date >= start_utc,
+                    SalesTransaction.transaction_date < end_utc,
+                )
+                .all()
+            )
 
             daily_revenue = defaultdict(float)
             for s in sales:
                 col_date = (
-                    s.transaction_date.replace(tzinfo=timezone.utc).astimezone(COLOMBIA_TZ).date()
+                    s.transaction_date.replace(tzinfo=timezone.utc)
+                    .astimezone(COLOMBIA_TZ)
+                    .date()
                 )
                 key = col_date.strftime("%Y-%m-%d")
                 daily_revenue[key] += float(s.amount)
@@ -69,9 +78,11 @@ class DashboardService:
         now = datetime.now(timezone.utc)
         period_start = now - timedelta(days=days)
 
-        sales = self.db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= period_start
-        ).all()
+        sales = (
+            self.db.query(SalesTransaction)
+            .filter(SalesTransaction.transaction_date >= period_start)
+            .all()
+        )
 
         daily_revenue = defaultdict(float)
         for s in sales:
@@ -93,7 +104,9 @@ class DashboardService:
             while m <= 0:
                 m += 12
                 y -= 1
-            m_start = now.replace(year=y, month=m, day=1, hour=0, minute=0, second=0, microsecond=0)
+            m_start = now.replace(
+                year=y, month=m, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
             if i == 0:
                 m_end = now
             else:
@@ -104,25 +117,33 @@ class DashboardService:
                     ny += 1
                 m_end = m_start.replace(month=nm, year=ny)
 
-            count = self.db.query(Member).filter(
-                Member.created_at >= m_start,
-                Member.created_at < m_end
-            ).count()
+            count = (
+                self.db.query(Member)
+                .filter(Member.created_at >= m_start, Member.created_at < m_end)
+                .count()
+            )
             member_growth.append({"month": m_start.strftime("%b %Y"), "count": count})
         return member_growth
 
     def get_membership_distribution(self) -> List[Dict[str, Any]]:
-        memberships = self.db.query(
-            Membership.type, func.count(Membership.id)
-        ).filter(
-            Membership.status == "active"
-        ).group_by(Membership.type).all()
-        return [{"plan": name or "Unknown", "count": count} for name, count in memberships]
+        memberships = (
+            self.db.query(Membership.type, func.count(Membership.id))
+            .filter(Membership.status == "active")
+            .group_by(Membership.type)
+            .all()
+        )
+        return [
+            {"plan": name or "Unknown", "count": count} for name, count in memberships
+        ]
 
     def get_peak_hours(self) -> List[Dict[str, Any]]:
-        all_events = self.db.query(AccessEvent).filter(
-            AccessEvent.access_granted == True,
-        ).all()
+        all_events = (
+            self.db.query(AccessEvent)
+            .filter(
+                AccessEvent.access_granted == True,
+            )
+            .all()
+        )
 
         hourly = defaultdict(int)
         for e in all_events:
@@ -139,10 +160,14 @@ class DashboardService:
         now = datetime.now(timezone.utc)
         period_start = now - timedelta(days=days)
 
-        events = self.db.query(AccessEvent).filter(
-            AccessEvent.access_granted == True,
-            AccessEvent.timestamp >= period_start
-        ).all()
+        events = (
+            self.db.query(AccessEvent)
+            .filter(
+                AccessEvent.access_granted == True,
+                AccessEvent.timestamp >= period_start,
+            )
+            .all()
+        )
 
         daily_checkins = defaultdict(int)
         for e in events:
@@ -157,17 +182,32 @@ class DashboardService:
 
     def get_new_signups(self) -> Dict[str, Any]:
         col_now = datetime.now(COLOMBIA_TZ)
-        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
-        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = (
+            col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
         last_month_start = last_month_col.astimezone(timezone.utc).replace(tzinfo=None)
 
-        new_this_month = self.db.query(Member).filter(Member.created_at >= month_start).count()
-        new_last_month = self.db.query(Member).filter(
-            Member.created_at >= last_month_start,
-            Member.created_at < month_start
-        ).count()
+        new_this_month = (
+            self.db.query(Member).filter(Member.created_at >= month_start).count()
+        )
+        new_last_month = (
+            self.db.query(Member)
+            .filter(
+                Member.created_at >= last_month_start, Member.created_at < month_start
+            )
+            .count()
+        )
 
-        signup_change = ((new_this_month - new_last_month) / new_last_month * 100) if new_last_month > 0 else 0
+        signup_change = (
+            ((new_this_month - new_last_month) / new_last_month * 100)
+            if new_last_month > 0
+            else 0
+        )
 
         return {
             "this_month": new_this_month,
@@ -176,47 +216,82 @@ class DashboardService:
         }
 
     def get_active_vs_expired(self) -> Dict[str, int]:
-        active_count = self.db.query(Membership).filter(Membership.status == "active").count()
-        expired_count = self.db.query(Membership).filter(Membership.status == "expired").count()
+        active_count = (
+            self.db.query(Membership).filter(Membership.status == "active").count()
+        )
+        expired_count = (
+            self.db.query(Membership).filter(Membership.status == "expired").count()
+        )
         return {"active": active_count, "expired": expired_count}
 
     def get_checkins_today(self) -> int:
         today_start = _colombia_today_start_utc()
-        return self.db.query(AccessEvent).filter(
-            AccessEvent.access_granted == True,
-            AccessEvent.timestamp >= today_start
-        ).count()
+        return (
+            self.db.query(AccessEvent)
+            .filter(
+                AccessEvent.access_granted == True, AccessEvent.timestamp >= today_start
+            )
+            .count()
+        )
 
     def get_checkins_week(self) -> int:
         today_start = _colombia_today_start_utc()
         # Colombia's Monday of this week
         col_now = datetime.now(COLOMBIA_TZ)
         days_since_monday = col_now.weekday()
-        monday_col = col_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_since_monday)
-        week_start_utc = monday_col.astimezone(timezone.utc).replace(tzinfo=None)  # Strip for naive DB columns
-        return self.db.query(AccessEvent).filter(
-            AccessEvent.access_granted == True,
-            AccessEvent.timestamp >= week_start_utc
-        ).count()
+        monday_col = col_now.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) - timedelta(days=days_since_monday)
+        week_start_utc = monday_col.astimezone(timezone.utc).replace(
+            tzinfo=None
+        )  # Strip for naive DB columns
+        return (
+            self.db.query(AccessEvent)
+            .filter(
+                AccessEvent.access_granted == True,
+                AccessEvent.timestamp >= week_start_utc,
+            )
+            .count()
+        )
 
     def get_revenue_change_pct(self, days: int = 30) -> float:
         col_now = datetime.now(COLOMBIA_TZ)
         col_now_utc = col_now.astimezone(timezone.utc).replace(tzinfo=None)
-        month_start = col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
-        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = (
+            col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+        last_month_col = (col_now.replace(day=1) - timedelta(days=1)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
         last_month_start = last_month_col.astimezone(timezone.utc).replace(tzinfo=None)
 
-        sales = self.db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= col_now_utc - timedelta(days=days)
-        ).all()
+        sales = (
+            self.db.query(SalesTransaction)
+            .filter(
+                SalesTransaction.transaction_date >= col_now_utc - timedelta(days=days)
+            )
+            .all()
+        )
 
-        rev_this_month = sum(float(s.amount) for s in sales if s.transaction_date >= month_start)
-        rev_last_month_sales = self.db.query(SalesTransaction).filter(
-            SalesTransaction.transaction_date >= last_month_start,
-            SalesTransaction.transaction_date < month_start
-        ).all()
+        rev_this_month = sum(
+            float(s.amount) for s in sales if s.transaction_date >= month_start
+        )
+        rev_last_month_sales = (
+            self.db.query(SalesTransaction)
+            .filter(
+                SalesTransaction.transaction_date >= last_month_start,
+                SalesTransaction.transaction_date < month_start,
+            )
+            .all()
+        )
         rev_last_month = sum(float(s.amount) for s in rev_last_month_sales)
-        revenue_change = ((rev_this_month - rev_last_month) / rev_last_month * 100) if rev_last_month > 0 else 0
+        revenue_change = (
+            ((rev_this_month - rev_last_month) / rev_last_month * 100)
+            if rev_last_month > 0
+            else 0
+        )
         return round(revenue_change, 1)
 
     def get_dashboard(

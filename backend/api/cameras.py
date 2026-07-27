@@ -1,6 +1,7 @@
 """
 Cameras API endpoints.
 """
+
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -17,7 +18,7 @@ from schemas.camera import (
     CameraCreate,
     CameraUpdate,
     CameraResponse,
-    CameraListResponse
+    CameraListResponse,
 )
 
 router = APIRouter(prefix="/cameras", tags=["Cameras"])
@@ -29,55 +30,51 @@ def list_cameras(
     limit: int = Query(100, ge=1, le=1000),
     enabled: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     List all cameras with pagination and filtering.
-    
+
     - **skip**: Number of records to skip
     - **limit**: Maximum number of records to return
     - **enabled**: Filter by enabled status
     """
     query = db.query(Camera)
-    
+
     # Filter by enabled status
     if enabled is not None:
         query = query.filter(Camera.enabled == enabled)
-    
+
     # Get total count
     total = query.count()
-    
+
     # Get paginated results
     cameras = query.order_by(Camera.created_at.desc()).offset(skip).limit(limit).all()
-    
-    return {
-        "total": total,
-        "cameras": cameras
-    }
+
+    return {"total": total, "cameras": cameras}
 
 
 @router.post("", response_model=CameraResponse, status_code=status.HTTP_201_CREATED)
 def create_camera(
     camera: CameraCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     Create a new camera.
-    
+
     Requires admin role. RTSP URL will be encrypted before storage.
     """
     # Check if camera name already exists
     existing = db.query(Camera).filter(Camera.name == camera.name).first()
     if existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Camera name already exists"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Camera name already exists"
         )
-    
+
     # Encrypt RTSP URL
     encrypted_url = encrypt_string(camera.rtsp_url)
-    
+
     # Create camera
     db_camera = Camera(
         name=camera.name,
@@ -88,27 +85,25 @@ def create_camera(
         resolution_width=camera.resolution_width,
         resolution_height=camera.resolution_height,
         enabled=camera.enabled,
-        confidence_threshold=camera.confidence_threshold
+        confidence_threshold=camera.confidence_threshold,
     )
-    
+
     db.add(db_camera)
     db.commit()
     db.refresh(db_camera)
-    
+
     return db_camera
 
 
 @router.get("/devices/detect")
-def get_available_devices(
-    current_user: User = Depends(require_staff)
-):
+def get_available_devices(current_user: User = Depends(require_staff)):
     """
     Detect available USB video devices on the server.
     Checks both /dev/video* nodes and /sys/class/video4linux/ entries.
     """
     devices = []
     seen_paths = set()
-    
+
     if platform.system() == "Linux":
         # Method 1: Check /dev/video* (normal systems)
         video_devices = sorted(glob.glob("/dev/video*"))
@@ -126,7 +121,7 @@ def get_available_devices(
                         pass
                 devices.append({"path": dev, "name": name})
                 seen_paths.add(dev)
-        
+
         # Method 2: Check /sys/class/video4linux/ (LXC containers without /dev nodes)
         sys_v4l_dir = "/sys/class/video4linux"
         if os.path.isdir(sys_v4l_dir):
@@ -135,11 +130,11 @@ def get_available_devices(
                     dev_path = f"/dev/{entry}"
                     if dev_path in seen_paths:
                         continue
-                    
+
                     name = f"USB Camera (/{entry})"
                     sys_name_path = f"{sys_v4l_dir}/{entry}/name"
                     dev_exists = os.path.exists(dev_path)
-                    
+
                     if os.path.exists(sys_name_path):
                         try:
                             with open(sys_name_path) as f:
@@ -148,14 +143,20 @@ def get_available_devices(
                                 name = f"{sys_name} (/{entry})"
                         except:
                             pass
-                    
+
                     status = "ready" if dev_exists else "needs_passthrough"
-                    devices.append({
-                        "path": dev_path if dev_exists else entry,
-                        "name": name,
-                        "status": status,
-                        "info": "Device detected but /dev node missing — USB passthrough needed in Proxmox" if not dev_exists else None,
-                    })
+                    devices.append(
+                        {
+                            "path": dev_path if dev_exists else entry,
+                            "name": name,
+                            "status": status,
+                            "info": (
+                                "Device detected but /dev node missing — USB passthrough needed in Proxmox"
+                                if not dev_exists
+                                else None
+                            ),
+                        }
+                    )
                     seen_paths.add(dev_path)
     else:
         # Fallback for Windows/Mac - return common indices
@@ -164,7 +165,7 @@ def get_available_devices(
             {"path": "1", "name": "Camera Index 1"},
             {"path": "2", "name": "Camera Index 2"},
         ]
-        
+
     return {"devices": devices}
 
 
@@ -172,19 +173,18 @@ def get_available_devices(
 def get_camera(
     camera_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     Get camera by ID.
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    
+
     if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    
+
     return camera
 
 
@@ -193,30 +193,29 @@ def update_camera(
     camera_id: str,
     camera_update: CameraUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     Update camera information.
-    
+
     Requires admin role.
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    
+
     if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    
+
     # Check name uniqueness if updating
     if camera_update.name and camera_update.name != camera.name:
         existing = db.query(Camera).filter(Camera.name == camera_update.name).first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Camera name already exists"
+                detail="Camera name already exists",
             )
-    
+
     # Update fields
     update_data = camera_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -225,12 +224,12 @@ def update_camera(
             setattr(camera, field, encrypt_string(value))
         else:
             setattr(camera, field, value)
-    
+
     camera.updated_at = datetime.now(timezone.utc)
-    
+
     db.commit()
     db.refresh(camera)
-    
+
     return camera
 
 
@@ -238,24 +237,23 @@ def update_camera(
 def delete_camera(
     camera_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     Delete a camera.
-    
+
     Requires admin role.
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    
+
     if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    
+
     db.delete(camera)
     db.commit()
-    
+
     return None
 
 
@@ -263,75 +261,78 @@ def delete_camera(
 def get_camera_rtsp_url(
     camera_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     Get decrypted RTSP URL for a camera.
-    
+
     Requires admin role. Used by CV service to connect to cameras.
     """
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    
+
     if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    
+
     # Decrypt RTSP URL
     try:
         rtsp_url = decrypt_string(camera.rtsp_url)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to decrypt RTSP URL"
+            detail="Failed to decrypt RTSP URL",
         )
-    
-    return {"rtsp_url": rtsp_url}
 
+    return {"rtsp_url": rtsp_url}
 
 
 @router.post("/{camera_id}/test")
 def test_camera_connection(
     camera_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
 ):
     """
     Test camera connection.
     Try to open the RTSP stream and read a frame.
     """
     import cv2
-    
+
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
     if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    
+
     try:
         url = decrypt_string(camera.rtsp_url)
-        
+
         # Determine source (USB index or URL string)
         source = url
         if url.isdigit():
             source = int(url)
-            
+
         # Open video capture
         cap = cv2.VideoCapture(source)
-        
+
         if not cap.isOpened():
             return {"status": "failed", "message": "Could not open video source"}
-            
+
         # Try to read a frame
         ret, _ = cap.read()
         cap.release()
-        
+
         if ret:
-            return {"status": "success", "message": "Successfully connected and read a frame"}
+            return {
+                "status": "success",
+                "message": "Successfully connected and read a frame",
+            }
         else:
-            return {"status": "failed", "message": "Connected but failed to grab a frame"}
-            
+            return {
+                "status": "failed",
+                "message": "Connected but failed to grab a frame",
+            }
+
     except Exception as e:
         return {"status": "error", "message": f"Connection error: {str(e)}"}

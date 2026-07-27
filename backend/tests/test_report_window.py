@@ -6,6 +6,7 @@ the application timezone (Colombia, UTC-5). Single-day == that whole day.
 'timestamp without time zone', so bounds are returned as naive UTC datetimes.
 These tests are DB-free: pure logic only.
 """
+
 from datetime import date, datetime, timedelta, timezone
 
 import pytest

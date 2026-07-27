@@ -1,6 +1,7 @@
 """
 Database configuration and session management.
 """
+
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from core.config import settings
@@ -9,10 +10,10 @@ from core.config import settings
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,  # Verify connections before using
-    pool_size=10,        # Connection pool size
-    max_overflow=20,     # Max connections beyond pool_size
+    pool_size=10,  # Connection pool size
+    max_overflow=20,  # Max connections beyond pool_size
     echo=settings.DEBUG,  # Log SQL queries in debug mode
-    connect_args={'options': '-c client_encoding=UTF8'}
+    connect_args={"options": "-c client_encoding=UTF8"},
 )
 
 # Create session factory
@@ -30,9 +31,11 @@ if settings.MEMBER_PORTAL_DATABASE_URL:
         pool_size=5,
         max_overflow=10,
         echo=settings.DEBUG,
-        connect_args={'options': '-c client_encoding=UTF8'}
+        connect_args={"options": "-c client_encoding=UTF8"},
     )
-    PortalSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_portal_engine)
+    PortalSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=_portal_engine
+    )
 
 
 class Base(DeclarativeBase):

@@ -1,6 +1,7 @@
 """
 Password reset endpoints (forgot password flow).
 """
+
 import secrets
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,49 +30,52 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-def forgot_password(
-    request: ForgotPasswordRequest,
-    db: Session = Depends(get_db)
-):
+def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
     """
     Request a password reset link via email.
-    
+
     Always returns success to prevent email enumeration.
     """
     # Find user by email
     user = db.query(User).filter(User.email == request.email).first()
-    
+
     if not user:
         # Don't reveal that email doesn't exist
-        return {"message": "If an account with that email exists, a reset link has been sent."}
-    
+        return {
+            "message": "If an account with that email exists, a reset link has been sent."
+        }
+
     # Invalidate any existing tokens for this user
-    existing = db.query(PasswordResetToken).filter(
-        PasswordResetToken.user_id == str(user.id),
-        PasswordResetToken.used == "false"
-    ).all()
+    existing = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.user_id == str(user.id),
+            PasswordResetToken.used == "false",
+        )
+        .all()
+    )
     for t in existing:
         t.used = "true"
-    
+
     # Generate secure token
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-    
+
     reset_token = PasswordResetToken(
         user_id=str(user.id),
         token=token,
         email=user.email,
         used="false",
         created_at=datetime.now(timezone.utc),
-        expires_at=expires_at
+        expires_at=expires_at,
     )
     db.add(reset_token)
     db.commit()
-    
+
     # Build reset URL
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost')
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost")
     reset_url = f"{frontend_url}/reset-password?token={token}"
-    
+
     # Send email
     html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -92,7 +96,7 @@ def forgot_password(
         </div>
     </div>
     """
-    
+
     body = f"""
 Hello {user.username},
 
@@ -105,75 +109,89 @@ This link expires in 1 hour.
 
 If you didn't request this, ignore this email.
 """
-    
+
     email_service._send_email(
         to=user.email,
         subject="PowerHouse Gym - Password Reset",
         body=body.strip(),
-        html=html
+        html=html,
     )
-    
+
     # Audit
-    log_action(db, action="forgot_password", resource_type="user",
-               resource_id=str(user.id), details={"email": user.email})
+    log_action(
+        db,
+        action="forgot_password",
+        resource_type="user",
+        resource_id=str(user.id),
+        details={"email": user.email},
+    )
     db.commit()
-    
-    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+    return {
+        "message": "If an account with that email exists, a reset link has been sent."
+    }
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-def reset_password(
-    request: ResetPasswordRequest,
-    db: Session = Depends(get_db)
-):
+def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
     """
     Reset password using token from email.
     """
     # Find token
-    reset_token = db.query(PasswordResetToken).filter(
-        PasswordResetToken.token == request.token,
-        PasswordResetToken.used == "false"
-    ).first()
-    
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token == request.token,
+            PasswordResetToken.used == "false",
+        )
+        .first()
+    )
+
     if not reset_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset token"
+            detail="Invalid or expired reset token",
         )
-    
+
     # Check expiry
     now = datetime.now(timezone.utc)
     # Handle both aware and naive datetimes
     expires = reset_token.expires_at
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=timezone.utc)
-    
+
     if now > expires:
         reset_token.used = "true"
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reset token has expired. Please request a new one."
+            detail="Reset token has expired. Please request a new one.",
         )
-    
+
     # Find user
     user = db.query(User).filter(User.id == reset_token.user_id).first()
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User not found"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="User not found"
         )
-    
+
     # Update password
     user.password_hash = get_password_hash(request.new_password)
-    
+
     # Mark token as used
     reset_token.used = "true"
-    
+
     # Audit
-    log_action(db, action="reset_password", resource_type="user",
-               resource_id=str(user.id), username=user.username)
-    
+    log_action(
+        db,
+        action="reset_password",
+        resource_type="user",
+        resource_id=str(user.id),
+        username=user.username,
+    )
+
     db.commit()
-    
-    return {"message": "Password has been reset successfully. You can now log in with your new password."}
+
+    return {
+        "message": "Password has been reset successfully. You can now log in with your new password."
+    }

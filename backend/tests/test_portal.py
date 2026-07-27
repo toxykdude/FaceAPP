@@ -6,6 +6,7 @@ member_portal RLS role is SELECT-only (001_rls_setup.sql:147-151); writes
 session, never `get_portal_session`. Every renewal path must notify the CV
 service post-commit only — never on a failed/rolled-back write.
 """
+
 import hashlib
 import hmac
 import inspect

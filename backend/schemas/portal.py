@@ -1,6 +1,7 @@
 """
 Pydantic schemas for Member Portal authentication and data.
 """
+
 from decimal import Decimal
 from typing import Optional, List, Any
 from datetime import date, datetime
@@ -10,9 +11,10 @@ from pydantic import BaseModel, Field, field_validator, field_serializer
 
 class MemberLoginRequest(BaseModel):
     """Schema for member login (phone-based)."""
+
     phone: str
 
-    @field_validator('phone')
+    @field_validator("phone")
     @classmethod
     def strip_phone(cls, v: str) -> str:
         return v.strip()
@@ -20,12 +22,14 @@ class MemberLoginRequest(BaseModel):
 
 class MemberVerifyRequest(BaseModel):
     """Schema for member PIN verification."""
+
     phone: str
-    pin: str = Field(..., pattern=r'^\d{6}$', description="6-digit PIN")
+    pin: str = Field(..., pattern=r"^\d{6}$", description="6-digit PIN")
 
 
 class MemberPortalResponse(BaseModel):
     """Schema for member data in portal responses."""
+
     id: UUID
     first_name: str
     last_name: str
@@ -34,7 +38,7 @@ class MemberPortalResponse(BaseModel):
     status: str
     facial_data_enrolled: bool
 
-    @field_serializer('id')
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
@@ -45,6 +49,7 @@ class MemberPortalResponse(BaseModel):
 
 class MemberPortalToken(BaseModel):
     """Schema for member portal authentication response."""
+
     access_token: str
     token_type: str = "bearer"
     member: MemberPortalResponse
@@ -52,6 +57,7 @@ class MemberPortalToken(BaseModel):
 
 class ActiveMembershipResponse(BaseModel):
     """Schema for active membership data in portal."""
+
     id: UUID
     type: str
     plan_name: Optional[str] = None
@@ -61,12 +67,12 @@ class ActiveMembershipResponse(BaseModel):
     status: str
     days_remaining: int
 
-    @field_serializer('id')
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
 
-    @field_serializer('price')
+    @field_serializer("price")
     def serialize_price(self, value: Any) -> float:
         """Convert Decimal to float for JSON."""
         return float(value)
@@ -77,18 +83,19 @@ class ActiveMembershipResponse(BaseModel):
 
 class PaymentHistoryItem(BaseModel):
     """Schema for payment history item in portal."""
+
     id: UUID
     invoice_number: Optional[str] = None
     amount: Any
     payment_method: Optional[str] = None
     transaction_date: datetime
 
-    @field_serializer('id')
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
 
-    @field_serializer('amount')
+    @field_serializer("amount")
     def serialize_amount(self, value: Any) -> float:
         """Convert Decimal to float for JSON."""
         return float(value)
@@ -99,6 +106,7 @@ class PaymentHistoryItem(BaseModel):
 
 class PortalMeResponse(BaseModel):
     """Schema for /portal/me endpoint response."""
+
     member: MemberPortalResponse
     active_membership: Optional[ActiveMembershipResponse] = None
     recent_payments: List[PaymentHistoryItem] = []
@@ -106,6 +114,7 @@ class PortalMeResponse(BaseModel):
 
 class PortalPlanResponse(BaseModel):
     """Schema for membership plan in portal (public)."""
+
     id: UUID
     name: str
     duration_days: int
@@ -113,12 +122,12 @@ class PortalPlanResponse(BaseModel):
     price: Any
     description: Optional[str] = None
 
-    @field_serializer('id')
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
 
-    @field_serializer('price')
+    @field_serializer("price")
     def serialize_price(self, value: Any) -> float:
         """Convert Decimal to float for JSON."""
         return float(value)
@@ -129,6 +138,7 @@ class PortalPlanResponse(BaseModel):
 
 class PortalRenewRequest(BaseModel):
     """Schema for membership renewal request from portal."""
+
     plan_id: str
     wompi_reference: str
     amount: Decimal
@@ -136,12 +146,14 @@ class PortalRenewRequest(BaseModel):
 
 class PortalRenewResponse(BaseModel):
     """Schema for membership renewal response."""
+
     membership: ActiveMembershipResponse
     transaction: PaymentHistoryItem
 
 
 class PortalWebhookRenewRequest(BaseModel):
     """Schema for webhook-triggered renewal (no JWT, server-to-server)."""
+
     plan_id: str
     member_id: str
     wompi_reference: str

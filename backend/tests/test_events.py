@@ -1,4 +1,5 @@
 """Tests for events API endpoints."""
+
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
@@ -12,12 +13,15 @@ def test_list_events_unauthenticated(client):
 
 def test_create_event_unauthenticated(client):
     """Unauthenticated event creation should return 401."""
-    response = client.post("/api/events", json={
-        "camera_id": "test",
-        "member_id": None,
-        "confidence_score": None,
-        "access_granted": True,
-    })
+    response = client.post(
+        "/api/events",
+        json={
+            "camera_id": "test",
+            "member_id": None,
+            "confidence_score": None,
+            "access_granted": True,
+        },
+    )
     assert response.status_code == 401
 
 

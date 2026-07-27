@@ -4,6 +4,7 @@ boundary succeeds, invalid interval rejected). Window contract (design.md):
 half-open [start 00:00 app tz, (end+1) 00:00 app tz), app tz = Colombia
 (UTC-5). DB columns are naive UTC, so seed datetimes are naive UTC.
 """
+
 import uuid
 from datetime import datetime
 
@@ -82,7 +83,9 @@ class TestReportSummaryDateRange:
         )
         assert resp.status_code == 422
 
-    def test_valid_window_excludes_outside_transactions(self, auth_client, member_with_sales):
+    def test_valid_window_excludes_outside_transactions(
+        self, auth_client, member_with_sales
+    ):
         resp = auth_client.get(
             "/api/sales/report/summary",
             params={"start_date": "2026-01-10", "end_date": "2026-01-20"},
@@ -105,17 +108,29 @@ class TestReportSummaryDateRange:
         assert body["total_transactions"] == 0
         assert float(body["total_revenue"]) == 0.0
 
-    def test_single_day_window_includes_midday_transaction(self, db_session, auth_client):
+    def test_single_day_window_includes_midday_transaction(
+        self, db_session, auth_client
+    ):
         # Separate seed: a transaction clearly inside a single Colombia day.
-        m = Member(first_name="Mid", last_name="Day",
-                   email=f"mid-{uuid.uuid4().hex[:8]}@example.com",
-                   phone="555-0100", status="active")
-        db_session.add(m); db_session.flush()
+        m = Member(
+            first_name="Mid",
+            last_name="Day",
+            email=f"mid-{uuid.uuid4().hex[:8]}@example.com",
+            phone="555-0100",
+            status="active",
+        )
+        db_session.add(m)
+        db_session.flush()
         # 2026-02-03 15:00 UTC == 2026-02-03 10:00 Colombia -> inside Feb 3.
-        db_session.add(SalesTransaction(
-            member_id=m.id, amount=300, payment_method="card",
-            invoice_number=f"INV-MID-{uuid.uuid4().hex[:6]}",
-            transaction_date=_utc(2026, 2, 3, 15, 0, 0)))
+        db_session.add(
+            SalesTransaction(
+                member_id=m.id,
+                amount=300,
+                payment_method="card",
+                invoice_number=f"INV-MID-{uuid.uuid4().hex[:6]}",
+                transaction_date=_utc(2026, 2, 3, 15, 0, 0),
+            )
+        )
         db_session.commit()
         resp = auth_client.get(
             "/api/sales/report/summary",

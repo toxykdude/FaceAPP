@@ -5,6 +5,7 @@ the application timezone (Colombia, UTC-5); single-day == that whole day;
 ``start_date > end_date`` is rejected (callers surface as HTTP 422). DB
 timestamp columns are naive, so bounds are returned as naive UTC datetimes.
 """
+
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Tuple
 

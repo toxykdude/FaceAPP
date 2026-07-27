@@ -1,6 +1,7 @@
 """
 Audit logging helper.
 """
+
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -22,7 +23,7 @@ def log_action(
 ):
     """
     Log an audit action.
-    
+
     Args:
         db: Database session
         action: Action type (create, update, delete, login, logout)
@@ -44,7 +45,7 @@ def log_action(
             details=json.dumps(details) if details else None,
             ip_address=ip_address,
             user_agent=user_agent,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(timezone.utc),
         )
         db.add(log)
         db.flush()  # Don't commit — let the calling endpoint handle the transaction

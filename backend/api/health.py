@@ -1,6 +1,7 @@
 """
 Health check API endpoints.
 """
+
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -25,7 +26,7 @@ def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc),
-        "version": settings.APP_VERSION
+        "version": settings.APP_VERSION,
     }
 
 
@@ -41,12 +42,12 @@ def health_check_database(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         db_status = "error"
-    
+
     return {
         "status": "healthy" if db_status == "connected" else "unhealthy",
         "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
-        "database": db_status
+        "database": db_status,
     }
 
 
@@ -63,12 +64,12 @@ def health_check_redis():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         redis_status = "error"
-    
+
     return {
         "status": "healthy" if redis_status == "connected" else "unhealthy",
         "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
-        "redis": redis_status
+        "redis": redis_status,
     }
 
 
@@ -84,7 +85,7 @@ def health_check_full(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         db_status = "error"
-    
+
     # Check Redis
     try:
         r = redis.from_url(settings.REDIS_URL)
@@ -93,13 +94,17 @@ def health_check_full(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         redis_status = "error"
-    
-    overall_status = "healthy" if (db_status == "connected" and redis_status == "connected") else "unhealthy"
-    
+
+    overall_status = (
+        "healthy"
+        if (db_status == "connected" and redis_status == "connected")
+        else "unhealthy"
+    )
+
     return {
         "status": overall_status,
         "timestamp": datetime.now(timezone.utc),
         "version": settings.APP_VERSION,
         "database": db_status,
-        "redis": redis_status
+        "redis": redis_status,
     }
