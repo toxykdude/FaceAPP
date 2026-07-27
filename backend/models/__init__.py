@@ -15,6 +15,8 @@ from models.camera import Camera
 from models.biometric import BiometricTemplate
 from models.enrollment_request import EnrollmentRequest
 from models.setting import Setting
+from models.audit_log import AuditLog
+from models.password_reset import PasswordResetToken
 
 __all__ = [
     "Base",
@@ -32,4 +34,6 @@ __all__ = [
     "BiometricTemplate",
     "EnrollmentRequest",
     "Setting",
+    "AuditLog",
+    "PasswordResetToken",
 ]
