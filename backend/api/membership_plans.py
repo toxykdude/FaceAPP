@@ -1,6 +1,7 @@
 """
 Membership Plans API endpoints.
 """
+
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -13,7 +14,7 @@ from schemas.membership_plan import (
     MembershipPlanCreate,
     MembershipPlanUpdate,
     MembershipPlanResponse,
-    MembershipPlanListResponse
+    MembershipPlanListResponse,
 )
 
 router = APIRouter(prefix="/membership-plans", tags=["Membership Plans"])
@@ -25,30 +26,29 @@ def list_membership_plans(
     limit: int = Query(100, ge=1, le=1000),
     active_only: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     List membership plans.
     """
     query = db.query(MembershipPlan)
-    
+
     if active_only:
         query = query.filter(MembershipPlan.is_active == True)
-        
+
     total = query.count()
     plans = query.order_by(MembershipPlan.price.asc()).offset(skip).limit(limit).all()
-    
-    return {
-        "total": total,
-        "plans": plans
-    }
+
+    return {"total": total, "plans": plans}
 
 
-@router.post("", response_model=MembershipPlanResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=MembershipPlanResponse, status_code=status.HTTP_201_CREATED
+)
 def create_membership_plan(
     plan: MembershipPlanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     Create a new membership plan.
@@ -59,13 +59,13 @@ def create_membership_plan(
         duration_months=plan.duration_months,
         price=plan.price,
         description=plan.description,
-        is_active=plan.is_active
+        is_active=plan.is_active,
     )
-    
+
     db.add(db_plan)
     db.commit()
     db.refresh(db_plan)
-    
+
     return db_plan
 
 
@@ -73,7 +73,7 @@ def create_membership_plan(
 def get_membership_plan(
     plan_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     Get membership plan by ID.
@@ -89,7 +89,7 @@ def update_membership_plan(
     plan_id: str,
     plan_update: MembershipPlanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     Update membership plan.
@@ -97,11 +97,11 @@ def update_membership_plan(
     plan = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(404, "Plan not found")
-        
+
     update_data = plan_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(plan, field, value)
-        
+
     plan.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(plan)
@@ -112,7 +112,7 @@ def update_membership_plan(
 def delete_membership_plan(
     plan_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff)
+    current_user: User = Depends(require_staff),
 ):
     """
     Delete membership plan. If the plan has linked memberships, soft-delete (deactivate) instead.
@@ -120,11 +120,12 @@ def delete_membership_plan(
     plan = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(404, "Plan not found")
-    
+
     # Check if any memberships reference this plan
     from models.membership import Membership
+
     linked_count = db.query(Membership).filter(Membership.plan_id == plan_id).count()
-    
+
     if linked_count > 0:
         # Soft-delete: deactivate the plan instead of hard-deleting
         plan.is_active = False

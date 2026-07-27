@@ -1,6 +1,7 @@
 """
 Pydantic schemas for Member model.
 """
+
 from pydantic import BaseModel, EmailStr, Field, field_serializer
 from typing import Optional, Any
 from datetime import datetime
@@ -10,20 +11,25 @@ from models.member import MemberStatus
 
 class MemberBase(BaseModel):
     """Base member schema."""
+
     first_name: str = Field(..., min_length=1, max_length=100)
-    last_name: str = Field('', max_length=100)
+    last_name: str = Field("", max_length=100)
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(None, max_length=20)
 
 
 class MemberCreate(MemberBase):
     """Schema for creating a member."""
+
     id_number: Optional[str] = Field(None, max_length=20)
-    consent_given: bool = Field(False, description="Consent for biometric data collection")
+    consent_given: bool = Field(
+        False, description="Consent for biometric data collection"
+    )
 
 
 class MemberUpdate(BaseModel):
     """Schema for updating a member."""
+
     first_name: Optional[str] = Field(None, min_length=1, max_length=100)
     last_name: Optional[str] = Field(None, min_length=1, max_length=100)
     email: Optional[EmailStr] = None
@@ -34,6 +40,7 @@ class MemberUpdate(BaseModel):
 
 class MemberResponse(MemberBase):
     """Schema for member response."""
+
     id: UUID
     status: str
     facial_data_enrolled: bool
@@ -45,8 +52,8 @@ class MemberResponse(MemberBase):
     membership_status: Optional[str] = None
     membership_end_date: Optional[str] = None
     membership_plan_name: Optional[str] = None
-    
-    @field_serializer('id')
+
+    @field_serializer("id")
     def serialize_id(self, value: Any) -> str:
         """Convert UUID to string."""
         return str(value)
@@ -57,12 +64,14 @@ class MemberResponse(MemberBase):
 
 class MemberListResponse(BaseModel):
     """Schema for paginated member list."""
+
     total: int
     members: list[MemberResponse]
 
 
 class BiometricStatusResponse(BaseModel):
     """Schema for biometric enrollment status."""
+
     member_id: str
     enrolled: bool
     quality_score: Optional[float] = None
@@ -71,8 +80,8 @@ class BiometricStatusResponse(BaseModel):
 
 class BiometricEnrollmentResponse(BaseModel):
     """Schema for enrollment response."""
+
     success: bool
     message: str
     quality_score: float
     member_id: str
-

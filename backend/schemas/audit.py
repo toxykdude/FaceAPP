@@ -1,6 +1,7 @@
 """
 Pydantic schemas for audit logs.
 """
+
 from pydantic import BaseModel, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
@@ -9,6 +10,7 @@ from uuid import UUID
 
 class AuditLogResponse(BaseModel):
     """Schema for audit log response."""
+
     id: UUID
     user_id: Optional[UUID] = None
     username: Optional[str] = None
@@ -18,18 +20,19 @@ class AuditLogResponse(BaseModel):
     details: Optional[str] = None
     ip_address: Optional[str] = None
     created_at: datetime
-    
-    @field_serializer('id', 'user_id')
+
+    @field_serializer("id", "user_id")
     def serialize_uuid(self, value: Any) -> Optional[str]:
         if value is None:
             return None
         return str(value)
-    
+
     class Config:
         from_attributes = True
 
 
 class AuditLogListResponse(BaseModel):
     """Paginated audit log list."""
+
     total: int
     logs: List[AuditLogResponse]

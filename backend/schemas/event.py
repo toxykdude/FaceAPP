@@ -1,6 +1,7 @@
 """
 Pydantic schemas for Access Events.
 """
+
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from uuid import UUID
 
 class AccessEventBase(BaseModel):
     """Base access event schema."""
+
     camera_id: UUID
     member_id: Optional[UUID] = None
     confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0)
@@ -18,16 +20,18 @@ class AccessEventBase(BaseModel):
 
 class AccessEventCreate(AccessEventBase):
     """Schema for creating an access event."""
+
     frame_snapshot_path: Optional[str] = None
 
 
 class AccessEventResponse(AccessEventBase):
     """Schema for access event response."""
+
     id: UUID
     timestamp: datetime
     frame_snapshot_path: Optional[str] = None
-    
-    @field_serializer('timestamp')
+
+    @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime) -> Optional[str]:
         """Ensure timestamp always includes UTC timezone info for correct frontend display."""
         if value is None:
@@ -36,7 +40,7 @@ class AccessEventResponse(AccessEventBase):
             value = value.replace(tzinfo=timezone.utc)
         return value.isoformat()
 
-    @field_serializer('id', 'camera_id', 'member_id')
+    @field_serializer("id", "camera_id", "member_id")
     def serialize_uuid(self, value: Any) -> Optional[str]:
         """Convert UUID to string."""
         if value is None:
@@ -49,12 +53,14 @@ class AccessEventResponse(AccessEventBase):
 
 class AccessEventListResponse(BaseModel):
     """Schema for paginated access event list."""
+
     total: int
     events: List[AccessEventResponse]
 
 
 class AccessStatsResponse(BaseModel):
     """Schema for access statistics."""
+
     total_events: int
     granted_count: int
     denied_count: int

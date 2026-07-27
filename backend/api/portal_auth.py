@@ -1,6 +1,7 @@
 """
 Member Portal authentication endpoints (phone + WhatsApp PIN).
 """
+
 import re
 import random
 import logging
@@ -14,7 +15,12 @@ from core.config import settings
 from core.security import create_access_token
 from models.member import Member
 from models.membership import Membership
-from schemas.portal import MemberLoginRequest, MemberVerifyRequest, MemberPortalToken, MemberPortalResponse
+from schemas.portal import (
+    MemberLoginRequest,
+    MemberVerifyRequest,
+    MemberPortalToken,
+    MemberPortalResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["Member Portal Auth"])
 
@@ -57,7 +63,7 @@ def _clear_failed_attempts(phone: str) -> None:
 
 
 def _normalize_phone(phone: str) -> str:
-    return re.sub(r'\D', '', phone.strip())
+    return re.sub(r"\D", "", phone.strip())
 
 
 def _generate_pin() -> str:
@@ -70,7 +76,9 @@ def _resolve_member(db: Session, phone: str) -> Member:
     When multiple members share the same phone, prefer the one with
     an active membership (most likely the real member account).
     """
-    members = db.query(Member).filter(Member.phone == phone, Member.status == "active").all()
+    members = (
+        db.query(Member).filter(Member.phone == phone, Member.status == "active").all()
+    )
 
     if not members:
         members = db.query(Member).filter(Member.phone == phone).all()
@@ -83,12 +91,16 @@ def _resolve_member(db: Session, phone: str) -> Member:
 
     today = date.today()
     for m in members:
-        has_active = db.query(Membership).filter(
-            Membership.member_id == m.id,
-            Membership.status == "active",
-            Membership.start_date <= today,
-            Membership.end_date >= today,
-        ).first()
+        has_active = (
+            db.query(Membership)
+            .filter(
+                Membership.member_id == m.id,
+                Membership.status == "active",
+                Membership.start_date <= today,
+                Membership.end_date >= today,
+            )
+            .first()
+        )
         if has_active:
             return m
 
@@ -103,7 +115,7 @@ def _resolve_member(db: Session, phone: str) -> Member:
 
 def _ensure_country_code(phone: str) -> str:
     """Ensure phone has Colombia country code (57) for Evolution API."""
-    if len(phone) == 10 and phone.startswith('3'):
+    if len(phone) == 10 and phone.startswith("3"):
         return f"57{phone}"
     return phone
 
@@ -129,7 +141,9 @@ async def _send_whatsapp_pin(phone: str, pin: str) -> None:
                     "Content-Type": "application/json",
                 },
             )
-            logger.info(f"WhatsApp PIN sent to {whatsapp_number}, status={resp.status_code}")
+            logger.info(
+                f"WhatsApp PIN sent to {whatsapp_number}, status={resp.status_code}"
+            )
     except Exception as e:
         logger.error(f"Error sending WhatsApp PIN to {whatsapp_number}: {e}")
 
@@ -206,6 +220,7 @@ async def member_verify(
 
     # Create JWT with member type
     from datetime import timedelta
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(member.id), "type": "member"},

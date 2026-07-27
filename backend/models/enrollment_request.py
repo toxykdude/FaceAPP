@@ -7,6 +7,7 @@ Flow:
 3. Android captures face + uploads image → status="complete" (or "failed")
 4. Frontend polls for result → shows success/failure
 """
+
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, ForeignKey, String, Float, Text
@@ -45,7 +46,9 @@ class EnrollmentRequest(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 

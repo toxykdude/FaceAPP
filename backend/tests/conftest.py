@@ -2,6 +2,7 @@
 Test configuration and fixtures for FaceGYM backend tests.
 Uses the real database with transaction rollback for isolation.
 """
+
 import uuid
 import pytest
 from sqlalchemy import create_engine
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from main import app
 from core.database import Base
+
 # Override api.deps.get_db since routers import from there
 from api.deps import get_db
 from core.security import create_access_token
@@ -24,6 +26,7 @@ from core.encryption import encrypt_string
 def engine():
     """Create engine using the app's database."""
     from core.config import settings
+
     return create_engine(settings.DATABASE_URL)
 
 
@@ -34,9 +37,9 @@ def db_session(engine):
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
     session = Session()
-    
+
     yield session
-    
+
     session.close()
     transaction.rollback()
     connection.close()
@@ -45,12 +48,13 @@ def db_session(engine):
 @pytest.fixture(scope="function")
 def client(db_session):
     """FastAPI test client with DB session override."""
+
     def override_get_db():
         try:
             yield db_session
         finally:
             pass
-    
+
     # Override api.deps.get_db (the one routers actually use)
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
@@ -96,7 +100,7 @@ def sample_member(db_session):
         email=f"test{unique_suffix}@example.com",
         phone="555-0100",
         status="active",
-        consent_given_at=None
+        consent_given_at=None,
     )
     db_session.add(member)
     db_session.flush()
@@ -112,7 +116,7 @@ def sample_camera(db_session):
         rtsp_url=encrypt_string("rtsp://admin:pass@192.168.1.100:554/stream"),
         location="Entrance",
         enabled=True,
-        fps=5
+        fps=5,
     )
     db_session.add(camera)
     db_session.flush()

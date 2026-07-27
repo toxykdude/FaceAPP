@@ -1,6 +1,7 @@
 """
 Member Portal endpoints — member self-service.
 """
+
 import hashlib
 import hmac
 import uuid
@@ -38,21 +39,28 @@ def portal_me(
     today = date.today()
 
     # Load active membership
-    active_membership = db.query(Membership).filter(
-        Membership.member_id == str(member.id),
-        Membership.status == "active",
-        Membership.start_date <= today,
-        Membership.end_date >= today,
-    ).order_by(Membership.end_date.desc()).first()
+    active_membership = (
+        db.query(Membership)
+        .filter(
+            Membership.member_id == str(member.id),
+            Membership.status == "active",
+            Membership.start_date <= today,
+            Membership.end_date >= today,
+        )
+        .order_by(Membership.end_date.desc())
+        .first()
+    )
 
     active_membership_response = None
     if active_membership:
         # Get plan name
         plan_name = None
         if active_membership.plan_id:
-            plan = db.query(MembershipPlan).filter(
-                MembershipPlan.id == active_membership.plan_id
-            ).first()
+            plan = (
+                db.query(MembershipPlan)
+                .filter(MembershipPlan.id == active_membership.plan_id)
+                .first()
+            )
             plan_name = plan.name if plan else None
 
         active_membership_response = ActiveMembershipResponse(
@@ -109,10 +117,14 @@ async def portal_renew(
     `get_current_member` (JWT) + explicit `member.id` filters below.
     """
     # Verify plan exists and is active
-    plan = db.query(MembershipPlan).filter(
-        MembershipPlan.id == request.plan_id,
-        MembershipPlan.is_active == True,
-    ).first()
+    plan = (
+        db.query(MembershipPlan)
+        .filter(
+            MembershipPlan.id == request.plan_id,
+            MembershipPlan.is_active == True,
+        )
+        .first()
+    )
 
     if not plan:
         raise HTTPException(
@@ -123,12 +135,17 @@ async def portal_renew(
     today = date.today()
 
     # Check for existing active membership
-    active_membership = db.query(Membership).filter(
-        Membership.member_id == str(member.id),
-        Membership.status == "active",
-        Membership.start_date <= today,
-        Membership.end_date >= today,
-    ).order_by(Membership.end_date.desc()).first()
+    active_membership = (
+        db.query(Membership)
+        .filter(
+            Membership.member_id == str(member.id),
+            Membership.status == "active",
+            Membership.start_date <= today,
+            Membership.end_date >= today,
+        )
+        .order_by(Membership.end_date.desc())
+        .first()
+    )
 
     # Calculate dates — extend from current end_date if active, otherwise start today
     start_date = today
@@ -151,7 +168,9 @@ async def portal_renew(
     db.flush()  # Get the ID before creating the transaction
 
     # Generate invoice number
-    invoice_number = f"REN-{date.today().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+    invoice_number = (
+        f"REN-{date.today().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+    )
 
     # Create sales transaction
     transaction = SalesTransaction(
@@ -197,7 +216,10 @@ def verify_wompi_signature(request_body: bytes, signature_header: str) -> bool:
 
     if not settings.WOMPI_INTEGRITY_SECRET:
         import logging
-        logging.getLogger(__name__).error("WOMPI_INTEGRITY_SECRET not configured — webhook verification disabled")
+
+        logging.getLogger(__name__).error(
+            "WOMPI_INTEGRITY_SECRET not configured — webhook verification disabled"
+        )
         return False
 
     expected = hmac.new(
@@ -224,6 +246,7 @@ async def portal_webhook_renew(
     """
     import logging
     import json
+
     logger = logging.getLogger(__name__)
 
     # Verify Wompi signature
@@ -249,13 +272,19 @@ async def portal_webhook_renew(
     request_data = PortalWebhookRenewRequest(**body_data)
 
     # Verify plan exists and is active
-    plan = db.query(MembershipPlan).filter(
-        MembershipPlan.id == request_data.plan_id,
-        MembershipPlan.is_active == True,
-    ).first()
+    plan = (
+        db.query(MembershipPlan)
+        .filter(
+            MembershipPlan.id == request_data.plan_id,
+            MembershipPlan.is_active == True,
+        )
+        .first()
+    )
 
     if not plan:
-        logger.error(f"Webhook renew: plan {request_data.plan_id} not found or inactive")
+        logger.error(
+            f"Webhook renew: plan {request_data.plan_id} not found or inactive"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado o inactivo",
@@ -271,22 +300,34 @@ async def portal_webhook_renew(
         )
 
     # Idempotency check: avoid duplicate memberships for the same Wompi reference
-    existing_tx = db.query(SalesTransaction).filter(
-        SalesTransaction.notes.like(f"%{request_data.wompi_reference}%")
-    ).first()
+    existing_tx = (
+        db.query(SalesTransaction)
+        .filter(SalesTransaction.notes.like(f"%{request_data.wompi_reference}%"))
+        .first()
+    )
     if existing_tx:
-        logger.info(f"Webhook renew: already processed reference {request_data.wompi_reference}, skipping")
-        return {"status": "already_processed", "membership_id": str(existing_tx.membership_id)}
+        logger.info(
+            f"Webhook renew: already processed reference {request_data.wompi_reference}, skipping"
+        )
+        return {
+            "status": "already_processed",
+            "membership_id": str(existing_tx.membership_id),
+        }
 
     today = date.today()
 
     # Check for existing active membership — extend from current end_date
-    active_membership = db.query(Membership).filter(
-        Membership.member_id == str(member.id),
-        Membership.status == "active",
-        Membership.start_date <= today,
-        Membership.end_date >= today,
-    ).order_by(Membership.end_date.desc()).first()
+    active_membership = (
+        db.query(Membership)
+        .filter(
+            Membership.member_id == str(member.id),
+            Membership.status == "active",
+            Membership.start_date <= today,
+            Membership.end_date >= today,
+        )
+        .order_by(Membership.end_date.desc())
+        .first()
+    )
 
     start_date = today
     if active_membership and active_membership.end_date >= today:
@@ -354,6 +395,7 @@ def portal_pending_payment(
     import json
     from core.config import settings
     import logging
+
     logger = logging.getLogger(__name__)
 
     r = redis.from_url(settings.REDIS_URL)

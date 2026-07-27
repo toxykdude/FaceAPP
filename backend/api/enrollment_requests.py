@@ -9,6 +9,7 @@ Endpoints:
   GET    /enrollment-requests/{id}                 ← Frontend checks status
   POST   /enrollment-requests/{id}/cancel          ← Frontend/Android cancels
 """
+
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -54,7 +55,10 @@ def _to_response(req: EnrollmentRequest, db: Session) -> EnrollmentRequestRespon
 # Frontend endpoints (require staff auth)
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=EnrollmentRequestResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "", response_model=EnrollmentRequestResponse, status_code=status.HTTP_201_CREATED
+)
 def create_enrollment_request(
     body: EnrollmentRequestCreate,
     db: Session = Depends(get_db),
@@ -72,10 +76,14 @@ def create_enrollment_request(
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Check for existing pending/processing request for this member
-    existing = db.query(EnrollmentRequest).filter(
-        EnrollmentRequest.member_id == body.member_id,
-        EnrollmentRequest.status.in_(["pending", "processing"]),
-    ).first()
+    existing = (
+        db.query(EnrollmentRequest)
+        .filter(
+            EnrollmentRequest.member_id == body.member_id,
+            EnrollmentRequest.status.in_(["pending", "processing"]),
+        )
+        .first()
+    )
     if existing:
         raise HTTPException(
             status_code=409,
@@ -92,7 +100,9 @@ def create_enrollment_request(
     db.commit()
     db.refresh(req)
 
-    logger.info(f"Enrollment request created: {req.id} for member {member.first_name} (device={body.device_id})")
+    logger.info(
+        f"Enrollment request created: {req.id} for member {member.first_name} (device={body.device_id})"
+    )
     return _to_response(req, db)
 
 
@@ -121,7 +131,9 @@ def cancel_enrollment_request(
         raise HTTPException(status_code=404, detail="Request not found")
 
     if req.status not in ("pending", "processing"):
-        raise HTTPException(status_code=400, detail=f"Cannot cancel request in status: {req.status}")
+        raise HTTPException(
+            status_code=400, detail=f"Cannot cancel request in status: {req.status}"
+        )
 
     req.status = "cancelled"
     req.completed_at = datetime.now(timezone.utc)
@@ -137,6 +149,7 @@ def cancel_enrollment_request(
 # Android endpoints (no auth — internal kiosk device)
 # ---------------------------------------------------------------------------
 
+
 @router.get("/pending", response_model=list[EnrollmentRequestResponse])
 def get_pending_requests(
     device_id: str = Query("kiosk-android", description="Device ID to check"),
@@ -146,10 +159,15 @@ def get_pending_requests(
     Get pending enrollment requests for a specific device.
     The Android tablet polls this endpoint every 2 seconds.
     """
-    requests = db.query(EnrollmentRequest).filter(
-        EnrollmentRequest.device_id == device_id,
-        EnrollmentRequest.status == "pending",
-    ).order_by(EnrollmentRequest.created_at.asc()).all()
+    requests = (
+        db.query(EnrollmentRequest)
+        .filter(
+            EnrollmentRequest.device_id == device_id,
+            EnrollmentRequest.status == "pending",
+        )
+        .order_by(EnrollmentRequest.created_at.asc())
+        .all()
+    )
 
     return [_to_response(r, db) for r in requests]
 
@@ -167,7 +185,9 @@ def start_enrollment_request(
         raise HTTPException(status_code=404, detail="Request not found")
 
     if req.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Request is not pending (status: {req.status})")
+        raise HTTPException(
+            status_code=400, detail=f"Request is not pending (status: {req.status})"
+        )
 
     req.status = "processing"
     req.started_at = datetime.now(timezone.utc)
@@ -194,14 +214,20 @@ def complete_enrollment_request(
         raise HTTPException(status_code=404, detail="Request not found")
 
     if req.status not in ("processing", "pending"):
-        raise HTTPException(status_code=400, detail=f"Request is not in progress (status: {req.status})")
+        raise HTTPException(
+            status_code=400, detail=f"Request is not in progress (status: {req.status})"
+        )
 
     req.status = "complete" if body.success else "failed"
     req.quality_score = body.quality_score
-    req.result_message = body.message or ("Enrollment successful" if body.success else "Enrollment failed")
+    req.result_message = body.message or (
+        "Enrollment successful" if body.success else "Enrollment failed"
+    )
     req.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(req)
 
-    logger.info(f"Enrollment request completed: {request_id} (success={body.success}, quality={body.quality_score})")
+    logger.info(
+        f"Enrollment request completed: {request_id} (success={body.success}, quality={body.quality_score})"
+    )
     return _to_response(req, db)

@@ -1,6 +1,7 @@
 """
 Core package initialization.
 """
+
 from core.config import settings
 from core.database import Base
 from core.security import verify_password, get_password_hash, create_access_token

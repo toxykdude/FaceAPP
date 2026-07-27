@@ -8,6 +8,7 @@ ACCESS (get_member_membership): status='active' AND start_date<=today AND
 end_date>=today. This predicate is unchanged — the tests below are
 approval tests documenting/preserving current (already correct) behavior.
 """
+
 import json
 import uuid
 from datetime import date, timedelta, datetime, timezone
@@ -76,13 +77,17 @@ class TestDisplayFurthestExpiration:
     ):
         make_template(db_session, sample_member)
         make_membership(db_session, sample_member, start_offset=-10, end_offset=5)
-        future = make_membership(db_session, sample_member, start_offset=20, end_offset=50)
+        future = make_membership(
+            db_session, sample_member, start_offset=20, end_offset=50
+        )
 
         resp = client.get("/api/cv/templates", headers=internal_headers)
         assert resp.status_code == 200
 
         entry = next(
-            t for t in resp.json()["templates"] if t["member_id"] == str(sample_member.id)
+            t
+            for t in resp.json()["templates"]
+            if t["member_id"] == str(sample_member.id)
         )
         assert entry["membership_end_date"] == future.end_date.isoformat()
         assert entry["has_active_membership"] is True
@@ -92,12 +97,18 @@ class TestDisplayFurthestExpiration:
     ):
         now = datetime.now(timezone.utc)
         make_membership(
-            db_session, sample_member, start_offset=0, end_offset=40,
+            db_session,
+            sample_member,
+            start_offset=0,
+            end_offset=40,
             created_at=now - timedelta(hours=1),
             access_rules={"marker": "older"},
         )
         make_membership(
-            db_session, sample_member, start_offset=0, end_offset=40,
+            db_session,
+            sample_member,
+            start_offset=0,
+            end_offset=40,
             created_at=now,
             access_rules={"marker": "newer"},
         )
@@ -105,7 +116,9 @@ class TestDisplayFurthestExpiration:
 
         resp = client.get("/api/cv/templates", headers=internal_headers)
         entry = next(
-            t for t in resp.json()["templates"] if t["member_id"] == str(sample_member.id)
+            t
+            for t in resp.json()["templates"]
+            if t["member_id"] == str(sample_member.id)
         )
         assert entry["access_rules"]["marker"] == "newer"
 
@@ -114,13 +127,19 @@ class TestDisplayFurthestExpiration:
     ):
         same_created = datetime.now(timezone.utc)
         make_membership(
-            db_session, sample_member, start_offset=0, end_offset=40,
+            db_session,
+            sample_member,
+            start_offset=0,
+            end_offset=40,
             created_at=same_created,
             access_rules={"marker": "lower-id"},
             membership_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         )
         make_membership(
-            db_session, sample_member, start_offset=0, end_offset=40,
+            db_session,
+            sample_member,
+            start_offset=0,
+            end_offset=40,
             created_at=same_created,
             access_rules={"marker": "higher-id"},
             membership_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
@@ -129,7 +148,9 @@ class TestDisplayFurthestExpiration:
 
         resp = client.get("/api/cv/templates", headers=internal_headers)
         entry = next(
-            t for t in resp.json()["templates"] if t["member_id"] == str(sample_member.id)
+            t
+            for t in resp.json()["templates"]
+            if t["member_id"] == str(sample_member.id)
         )
         assert entry["access_rules"]["marker"] == "higher-id"
 
@@ -148,14 +169,22 @@ class TestDisplayFurthestExpiration:
 
         make_template(db_session, sample_member)
         make_template(db_session, other)
-        mine = make_membership(db_session, sample_member, start_offset=-5, end_offset=15)
+        mine = make_membership(
+            db_session, sample_member, start_offset=-5, end_offset=15
+        )
         theirs = make_membership(db_session, other, start_offset=-5, end_offset=60)
 
         resp = client.get("/api/cv/templates", headers=internal_headers)
         by_member = {t["member_id"]: t for t in resp.json()["templates"]}
 
-        assert by_member[str(sample_member.id)]["membership_end_date"] == mine.end_date.isoformat()
-        assert by_member[str(other.id)]["membership_end_date"] == theirs.end_date.isoformat()
+        assert (
+            by_member[str(sample_member.id)]["membership_end_date"]
+            == mine.end_date.isoformat()
+        )
+        assert (
+            by_member[str(other.id)]["membership_end_date"]
+            == theirs.end_date.isoformat()
+        )
 
 
 class TestAccessWindowUnchanged:

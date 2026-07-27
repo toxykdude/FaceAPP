@@ -1,4 +1,5 @@
 """Tests for cameras API endpoints."""
+
 import pytest
 
 

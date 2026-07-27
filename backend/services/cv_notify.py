@@ -10,6 +10,7 @@ exact same contract.
 Best-effort by design: the CV service may be down and this must never
 block or fail the caller's response.
 """
+
 import httpx
 
 from core.config import settings

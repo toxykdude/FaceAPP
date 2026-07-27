@@ -5,6 +5,7 @@ Extracted from the inline `notify_cv_invalidation` previously defined only
 in `api/members.py` (lines 31-38) so `memberships.py` and `portal.py` can
 reuse the exact same POST /invalidate/{id} + X-API-Key contract.
 """
+
 import pytest
 
 from services.cv_notify import notify_cv_invalidation

@@ -1,6 +1,7 @@
 """
 Sync API endpoints for client-server data synchronization.
 """
+
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -67,9 +68,14 @@ def _model_to_dict(instance) -> dict:
 
 # ---- Request / Response schemas ----
 
+
 class PullRequest(BaseModel):
-    last_sync_at: str = Field(..., description="ISO 8601 timestamp to fetch changes after")
-    tables: List[str] = Field(default_factory=list, description="Tables to sync (empty = all)")
+    last_sync_at: str = Field(
+        ..., description="ISO 8601 timestamp to fetch changes after"
+    )
+    tables: List[str] = Field(
+        default_factory=list, description="Tables to sync (empty = all)"
+    )
 
 
 class PushOperation(BaseModel):
@@ -77,7 +83,9 @@ class PushOperation(BaseModel):
     operation: str = Field(..., description="INSERT, UPDATE, or DELETE")
     data: dict = Field(default_factory=dict)
     id: Optional[str] = Field(None, description="Record ID for UPDATE/DELETE")
-    client_updated_at: Optional[str] = Field(None, description="Client's updated_at for conflict detection")
+    client_updated_at: Optional[str] = Field(
+        None, description="Client's updated_at for conflict detection"
+    )
 
 
 class PushRequest(BaseModel):
@@ -92,6 +100,7 @@ class OperationResult(BaseModel):
 
 
 # ---- Endpoints ----
+
 
 @router.post("/pull", response_model=SyncPullResponse)
 def sync_pull(
@@ -111,7 +120,7 @@ def sync_pull(
     except (ValueError, AttributeError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid last_sync_at format: {e}"
+            detail=f"Invalid last_sync_at format: {e}",
         )
 
     # Determine which tables to sync
@@ -122,7 +131,7 @@ def sync_pull(
         if table_name not in SYNC_TABLE_MAP:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown table: {table_name}. Valid tables: {list(SYNC_TABLE_MAP.keys())}"
+                detail=f"Unknown table: {table_name}. Valid tables: {list(SYNC_TABLE_MAP.keys())}",
             )
 
     response = {}
@@ -165,19 +174,23 @@ def sync_push(
 
         # Validate table
         if table_name not in PUSH_ALLOWED_TABLES:
-            results.append(OperationResult(
-                table=table_name,
-                status="error",
-                error=f"Table '{table_name}' is not allowed for push operations"
-            ))
+            results.append(
+                OperationResult(
+                    table=table_name,
+                    status="error",
+                    error=f"Table '{table_name}' is not allowed for push operations",
+                )
+            )
             continue
 
         if operation not in ("INSERT", "UPDATE", "DELETE"):
-            results.append(OperationResult(
-                table=table_name,
-                status="error",
-                error=f"Invalid operation: {operation}"
-            ))
+            results.append(
+                OperationResult(
+                    table=table_name,
+                    status="error",
+                    error=f"Invalid operation: {operation}",
+                )
+            )
             continue
 
         model = PUSH_ALLOWED_TABLES[table_name]
@@ -189,12 +202,14 @@ def sync_push(
                     # Check if record already exists
                     existing = db.query(model).filter(model.id == record_id).first()
                     if existing:
-                        results.append(OperationResult(
-                            table=table_name,
-                            id=str(record_id),
-                            status="error",
-                            error="Record already exists"
-                        ))
+                        results.append(
+                            OperationResult(
+                                table=table_name,
+                                id=str(record_id),
+                                status="error",
+                                error="Record already exists",
+                            )
+                        )
                         continue
 
                 # Build new record, only setting columns that exist on the model
@@ -206,43 +221,55 @@ def sync_push(
                 db.add(new_record)
                 db.commit()
                 db.refresh(new_record)
-                results.append(OperationResult(
-                    table=table_name,
-                    id=str(new_record.id),
-                    status="success"
-                ))
+                results.append(
+                    OperationResult(
+                        table=table_name, id=str(new_record.id), status="success"
+                    )
+                )
 
             elif operation == "UPDATE":
                 record_id = op.id or data.get("id")
                 if not record_id:
-                    results.append(OperationResult(
-                        table=table_name,
-                        status="error",
-                        error="No record ID provided for UPDATE"
-                    ))
+                    results.append(
+                        OperationResult(
+                            table=table_name,
+                            status="error",
+                            error="No record ID provided for UPDATE",
+                        )
+                    )
                     continue
 
                 existing = db.query(model).filter(model.id == record_id).first()
                 if not existing:
-                    results.append(OperationResult(
-                        table=table_name,
-                        id=str(record_id),
-                        status="error",
-                        error="Record not found"
-                    ))
+                    results.append(
+                        OperationResult(
+                            table=table_name,
+                            id=str(record_id),
+                            status="error",
+                            error="Record not found",
+                        )
+                    )
                     continue
 
                 # Conflict detection: compare updated_at if both exist
-                if op.client_updated_at and hasattr(existing, "updated_at") and existing.updated_at:
+                if (
+                    op.client_updated_at
+                    and hasattr(existing, "updated_at")
+                    and existing.updated_at
+                ):
                     try:
-                        client_time = datetime.fromisoformat(op.client_updated_at.replace("Z", "+00:00"))
+                        client_time = datetime.fromisoformat(
+                            op.client_updated_at.replace("Z", "+00:00")
+                        )
                         if existing.updated_at > client_time:
-                            results.append(OperationResult(
-                                table=table_name,
-                                id=str(record_id),
-                                status="error",
-                                error="Server record is newer (conflict)"
-                            ))
+                            results.append(
+                                OperationResult(
+                                    table=table_name,
+                                    id=str(record_id),
+                                    status="error",
+                                    error="Server record is newer (conflict)",
+                                )
+                            )
                             continue
                     except ValueError:
                         pass  # If parsing fails, proceed with update
@@ -251,7 +278,11 @@ def sync_push(
                 mapper = inspect(model).mapper
                 valid_columns = {c.key for c in mapper.columns}
                 skip_columns = {"id", "created_at"}  # Never overwrite these
-                filtered_data = {k: v for k, v in data.items() if k in valid_columns and k not in skip_columns}
+                filtered_data = {
+                    k: v
+                    for k, v in data.items()
+                    if k in valid_columns and k not in skip_columns
+                }
 
                 for key, value in filtered_data.items():
                     setattr(existing, key, value)
@@ -261,48 +292,54 @@ def sync_push(
 
                 db.commit()
                 db.refresh(existing)
-                results.append(OperationResult(
-                    table=table_name,
-                    id=str(existing.id),
-                    status="success"
-                ))
+                results.append(
+                    OperationResult(
+                        table=table_name, id=str(existing.id), status="success"
+                    )
+                )
 
             elif operation == "DELETE":
                 record_id = op.id or data.get("id")
                 if not record_id:
-                    results.append(OperationResult(
-                        table=table_name,
-                        status="error",
-                        error="No record ID provided for DELETE"
-                    ))
+                    results.append(
+                        OperationResult(
+                            table=table_name,
+                            status="error",
+                            error="No record ID provided for DELETE",
+                        )
+                    )
                     continue
 
                 existing = db.query(model).filter(model.id == record_id).first()
                 if not existing:
-                    results.append(OperationResult(
-                        table=table_name,
-                        id=str(record_id),
-                        status="error",
-                        error="Record not found"
-                    ))
+                    results.append(
+                        OperationResult(
+                            table=table_name,
+                            id=str(record_id),
+                            status="error",
+                            error="Record not found",
+                        )
+                    )
                     continue
 
                 db.delete(existing)
                 db.commit()
-                results.append(OperationResult(
-                    table=table_name,
-                    id=str(record_id),
-                    status="success"
-                ))
+                results.append(
+                    OperationResult(
+                        table=table_name, id=str(record_id), status="success"
+                    )
+                )
 
         except Exception as e:
             db.rollback()
-            results.append(OperationResult(
-                table=table_name,
-                id=str(op.id) if op.id else str(data.get("id", "")),
-                status="error",
-                error=str(e)
-            ))
+            results.append(
+                OperationResult(
+                    table=table_name,
+                    id=str(op.id) if op.id else str(data.get("id", "")),
+                    status="error",
+                    error=str(e),
+                )
+            )
 
     return {
         "results": [r.model_dump() for r in results],

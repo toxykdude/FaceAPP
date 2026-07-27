@@ -2,6 +2,7 @@
 Models package initialization.
 Import all models here for Alembic auto-detection.
 """
+
 from core.database import Base
 
 # Import all models
