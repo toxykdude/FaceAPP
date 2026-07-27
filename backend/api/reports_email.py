@@ -253,7 +253,7 @@ def send_scheduled_report(db_session_factory):
             if admin.email:
                 email_service._send_email(
                     to=admin.email,
-                    subject=f"PowerHouse Gym Report - {now.strftime("%I:%M %p")} - {sales_count} sales, {len(new_members)} new members",
+                    subject=f"PowerHouse Gym Report - {now.strftime('%I:%M %p')} - {sales_count} sales, {len(new_members)} new members",
                     body=f"PowerHouse Gym Report: {sales_count} sales (${sales_total:,.0f}), {len(new_members)} new members, {len(recognized_expired)} expired members recognized.",
                     html=html,
                 )
