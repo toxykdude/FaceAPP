@@ -220,6 +220,78 @@ describe('Kiosk recognition state machine (USB mode)', () => {
     await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(priorInstanceCount));
   });
 
+  it('keeps the retry overlay visible and suppresses the scan guide after the real onerror-then-onclose sequence', async () => {
+    renderKiosk();
+    const ws = await enableUsbMode();
+
+    // Real browsers fire onclose immediately after onerror for a failed/dropped
+    // connection. The previous test only simulated onerror alone, which hid this
+    // bug: connectionStatus flips from 'error' to 'disconnected' the instant
+    // onclose runs, and the retry overlay was gated on 'error' only.
+    act(() => {
+      ws.onerror?.();
+      ws.onclose?.();
+    });
+
+    const retryButton = await screen.findByRole('button', { name: t.kiosk.retry });
+    expect(retryButton).toBeInTheDocument();
+
+    // The decorative scan-guide ring must not reappear over a dead feed —
+    // it would make the kiosk look like it's actively scanning.
+    expect(screen.queryByTestId('scan-guide')).not.toBeInTheDocument();
+  });
+
+  it('guards against a second startUsbCamera invocation while a previous one is still pending getUserMedia', async () => {
+    vi.mocked(camerasApi.getCameras).mockResolvedValue([
+      { id: 'cam-1', name: 'Camera 1' },
+      { id: 'cam-2', name: 'Camera 2' },
+    ] as any);
+
+    let resolveFirstStream: (v: any) => void = () => {};
+    const firstStreamPromise = new Promise((resolve) => {
+      resolveFirstStream = resolve;
+    });
+    const getUserMediaMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstStreamPromise)
+      .mockImplementation(() => Promise.resolve({ getTracks: () => [] }));
+
+    Object.defineProperty(global.navigator, 'mediaDevices', {
+      value: { getUserMedia: getUserMediaMock },
+      writable: true,
+      configurable: true,
+    });
+
+    renderKiosk();
+
+    const settingsButton = screen.getByTestId('SettingsIcon').closest('button')!;
+    fireEvent.click(settingsButton);
+    const usbToggle = await screen.findByText(t.kiosk.usbCameraMode);
+    fireEvent.click(usbToggle);
+
+    // First startUsbCamera('cam-1') call is now stuck awaiting getUserMedia.
+    await waitFor(() => expect(getUserMediaMock).toHaveBeenCalledTimes(1));
+
+    // Switch cameras WHILE the first call is still pending — this re-triggers
+    // the effect that calls startUsbCamera('cam-2') before the first call has
+    // finished, which is exactly the race that can leak a stream/WS/interval.
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    const cam2Option = await screen.findByRole('option', { name: 'Camera 2' });
+    fireEvent.click(cam2Option);
+
+    // Give any (buggy) synchronous/microtask work a chance to run.
+    await wait(10);
+
+    // The in-flight guard must make the second call a no-op: getUserMedia is
+    // NOT invoked again while the first call hasn't resolved yet.
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+
+    // Let the first call finish so the test doesn't leave dangling timers.
+    await act(async () => {
+      resolveFirstStream({ getTracks: () => [] });
+    });
+  });
+
   it('masks the member name on the bounding-box label for unknown-classified denials (member_not_found)', async () => {
     const fillTextSpy = vi.fn();
     const fakeCtx = {
@@ -270,5 +342,37 @@ describe('Kiosk recognition state machine (USB mode)', () => {
     await waitFor(() => expect(fillTextSpy).toHaveBeenCalled());
     const labelsDrawn2 = fillTextSpy.mock.calls.map((call) => call[0]);
     expect(labelsDrawn2.some((label) => label.includes('Known Member'))).toBe(true);
+  });
+
+  it('masks the member name in the recent check-ins chip strip for unknown-classified denials (member_not_found)', async () => {
+    renderKiosk();
+    const ws = await enableUsbMode();
+
+    sendMessage(
+      ws,
+      recognitionMessage({
+        member_id: 'stale-member',
+        member_name: 'Real Cached Name',
+        access_granted: false,
+        denial_reason: 'member_not_found',
+        face_bbox: null,
+      })
+    );
+
+    await waitFor(() => expect(screen.queryByText(/Real Cached Name/)).not.toBeInTheDocument());
+
+    // Triangulation: a real membership-category denial must still show the name.
+    sendMessage(
+      ws,
+      recognitionMessage({
+        member_id: 'member-2',
+        member_name: 'Known Member',
+        access_granted: false,
+        denial_reason: 'expired_membership',
+        face_bbox: null,
+      })
+    );
+
+    await waitFor(() => expect(screen.getByText(/Known Member/)).toBeInTheDocument());
   });
 });

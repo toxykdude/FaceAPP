@@ -161,6 +161,7 @@ export const translations = {
       tabletEnrollSuccess: '¡Enrolamiento completado exitosamente desde la tablet!',
       tabletEnrollError: 'El enrolamiento desde la tablet falló.',
       retry: 'Reintentar',
+      webcamAccessError: 'No se pudo acceder a la cámara web. Verifica los permisos.',
     },
     memberships: {
       title: 'Membresías',
@@ -599,6 +600,7 @@ export const translations = {
       tabletEnrollSuccess: 'Tablet enrollment completed successfully!',
       tabletEnrollError: 'Tablet enrollment failed.',
       retry: 'Retry',
+      webcamAccessError: 'Could not access webcam. Please check permissions.',
     },
     memberships: {
       title: 'Memberships',

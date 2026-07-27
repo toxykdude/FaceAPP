@@ -318,6 +318,15 @@ export const Kiosk: React.FC = () => {
     const wsRef = useRef<WebSocket | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const captureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // In-flight guard: startUsbCamera does its real setup (MediaStream/WebSocket/
+    // interval assignment into the refs above) only after the async
+    // getUserMedia() resolves. If the function is invoked again (Retry click,
+    // rapid camera switch, etc.) while a previous call's getUserMedia is still
+    // pending, stopUsbCamera() finds nothing to clean up yet, and both calls'
+    // async work can later stomp each other's ref assignments — leaking an open
+    // WebSocket + running capture interval + live camera stream. Make a second
+    // concurrent call a no-op instead.
+    const startingUsbCameraRef = useRef(false);
 
     useEffect(() => {
         const interval = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -466,6 +475,11 @@ export const Kiosk: React.FC = () => {
     }, []);
 
     const startUsbCamera = useCallback(async (cameraId: string) => {
+        // A previous call is still awaiting getUserMedia — do nothing rather
+        // than racing it (see startingUsbCameraRef declaration for why).
+        if (startingUsbCameraRef.current) return;
+        startingUsbCameraRef.current = true;
+
         stopUsbCamera();
         setConnectionStatus('connecting');
 
@@ -541,6 +555,8 @@ export const Kiosk: React.FC = () => {
         } catch (err) {
             console.error('USB camera error:', err);
             setConnectionStatus('error');
+        } finally {
+            startingUsbCameraRef.current = false;
         }
     }, [stopUsbCamera]);
 
@@ -788,7 +804,7 @@ export const Kiosk: React.FC = () => {
                                 <video ref={videoRef} autoPlay playsInline muted style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                                 <canvas ref={overlayCanvasRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
                                 <canvas ref={canvasRef} style={{ display: 'none' }} />
-                                {connectionStatus === 'error' && (
+                                {(connectionStatus === 'error' || connectionStatus === 'disconnected') && (
                                     <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: alpha(COLORS.background, 0.92), gap: 0.5, px: 3 }}>
                                         <WifiOffIcon sx={{ fontSize: 44, color: COLORS.secondaryText, mb: 1, animation: `${breathe} 2s ease-in-out infinite` }} />
                                         <Typography sx={{ color: COLORS.text, fontWeight: 600, textAlign: 'center' }}>{t.kiosk.cameraReconnecting}</Typography>
@@ -842,9 +858,9 @@ export const Kiosk: React.FC = () => {
                     )}
 
                     {/* Decorative face-guide overlay: idle breathing ring / verifying scan sweep */}
-                    {!!selectedCameraId && !streamError && connectionStatus !== 'error' && (
+                    {!!selectedCameraId && !streamError && (!usbMode || (connectionStatus !== 'error' && connectionStatus !== 'disconnected')) && (
                         <Fade in={showGuide} timeout={300}>
-                            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                            <Box data-testid="scan-guide" sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                                 <GuideFrame $verifying={recognitionState === 'verifying'} />
                                 <GuideCorner $pos="tl" />
                                 <GuideCorner $pos="tr" />
@@ -887,6 +903,13 @@ export const Kiosk: React.FC = () => {
                         : classifyDenial(event.denial_reason) === 'unknown'
                             ? COLORS.danger
                             : COLORS.warning;
+                    // Unknown-classified denials (e.g. member_not_found, which can carry a
+                    // stale cached real name) must never disclose identity here either —
+                    // mirror the same gating already applied to the bbox overlay label
+                    // (which also masks with the literal "Unknown", not a translated string).
+                    const displayName = denied && classifyDenial(event.denial_reason) === 'unknown'
+                        ? 'Unknown'
+                        : event.member_name;
                     return (
                         <Chip
                             key={event.id}
@@ -901,7 +924,7 @@ export const Kiosk: React.FC = () => {
                                 '& .MuiChip-label': { display: 'flex', alignItems: 'center', gap: 0.5 },
                             }}
                             icon={<StatusDotSmall $color={dotColor} />}
-                            label={`${event.member_name} · ${format(new Date(event.timestamp), 'h:mm a')}`}
+                            label={`${displayName} · ${format(new Date(event.timestamp), 'h:mm a')}`}
                         />
                     );
                 })}

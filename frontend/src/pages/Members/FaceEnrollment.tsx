@@ -170,7 +170,7 @@ export const FaceEnrollment: React.FC = () => {
             }
         } catch (err) {
             console.error("Webcam Request Error:", err);
-            alert("Could not access webcam. Please check permissions.");
+            alert(t.members.webcamAccessError);
         }
     };
 
