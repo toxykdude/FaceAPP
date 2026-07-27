@@ -2,6 +2,13 @@
 .env
 .env.*
 !.env.example
+gh.env
+*.gh.env
+*.token
+GH_TOKEN
+
+# Local AI workflow artifacts
+.atl/
 
 # Python
 __pycache__/

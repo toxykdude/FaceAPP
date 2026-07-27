@@ -1,0 +1,92 @@
+schema: spec-driven
+
+artifact_store:
+  mode: hybrid
+
+project:
+  name: faceapp
+  execution_mode: automatic
+  pr_strategy: auto-forecast
+  review_budget_changed_lines: 800
+
+context: |
+  FaceGYM is a three-service membership-management platform: a React/Vite
+  administration and kiosk frontend, a FastAPI/SQLAlchemy backend, and a
+  FastAPI computer-vision service. PostgreSQL and Redis provide persistence
+  and cache coordination. The backend owns the public /api surface; the CV
+  service processes RTSP and browser camera streams and reports access events
+  to the backend.
+
+conventions:
+  backend:
+    language: Python 3.10+
+    architecture: FastAPI routers, Pydantic settings/schemas, SQLAlchemy models, Alembic migrations
+    quality: black, flake8, mypy
+  frontend:
+    language: TypeScript
+    architecture: React routes/pages, shared components, context providers, TanStack Query API state
+    quality: eslint, tsc
+  cv_service:
+    language: Python 3.10+
+    architecture: FastAPI service, stream/detection/recognition/validation modules
+
+strict_tdd: true
+
+testing:
+  detected: "2026-07-16"
+  strict_tdd: true
+  runner:
+    frontend:
+      framework: Vitest with Testing Library and jsdom
+      command: npm test -- --run
+      working_directory: frontend
+    backend:
+      framework: pytest with pytest-asyncio and FastAPI TestClient
+      command: pytest
+      working_directory: backend
+      requirements: Database configuration and an initialized test-compatible database
+    cv_service:
+      framework: pytest with pytest-asyncio
+      command: pytest
+      working_directory: cv_service
+  layers:
+    frontend_unit_component: true
+    backend_api_integration: true
+    cv_unit: true
+    end_to_end: false
+  coverage:
+    configured: false
+    available_packages:
+      - "@vitest/coverage-v8"
+    command: null
+  quality:
+    frontend:
+      linter: npm run lint
+      type_checker: npm run type-check
+      formatter: null
+    backend:
+      linter: flake8 .
+      type_checker: mypy .
+      formatter: black .
+    cv_service:
+      linter: null
+      type_checker: null
+      formatter: null
+
+rules:
+  proposal:
+    - Include a rollback plan for risky changes.
+  specs:
+    - Use Given/When/Then scenarios and RFC 2119 keywords.
+  design:
+    - Document architecture decisions with rationale.
+  tasks:
+    - Group work by phase and keep tasks completable in one session.
+  apply:
+    guidelines:
+      - Preserve service boundaries and avoid exposing CV service endpoints externally.
+      - Keep proposed work within the 800 changed-line review budget when practical.
+      - Add or update tests before implementation changes where feasible.
+    tdd: true
+  archive:
+    - Warn before merging destructive deltas.
