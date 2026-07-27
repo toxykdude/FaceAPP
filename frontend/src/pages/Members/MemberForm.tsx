@@ -23,6 +23,7 @@ import {
     Chip,
     InputAdornment,
     CircularProgress,
+    LinearProgress,
     useMediaQuery,
     useTheme,
     Dialog,
@@ -1062,9 +1063,15 @@ const FaceEnrollmentSection: React.FC<{ memberId: string }> = ({ memberId }) => 
                         )}
 
                         {enrollmentStatus === 'uploading' && !cameraActive && (
-                            <Box display="flex" alignItems="center" gap={1} mt={2}>
-                                <CircularProgress size={20} />
-                                <Typography variant="body2">{t.members.processingEnrollment}</Typography>
+                            <Box mt={2}>
+                                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                    <CircularProgress size={20} />
+                                    <Typography variant="body2">{t.members.processingEnrollment}</Typography>
+                                </Box>
+                                <LinearProgress />
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                                    {t.members.enrollingHint}
+                                </Typography>
                             </Box>
                         )}
                     </Box>

@@ -20,8 +20,32 @@ from schemas.sale import (
     SalesReportResponse,
     DashboardResponse
 )
+from services.report_window import build_report_window, DateRangeError
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
+
+
+def _resolve_report_window(
+    start_date: Optional[date], end_date: Optional[date]
+) -> Optional[tuple]:
+    """Resolve an optional custom report window or raise HTTP 422. Returns
+    ``None`` for the preset path (no dates), or
+    ``(window_start, window_end, range_start, range_end)`` for a valid range."""
+    if start_date is None and end_date is None:
+        return None
+    if start_date is None or end_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date and end_date must be provided together",
+        )
+    try:
+        window = build_report_window(start_date, end_date)
+    except DateRangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    return window, start_date, end_date
 
 
 def generate_invoice_number() -> str:
@@ -156,6 +180,8 @@ def create_transaction(
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard_report(
     days: int = Query(30, ge=1, le=365),
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
@@ -163,10 +189,23 @@ def get_dashboard_report(
     Get aggregated dashboard data for the Reports page.
     Returns revenue trends, member growth, membership distribution,
     peak hours, checkin trends, and key metrics.
+
+    When both ``start_date`` and ``end_date`` are provided, the revenue trend is
+    computed over that inclusive custom window (half-open in the application
+    timezone). When neither is provided, the ``days`` preset is used.
     """
     from services.dashboard_service import DashboardService
+
+    window = None
+    range_start = range_end = None
+    resolved = _resolve_report_window(start_date, end_date)
+    if resolved is not None:
+        window, range_start, range_end = resolved
+
     svc = DashboardService(db)
-    return svc.get_dashboard(days)
+    return svc.get_dashboard(
+        days=days, window=window, range_start=range_start, range_end=range_end
+    )
 
 
 @router.get("/report/summary", response_model=SalesReportResponse)
@@ -178,17 +217,25 @@ def get_sales_report(
 ):
     """
     Get sales report summary.
-    
-    - **start_date**: Report start date (optional)
-    - **end_date**: Report end date (optional)
+
+    - **start_date**: Report start date (optional, inclusive)
+    - **end_date**: Report end date (optional, inclusive)
+
+    When both are provided, data is restricted to the half-open window
+    ``[start_date 00:00, (end_date + 1) 00:00)`` in the application timezone.
+    A reversed range (start after end) or a partial range (only one date) is
+    rejected with HTTP 422.
     """
     query = db.query(SalesTransaction)
-    
-    # Filter by date range
-    if start_date:
-        query = query.filter(SalesTransaction.transaction_date >= start_date)
-    if end_date:
-        query = query.filter(SalesTransaction.transaction_date <= end_date)
+
+    # Filter by half-open custom date window (422 on partial/reversed range).
+    resolved = _resolve_report_window(start_date, end_date)
+    if resolved is not None:
+        (window_start, window_end), _rs, _re = resolved
+        query = query.filter(
+            SalesTransaction.transaction_date >= window_start,
+            SalesTransaction.transaction_date < window_end,
+        )
     
     # Get total revenue
     total_revenue = query.with_entities(func.sum(SalesTransaction.amount)).scalar() or Decimal(0)

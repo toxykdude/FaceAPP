@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '@/api/sales';
+import { buildReportRange, type ReportRangeParams } from '@/api/reportRange';
 import {
     Box,
     Typography,
@@ -12,6 +13,7 @@ import {
     MenuItem,
     FormControl,
     InputLabel,
+    TextField,
     Paper,
     Avatar,
     CircularProgress,
@@ -124,23 +126,42 @@ export const Reports: React.FC = () => {
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const isXs = useMediaQuery(theme.breakpoints.down('xs'));
     const [timeRange, setTimeRange] = useState('30days');
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
 
-    const daysMap: Record<string, number> = {
-        'today': 1,
-        '7days': 7,
-        '30days': 30,
-        '90days': 90,
-        'year': 365,
-    };
+    // Resolve the selection into API params. Presets -> { days }; custom ->
+    // { start_date, end_date }. An incomplete/reversed custom selection yields
+    // null so both queries are disabled until the user finishes picking dates,
+    // and — when both dates are filled but reversed — an inline message is
+    // shown instead of silently falling back to unfiltered/partial data.
+    let dashboardParams: ReportRangeParams | null = null;
+    let rangeErrorMessage: string | null = null;
+    try {
+        dashboardParams = buildReportRange(timeRange, customStart, customEnd);
+    } catch {
+        dashboardParams = null;
+        if (timeRange === 'custom' && customStart && customEnd) {
+            rangeErrorMessage = t.reports.invalidRange || 'Start date must not be after end date';
+        }
+    }
+    const customReady = dashboardParams !== null;
+    // Summary shares the custom window when one is selected; presets keep the
+    // cumulative (unfiltered) summary, preserving existing preset behaviour.
+    const summaryParams: { start_date?: string; end_date?: string } =
+        dashboardParams && 'start_date' in dashboardParams
+            ? { start_date: dashboardParams.start_date, end_date: dashboardParams.end_date }
+            : {};
 
     const { data: reportData, isLoading: loadingReport } = useQuery({
-        queryKey: ['dashboard-report', timeRange],
-        queryFn: () => salesApi.getDashboardReport(daysMap[timeRange] || 30),
+        queryKey: ['dashboard-report', timeRange, customStart, customEnd],
+        queryFn: () => salesApi.getDashboardReport(dashboardParams as ReportRangeParams),
+        enabled: customReady,
     });
 
     const { data: salesReport } = useQuery({
-        queryKey: ['sales-report'],
-        queryFn: () => salesApi.getReportSummary(),
+        queryKey: ['sales-report', timeRange, customStart, customEnd],
+        queryFn: () => salesApi.getReportSummary(summaryParams),
+        enabled: customReady,
     });
 
 
@@ -311,8 +332,38 @@ export const Reports: React.FC = () => {
                             <MenuItem value="30days">{t.reports.last30Days}</MenuItem>
                             <MenuItem value="90days">{t.reports.last90Days}</MenuItem>
                             <MenuItem value="year">{t.reports.thisYear}</MenuItem>
+                            <MenuItem value="custom">{t.reports.customRange || 'Custom range'}</MenuItem>
                         </Select>
                     </FormControl>
+                    {timeRange === 'custom' && (
+                        <Box display="flex" flexDirection="column" gap={0.5}>
+                            <Box display="flex" gap={1} alignItems="center">
+                                <TextField
+                                    type="date"
+                                    size="small"
+                                    label={t.reports.startDate || 'Start'}
+                                    value={customStart}
+                                    InputLabelProps={{ shrink: true }}
+                                    onChange={(e) => setCustomStart(e.target.value)}
+                                    error={Boolean(rangeErrorMessage)}
+                                />
+                                <TextField
+                                    type="date"
+                                    size="small"
+                                    label={t.reports.endDate || 'End'}
+                                    value={customEnd}
+                                    InputLabelProps={{ shrink: true }}
+                                    onChange={(e) => setCustomEnd(e.target.value)}
+                                    error={Boolean(rangeErrorMessage)}
+                                />
+                            </Box>
+                            {rangeErrorMessage && (
+                                <Typography variant="caption" color="error" role="alert">
+                                    {rangeErrorMessage}
+                                </Typography>
+                            )}
+                        </Box>
+                    )}
                     <Box display="flex" gap={1}>
                     <Button
                         variant="outlined"

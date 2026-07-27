@@ -80,7 +80,20 @@ class AccessValidator:
         elif membership["status"] != "active":
             return False, f"membership_{membership['status']}"
         
-        # Step 7: Check access rules
+        # Step 7: Defense-in-depth date-window guard.
+        # The backend (get_member_membership) is the source of truth and
+        # already filters start_date<=today, but re-validate explicitly
+        # here so display data (which may include a future-dated
+        # membership) can never be mistaken for an access grant.
+        try:
+            membership_start = date.fromisoformat(membership.get("start_date", ""))
+        except (TypeError, ValueError):
+            membership_start = None
+
+        if membership_start is not None and membership_start > date.today():
+            return False, "membership_not_started"
+
+        # Step 8: Check access rules
         access_rules = membership.get("access_rules", {})
         
         if access_rules:

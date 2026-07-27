@@ -22,6 +22,7 @@ from schemas.portal import (
     ActiveMembershipResponse,
     PaymentHistoryItem,
 )
+from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/portal", tags=["Member Portal"])
 
@@ -93,15 +94,19 @@ def portal_plans(
 
 
 @router.post("/renew", response_model=PortalRenewResponse)
-def portal_renew(
+async def portal_renew(
     request: PortalRenewRequest,
     member: Member = Depends(get_current_member),
-    db: Session = Depends(get_portal_session),
+    db: Session = Depends(get_db),
 ):
     """
     Renew membership using a Wompi payment reference.
 
     Validates the plan, creates a new membership and sales transaction.
+
+    Uses the privileged `get_db` session (not `get_portal_session`) because
+    `member_portal` is SELECT-only — ownership is enforced via
+    `get_current_member` (JWT) + explicit `member.id` filters below.
     """
     # Verify plan exists and is active
     plan = db.query(MembershipPlan).filter(
@@ -161,6 +166,9 @@ def portal_renew(
     db.commit()
     db.refresh(new_membership)
     db.refresh(transaction)
+
+    # Post-commit only — never on a failed/rolled-back write
+    await notify_cv_invalidation(str(member.id))
 
     # Build plan name
     plan_name = plan.name if plan else None
@@ -315,6 +323,9 @@ async def portal_webhook_renew(
     db.commit()
     db.refresh(new_membership)
     db.refresh(transaction)
+
+    # Post-commit only — never on a failed/rolled-back write
+    await notify_cv_invalidation(str(member.id))
 
     logger.info(
         f"Webhook renew: created membership {new_membership.id} for member {member.id}, "

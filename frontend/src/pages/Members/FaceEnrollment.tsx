@@ -11,6 +11,7 @@ import {
     Card,
     CardContent,
     CircularProgress,
+    LinearProgress,
     Alert,
     Grid,
     Tabs,
@@ -292,6 +293,14 @@ export const FaceEnrollment: React.FC = () => {
                                     >
                                         {enrollMutation.isPending ? t.members.enrolling : t.members.uploadEnroll}
                                     </Button>
+                                    {enrollMutation.isPending && (
+                                        <Box sx={{ mt: 2 }}>
+                                            <LinearProgress />
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                                                {t.members.enrollingHint}
+                                            </Typography>
+                                        </Box>
+                                    )}
                                 </Box>
                             )}
 
@@ -335,6 +344,14 @@ export const FaceEnrollment: React.FC = () => {
                                     >
                                         {enrollMutation.isPending ? t.members.processing : t.members.captureEnroll}
                                     </Button>
+                                    {enrollMutation.isPending && (
+                                        <Box sx={{ mt: 2 }}>
+                                            <LinearProgress />
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                                                {t.members.enrollingHint}
+                                            </Typography>
+                                        </Box>
+                                    )}
                                 </Box>
                             )}
 
@@ -365,6 +382,14 @@ export const FaceEnrollment: React.FC = () => {
                                     >
                                         {enrollCameraMutation.isPending ? t.members.capturing : t.members.captureFromCamera}
                                     </Button>
+                                    {enrollCameraMutation.isPending && (
+                                        <Box sx={{ mt: 2 }}>
+                                            <LinearProgress />
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                                                {t.members.enrollingHint}
+                                            </Typography>
+                                        </Box>
+                                    )}
                                 </Box>
                             )}
 
