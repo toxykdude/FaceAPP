@@ -61,6 +61,13 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
+class UserListResponse(BaseModel):
+    """Schema for paginated user list."""
+
+    total: int
+    users: list[UserResponse]
+
+
 class Token(BaseModel):
     """JWT token response."""
 
