@@ -249,12 +249,22 @@ def send_scheduled_report(db_session_factory):
 
         # Send to all admin users
         admin_users = db.query(User).filter(User.role == "admin").all()
+        time_label = now.strftime("%I:%M %p")
         for admin in admin_users:
             if admin.email:
+                subject = (
+                    f"PowerHouse Gym Report - {time_label} - "
+                    f"{sales_count} sales, {len(new_members)} new members"
+                )
+                body = (
+                    f"PowerHouse Gym Report: {sales_count} sales "
+                    f"(${sales_total:,.0f}), {len(new_members)} new members, "
+                    f"{len(recognized_expired)} expired members recognized."
+                )
                 email_service._send_email(
                     to=admin.email,
-                    subject=f"PowerHouse Gym Report - {now.strftime('%I:%M %p')} - {sales_count} sales, {len(new_members)} new members",
-                    body=f"PowerHouse Gym Report: {sales_count} sales (${sales_total:,.0f}), {len(new_members)} new members, {len(recognized_expired)} expired members recognized.",
+                    subject=subject,
+                    body=body,
                     html=html,
                 )
                 logger.info(f"Report sent to {admin.email}")
