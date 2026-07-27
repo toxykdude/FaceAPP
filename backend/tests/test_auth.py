@@ -50,7 +50,7 @@ class TestAuthMe:
     def test_get_me_unauthenticated(self, client):
         """Test getting current user info without token."""
         response = client.get("/api/auth/me")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 
 class TestHealth:

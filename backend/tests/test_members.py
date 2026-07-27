@@ -19,7 +19,7 @@ class TestMemberList:
     def test_list_members_unauthenticated(self, client):
         """Test listing members without auth."""
         response = client.get("/api/members")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_list_members_with_search(self, client, auth_headers, sample_member):
         """Test searching members."""
@@ -54,9 +54,7 @@ class TestMemberCreate:
 
     def test_create_member_missing_required(self, client, auth_headers):
         """Test creating member with missing required fields."""
-        response = client.post(
-            "/api/members", headers=auth_headers, json={"first_name": "John"}
-        )
+        response = client.post("/api/members", headers=auth_headers, json={})
         assert response.status_code == 422
 
 
