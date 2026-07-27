@@ -170,7 +170,7 @@ export const FaceEnrollment: React.FC = () => {
             }
         } catch (err) {
             console.error("Webcam Request Error:", err);
-            alert("Could not access webcam. Please check permissions.");
+            alert(t.members.webcamAccessError);
         }
     };
 
@@ -424,21 +424,26 @@ export const FaceEnrollment: React.FC = () => {
                                                 <Step completed={tabletStatus !== 'creating'}>
                                                     <StepLabel>{t.members.tabletRequestSent}</StepLabel>
                                                 </Step>
-                                                <Step completed={tabletStatus === 'processing' || (tabletStatus as string) === 'complete' || (tabletStatus as string) === 'failed'}>
+                                                {/* This Stepper only renders while tabletStatus is
+                                                    creating/pending/processing (see the guard above) — it is
+                                                    replaced by a dedicated success/failure screen once the
+                                                    request resolves, so "completed" here never needs to check
+                                                    for the 'complete'/'failed' statuses. */}
+                                                <Step completed={tabletStatus === 'processing'}>
                                                     <StepLabel StepIconComponent={() => (
                                                         tabletStatus === 'pending' ? <CircularProgress size={20} /> : undefined
                                                     )}>
                                                         {t.members.tabletWaiting}
                                                     </StepLabel>
                                                 </Step>
-                                                <Step completed={(tabletStatus as string) === 'complete'}>
+                                                <Step>
                                                     <StepLabel StepIconComponent={() => (
                                                         tabletStatus === 'processing' ? <CircularProgress size={20} /> : undefined
                                                     )}>
                                                         {t.members.tabletCapturing}
                                                     </StepLabel>
                                                 </Step>
-                                                <Step completed={(tabletStatus as string) === 'complete'}>
+                                                <Step>
                                                     <StepLabel>{t.members.tabletCompleted}</StepLabel>
                                                 </Step>
                                             </Stepper>
@@ -502,7 +507,7 @@ export const FaceEnrollment: React.FC = () => {
                                                     setTabletResultMessage(null);
                                                 }}
                                             >
-                                                Reintentar
+                                                {t.members.retry}
                                             </Button>
                                         </Box>
                                     )}
@@ -521,7 +526,7 @@ export const FaceEnrollment: React.FC = () => {
                                                     setTabletResultMessage(null);
                                                 }}
                                             >
-                                                Reintentar
+                                                {t.members.retry}
                                             </Button>
                                         </Box>
                                     )}
