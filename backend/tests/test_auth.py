@@ -1,5 +1,7 @@
 """Tests for authentication endpoints."""
 
+import os
+
 import pytest
 
 
@@ -8,8 +10,11 @@ class TestLogin:
 
     def test_login_success(self, client, admin_user):
         """Test successful login with valid credentials."""
+        # ADMIN_PASSWORD is set by CI (ci-admin-password); default is admin123
+        # for local dev. Read from env so the test works in both contexts.
+        password = os.getenv("ADMIN_PASSWORD", "admin123")
         response = client.post(
-            "/api/auth/login", json={"username": "admin", "password": "admin123"}
+            "/api/auth/login", json={"username": "admin", "password": password}
         )
         assert response.status_code == 200
         data = response.json()
@@ -50,7 +55,7 @@ class TestAuthMe:
     def test_get_me_unauthenticated(self, client):
         """Test getting current user info without token."""
         response = client.get("/api/auth/me")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 
 class TestHealth:

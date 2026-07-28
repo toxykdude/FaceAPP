@@ -2,7 +2,6 @@
 User management API endpoints.
 """
 
-from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -10,12 +9,18 @@ from datetime import datetime, timezone
 from api.deps import get_db, require_admin, get_current_user
 from core.security import get_password_hash, verify_password
 from models.user import User
-from schemas.user import UserCreate, UserUpdate, UserResponse, PasswordChange
+from schemas.user import (
+    UserCreate,
+    UserUpdate,
+    UserResponse,
+    UserListResponse,
+    PasswordChange,
+)
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.get("", response_model=List[UserResponse])
+@router.get("", response_model=UserListResponse)
 def get_users(
     skip: int = 0,
     limit: int = 100,
@@ -25,10 +30,13 @@ def get_users(
     """
     Get all users.
 
-    Requires admin role.
+    Requires admin role. Returns a paginated wrapper consistent with the
+    other list endpoints (members, sales, events, cameras).
     """
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
+    query = db.query(User)
+    total = query.count()
+    users = query.order_by(User.created_at.desc()).offset(skip).limit(limit).all()
+    return {"total": total, "users": users}
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
