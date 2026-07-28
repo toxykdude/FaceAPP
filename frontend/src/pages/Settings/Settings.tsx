@@ -31,9 +31,11 @@ import {
     People as PeopleIcon,
     Image as ImageIcon,
     Download as DownloadIcon,
+    CloudUpload as CloudUploadIcon,
 } from '@mui/icons-material';
 import { settingsApi } from '@/api/settings';
 import { UserManagement } from '@/components/UserManagement';
+import { SettingsBackupTab } from '@/components/settings/SettingsBackupTab';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -257,6 +259,9 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     <Tab icon={<MembershipIcon />} label={t.settings.membership} />
                     <Tab icon={<StorageIcon />} label={t.settings.system} />
                     <Tab icon={<PeopleIcon />} label={t.settings.users} />
+                    {user?.role === 'admin' && (
+                        <Tab icon={<CloudUploadIcon />} label={t.settings.backup} />
+                    )}
                 </Tabs>
 
                 <Box sx={{ p: { xs: 2, sm: 4 } }}>
@@ -345,34 +350,37 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     )}
                     {activeTab === 1 && renderCategory('access')}
                     {activeTab === 2 && renderCategory('membership')}
-                    {activeTab === 3 && (
+                    {activeTab === 3 && renderCategory('system')}
+                    {activeTab === 4 && <UserManagement />}
+                    {activeTab === 5 && user?.role === 'admin' && (
                         <Box>
-                            {user?.role === 'admin' && (
-                                <Paper sx={{ p: 3, mb: 3 }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                        <StorageIcon color="primary" />
-                                        <Typography variant="h6">{t.settings.exportDb}</Typography>
-                                    </Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        {t.settings.exportDbHelp}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                                        {t.settings.backupRemoteStatus}: systemd timer (30 min)
-                                    </Typography>
-                                    <Button
-                                        variant="outlined"
-                                        startIcon={<DownloadIcon />}
-                                        disabled={exportingDb}
-                                        onClick={handleExportDb}
-                                    >
-                                        {t.settings.exportDb}
-                                    </Button>
-                                </Paper>
-                            )}
-                            {renderCategory('system')}
+                            {/* Export Database — admin-only convenience block.
+                                Moved here from the System tab so all backup
+                                controls live together. The server enforces
+                                require_admin independently. */}
+                            <Paper sx={{ p: 3, mb: 3 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                    <StorageIcon color="primary" />
+                                    <Typography variant="h6">{t.settings.exportDb}</Typography>
+                                </Box>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                    {t.settings.exportDbHelp}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                                    {t.settings.backupRemoteStatus}: systemd timer (30 min)
+                                </Typography>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<DownloadIcon />}
+                                    disabled={exportingDb}
+                                    onClick={handleExportDb}
+                                >
+                                    {t.settings.exportDb}
+                                </Button>
+                            </Paper>
+                            <SettingsBackupTab />
                         </Box>
                     )}
-                    {activeTab === 4 && <UserManagement />}
                 </Box>
             </Paper>
         </Box>

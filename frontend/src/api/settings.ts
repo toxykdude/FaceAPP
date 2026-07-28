@@ -13,6 +13,41 @@ export interface SettingUpdate {
     description?: string;
 }
 
+/**
+ * Masked remote-backup configuration as returned by the admin-only
+ * GET /system/backup-config. `has_password` is the only password signal —
+ * plaintext/ciphertext are never exposed.
+ */
+export interface BackupConfig {
+    type: string;
+    host: string;
+    port: number | null;
+    share: string;
+    path: string;
+    username: string;
+    has_password: boolean;
+}
+
+/**
+ * Write payload for PUT /system/backup-config. `password` omitted or "" keeps
+ * the stored secret (keep-sentinel); any non-empty value replaces it.
+ */
+export interface BackupConfigInput {
+    type: string;
+    host?: string;
+    port?: number | null;
+    share?: string;
+    path?: string;
+    username?: string;
+    password?: string;
+}
+
+/** Sanitized connection-probe result from POST /system/backup-config/test. */
+export interface BackupTestResult {
+    ok: boolean;
+    message: string;
+}
+
 export const settingsApi = {
     getAll: async () => {
         const response = await apiClient.get<Setting[]>('/settings');
@@ -51,6 +86,30 @@ export const settingsApi = {
         const response = await apiClient.get('/system/db-export', {
             responseType: 'blob',
         });
+        return response.data;
+    },
+    /**
+     * Fetch the masked remote-backup configuration (admin-only).
+     * Never returns the password or its ciphertext.
+     */
+    getBackupConfig: async (): Promise<BackupConfig> => {
+        const response = await apiClient.get<BackupConfig>('/system/backup-config');
+        return response.data;
+    },
+    /**
+     * Persist the remote-backup configuration (admin-only). Send an empty/omitted
+     * `password` to keep the current secret; any other value replaces it.
+     */
+    putBackupConfig: async (data: BackupConfigInput): Promise<BackupConfig> => {
+        const response = await apiClient.put<BackupConfig>('/system/backup-config', data);
+        return response.data;
+    },
+    /**
+     * Run the bounded, sanitized connection probe against the stored
+     * configuration (admin-only). Returns {ok, message} with no secrets/banners.
+     */
+    testBackupConfig: async (): Promise<BackupTestResult> => {
+        const response = await apiClient.post<BackupTestResult>('/system/backup-config/test');
         return response.data;
     },
 };
