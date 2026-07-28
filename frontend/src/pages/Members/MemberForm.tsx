@@ -31,8 +31,11 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
 } from '@mui/material';
-import { PhotoCamera, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { PhotoCamera, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
 import { membershipsApi } from '@/api/memberships';
 import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
@@ -365,6 +368,13 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         return [...memberships].sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime());
     }, [memberships]);
 
+    // Spec: Membership History Visibility Threshold — the two most-recent
+    // records stay visible; records three through fifty collapse into a single
+    // MUI Accordion rendered below. The query is capped at 50 (see useQuery).
+    const visibleMemberships = sortedMemberships.slice(0, 2);
+    const olderMemberships = sortedMemberships.slice(2, 50);
+    const [olderExpanded, setOlderExpanded] = React.useState(false);
+
     const { data: plansData } = useQuery({
         queryKey: ['membershipPlans', 'active'],
         queryFn: () => membershipPlansApi.getPlans(true)
@@ -556,6 +566,142 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         }
     };
 
+    // Renders a single membership row. Shared by the visible list and the
+    // older-history accordion so edit/renew/delete actions and their auth
+    // rules stay identical across both regions.
+    const renderMembershipRow = (m: MembershipHistoryItem) => (
+        <Paper
+            key={m.id}
+            variant="outlined"
+            sx={{
+                p: 2,
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                alignItems: { xs: 'flex-start', sm: 'center' },
+                justifyContent: 'space-between',
+                gap: 2,
+            }}
+        >
+            <Box sx={{ flex: 1 }}>
+                <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
+                    <Typography variant="subtitle1" fontWeight="bold">
+                        {m.plan_name || m.type}
+                    </Typography>
+                    {getStatusChip(m.status)}
+                </Box>
+                {editingMembership?.id === m.id ? (
+                    <Box display="flex" flexDirection="column" gap={1.5} mt={1} mb={0.5}>
+                        <Typography variant="caption" color="textSecondary">
+                            {t.members.editDatesDesc}
+                        </Typography>
+                        <Grid container spacing={1}>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label={t.members.startDate}
+                                    type="date"
+                                    value={editStartDate}
+                                    onChange={(e) => setEditStartDate(e.target.value)}
+                                    fullWidth
+                                    size="small"
+                                    InputLabelProps={{ shrink: true }}
+                                />
+                            </Grid>
+                            <Grid item xs={6}>
+                                <TextField
+                                    label={t.members.endDate}
+                                    type="date"
+                                    value={editEndDate}
+                                    onChange={(e) => setEditEndDate(e.target.value)}
+                                    fullWidth
+                                    size="small"
+                                    InputLabelProps={{ shrink: true }}
+                                />
+                            </Grid>
+                            <Grid item xs={12}>
+                                <TextField
+                                    label={t.members.planPrice}
+                                    type="number"
+                                    value={editPrice}
+                                    onChange={(e) => setEditPrice(e.target.value)}
+                                    fullWidth
+                                    size="small"
+                                    InputProps={{
+                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                    }}
+                                />
+                            </Grid>
+                        </Grid>
+                        <Box display="flex" gap={1} justifyContent="flex-end">
+                            <Button
+                                size="small"
+                                variant="text"
+                                onClick={handleCancelEdit}
+                                sx={{ minHeight: 36 }}
+                            >
+                                {t.members.cancel}
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="contained"
+                                onClick={handleSaveEdit}
+                                disabled={editMutation.isPending}
+                                sx={{ minHeight: 36 }}
+                            >
+                                {editMutation.isPending ? '...' : t.members.saveChanges}
+                            </Button>
+                        </Box>
+                    </Box>
+                ) : (
+                    <>
+                        <Typography variant="body2" color="textSecondary">
+                            {formatDate(m.start_date)} {'\u2192'} {formatDate(m.end_date)}
+                        </Typography>
+                        <Typography variant="body2" fontWeight="500">
+                            ${Number(m.price).toLocaleString()}
+                        </Typography>
+                    </>
+                )}
+            </Box>
+            {editingMembership?.id !== m.id && (
+                <Box display="flex" gap={1} flexShrink={0}>
+                    {isAdmin && (
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            color="primary"
+                            aria-label={t.members.edit}
+                            onClick={() => handleEdit(m)}
+                            sx={{ minWidth: 36, minHeight: 44, px: 1 }}
+                        >
+                            <EditIcon fontSize="small" />
+                        </Button>
+                    )}
+                    {isAdmin && (
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            color="error"
+                            aria-label={t.members.delete}
+                            onClick={() => setDeleteTarget(m)}
+                            sx={{ minWidth: 36, minHeight: 44, px: 1 }}
+                        >
+                            <DeleteIcon fontSize="small" />
+                        </Button>
+                    )}
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
+                        onClick={() => handleRenew(m)}
+                        sx={{ minWidth: 44, minHeight: 44 }}
+                    >
+                        {t.members.renew}
+                    </Button>
+                </Box>
+            )}
+        </Paper>
+    );
+
     return (
         <Card sx={{ mt: 3 }}>
             <CardContent sx={{ p: { xs: 2, md: 3 } }}>
@@ -574,138 +720,31 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                                 {t.members.noMembershipsFound}
                             </Typography>
                         ) : (
+                            <>
                             <Box display="flex" flexDirection="column" gap={1.5}>
-                                {sortedMemberships.map((m) => (
-                                    <Paper
-                                        key={m.id}
-                                        variant="outlined"
-                                        sx={{
-                                            p: 2,
-                                            display: 'flex',
-                                            flexDirection: { xs: 'column', sm: 'row' },
-                                            alignItems: { xs: 'flex-start', sm: 'center' },
-                                            justifyContent: 'space-between',
-                                            gap: 2,
-                                        }}
-                                    >
-                                        <Box sx={{ flex: 1 }}>
-                                            <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
-                                                <Typography variant="subtitle1" fontWeight="bold">
-                                                    {m.plan_name || m.type}
-                                                </Typography>
-                                                {getStatusChip(m.status)}
-                                            </Box>
-                                            {editingMembership?.id === m.id ? (
-                                                <Box display="flex" flexDirection="column" gap={1.5} mt={1} mb={0.5}>
-                                                    <Typography variant="caption" color="textSecondary">
-                                                        {t.members.editDatesDesc}
-                                                    </Typography>
-                                                    <Grid container spacing={1}>
-                                                        <Grid item xs={6}>
-                                                            <TextField
-                                                                label={t.members.startDate}
-                                                                type="date"
-                                                                value={editStartDate}
-                                                                onChange={(e) => setEditStartDate(e.target.value)}
-                                                                fullWidth
-                                                                size="small"
-                                                                InputLabelProps={{ shrink: true }}
-                                                            />
-                                                        </Grid>
-                                                        <Grid item xs={6}>
-                                                            <TextField
-                                                                label={t.members.endDate}
-                                                                type="date"
-                                                                value={editEndDate}
-                                                                onChange={(e) => setEditEndDate(e.target.value)}
-                                                                fullWidth
-                                                                size="small"
-                                                                InputLabelProps={{ shrink: true }}
-                                                            />
-                                                        </Grid>
-                                                        <Grid item xs={12}>
-                                                            <TextField
-                                                                label={t.members.planPrice}
-                                                                type="number"
-                                                                value={editPrice}
-                                                                onChange={(e) => setEditPrice(e.target.value)}
-                                                                fullWidth
-                                                                size="small"
-                                                                InputProps={{
-                                                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                                }}
-                                                            />
-                                                        </Grid>
-                                                    </Grid>
-                                                    <Box display="flex" gap={1} justifyContent="flex-end">
-                                                        <Button
-                                                            size="small"
-                                                            variant="text"
-                                                            onClick={handleCancelEdit}
-                                                            sx={{ minHeight: 36 }}
-                                                        >
-                                                            {t.members.cancel}
-                                                        </Button>
-                                                        <Button
-                                                            size="small"
-                                                            variant="contained"
-                                                            onClick={handleSaveEdit}
-                                                            disabled={editMutation.isPending}
-                                                            sx={{ minHeight: 36 }}
-                                                        >
-                                                            {editMutation.isPending ? '...' : t.members.saveChanges}
-                                                        </Button>
-                                                    </Box>
-                                                </Box>
-                                            ) : (
-                                                <>
-                                                    <Typography variant="body2" color="textSecondary">
-                                                        {formatDate(m.start_date)} {'\u2192'} {formatDate(m.end_date)}
-                                                    </Typography>
-                                                    <Typography variant="body2" fontWeight="500">
-                                                        ${Number(m.price).toLocaleString()}
-                                                    </Typography>
-                                                </>
-                                            )}
-                                        </Box>
-                                        {editingMembership?.id !== m.id && (
-                                            <Box display="flex" gap={1} flexShrink={0}>
-                                                {isAdmin && (
-                                                    <Button
-                                                        variant="outlined"
-                                                        size="small"
-                                                        color="primary"
-                                                        onClick={() => handleEdit(m)}
-                                                        sx={{ minWidth: 36, minHeight: 44, px: 1 }}
-                                                    >
-                                                        <EditIcon fontSize="small" />
-                                                    </Button>
-                                                )}
-                                                {isAdmin && (
-                                                    <Button
-                                                        variant="outlined"
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => setDeleteTarget(m)}
-                                                        sx={{ minWidth: 36, minHeight: 44, px: 1 }}
-                                                    >
-                                                        <DeleteIcon fontSize="small" />
-                                                    </Button>
-                                                )}
-                                                <Button
-                                                    variant="outlined"
-                                                    size="small"
-                                                    color={m.status === 'active' ? 'success' : m.status === 'expired' ? 'warning' : 'primary'}
-                                                    onClick={() => handleRenew(m)}
-                                                    sx={{ minWidth: 44, minHeight: 44 }}
-                                                >
-                                                    {t.members.renew}
-                                                </Button>
-                                            </Box>
-                                        )}
-                                    </Paper>
-                                ))}
+                                {visibleMemberships.map(renderMembershipRow)}
                             </Box>
+                            {olderMemberships.length > 0 && (
+                                <Accordion
+                                    expanded={olderExpanded}
+                                    onChange={(_, isExpanded) => setOlderExpanded(isExpanded)}
+                                    sx={{ mt: 1 }}
+                                >
+                                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                        <Typography>
+                                            {olderExpanded
+                                                ? t.members.hideOlderMemberships
+                                                : t.members.olderMemberships.replace('{count}', String(olderMemberships.length))}
+                                        </Typography>
+                                    </AccordionSummary>
+                                    <AccordionDetails>
+                                        <Box display="flex" flexDirection="column" gap={1.5}>
+                                            {olderMemberships.map(renderMembershipRow)}
+                                        </Box>
+                                    </AccordionDetails>
+                                </Accordion>
+                            )}
+                            </>
                         )}
 
                         <Button
