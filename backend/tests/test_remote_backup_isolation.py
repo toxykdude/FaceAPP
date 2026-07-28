@@ -155,6 +155,10 @@ class TestRemoteBackupIsolation:
             "remote" in log_text.lower()
         ), f"remote-failure warning missing from log:\n{log_text}"
 
+        # The transport's REAL exit code reached the warning (not masked to
+        # rc=0 by the if-construct bug) — the mocked rsync exits 23.
+        assert "rc=23" in log_text, f"real rsync rc missing from log:\n{log_text}"
+
         # Credential isolation: no secret token ever reaches the log.
         assert (
             "SMB-SECRET-TOKEN" not in log_text
@@ -223,6 +227,13 @@ exit 7
 
 _MOCK_SMBCLIENT_FAIL = """#!/usr/bin/env bash
 exit 1
+"""
+
+# smbclient mock that emits the well-known auth-failure protocol line on
+# stderr and exits with a non-zero transport code.
+_MOCK_SMBCLIENT_RC7 = """#!/usr/bin/env bash
+echo 'session setup failed: NT_STATUS_LOGON_FAILURE' >&2
+exit 7
 """
 
 _MOCK_NOOP = """#!/usr/bin/env bash
@@ -511,6 +522,42 @@ class TestBackupDatabaseUrlOverride:
         assert self._flag_value(tokens, "-d") == "membership_db"
         pgpassword = (cfg["marker_dir"] / "pg_dump.pgpassword").read_text()
         assert pgpassword == "DBPASS-SECRET"
+
+
+class TestSmbFailureReportsRealExitCode:
+    """Locks real-rc propagation for the SMB transport: smbclient's own exit
+    code MUST reach the WARNING log line, never masked to rc=0 by the
+    if-construct bug. The failure stays warn-only and the SMB_PASS canary
+    must never reach the log.
+    """
+
+    def test_smb_failure_logs_real_rc_and_hides_secret(self, make_env):
+        cfg = make_env(transport="smb", with_smbclient=True)
+        env = cfg["env"]
+        env["SMB_SHARE"] = "//host/share"
+        env["SMB_USER"] = "smbuser"
+        env["SMB_PASS"] = "SMB-SECRET-TOKEN"
+        env["SMB_PATH"] = "backups"
+
+        # Replace the fixture's generic smbclient mock with the rc=7 one.
+        bin_dir = Path(env["PATH"].split(":")[0])
+        _write_exec(bin_dir / "smbclient", _MOCK_SMBCLIENT_RC7)
+
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SH)], env=env, capture_output=True, text=True
+        )
+        # Warn-only: the overall backup still succeeds.
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        log_text = cfg["log_file"].read_text()
+
+        # smbclient's real exit code reached the warning, unmasked.
+        assert (
+            "rc=7" in log_text
+        ), f"real smbclient rc masked (if-construct bug?):\n{log_text}"
+
+        # Credential isolation: the canary never reached the log.
+        assert "SMB-SECRET-TOKEN" not in log_text, "SMB_PASS leaked into backup log"
 
 
 class TestFailedRemoteNeverRemovesLocalArtifacts:

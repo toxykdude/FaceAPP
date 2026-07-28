@@ -25,6 +25,8 @@
 #
 # Exit codes: 0 = remote replication succeeded (or intentionally skipped);
 #             non-zero = remote replication failed (caller warns + continues).
+# Transport functions log the transport's real exit code (captured
+# immediately after the command runs unguarded, never from an if-construct).
 
 # NOTE: deliberately NO `set -e` — each transport traps its own failure and
 # returns explicitly so the script never exits before it can warn.
@@ -43,6 +45,7 @@ _log() {
 # rsync
 # ---------------------------------------------------------------------------
 push_rsync() {
+    local rc
     local user="${RSYNC_USER:-}"
     local host="${RSYNC_HOST:-}"
     local path="${RSYNC_PATH:-}"
@@ -63,11 +66,12 @@ push_rsync() {
 
     # RSYNC_PASSWORD (rsync daemon mode) and SSH keys ride in the environment;
     # this script never references or echoes them.
-    if rsync -az --delete-after "$BACKUP_DIR"/ "${target}/" >> "$LOG_FILE" 2>&1; then
+    rsync -az --delete-after "$BACKUP_DIR"/ "${target}/" >> "$LOG_FILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         _log "Remote rsync replication completed"
         return 0
     fi
-    local rc=$?
     # Report only the non-sensitive target (host:path) — never creds.
     _log "WARNING: remote rsync replication failed (rc=${rc}, target='${host:-unknown}:${path}'); local backup retained"
     return 1
@@ -77,6 +81,7 @@ push_rsync() {
 # SMB (smbclient)
 # ---------------------------------------------------------------------------
 push_smb() {
+    local rc
     local share="${SMB_SHARE:-${BACKUP_REMOTE_TARGET:-}}"
     local user="${SMB_USER:-}"
     local pass="${SMB_PASS:-}"
@@ -100,13 +105,14 @@ push_smb() {
     # pass is interpolated into the -U argument only; it is NEVER echoed. We
     # redirect smbclient output to the log so any server banners do not reach
     # the console; smbclient does not echo the password itself.
-    if smbclient "$share" -U "${user}%${pass}" -m SMB3 \
+    smbclient "$share" -U "${user}%${pass}" -m SMB3 \
         -D "$sub" -c "lcd ${BACKUP_DIR}; prompt OFF; recurse ON; mput *" \
-        >> "$LOG_FILE" 2>&1; then
+        >> "$LOG_FILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         _log "Remote SMB replication completed"
         return 0
     fi
-    local rc=$?
     _log "WARNING: remote SMB replication failed (rc=${rc}, share='${share}'); local backup retained"
     return 1
 }
@@ -115,6 +121,7 @@ push_smb() {
 # SFTP (sshpass -e sftp -b)
 # ---------------------------------------------------------------------------
 push_sftp() {
+    local rc
     local host="${SFTP_HOST:-}"
     local port="${SFTP_PORT:-22}"
     local user="${SFTP_USER:-}"
@@ -142,12 +149,13 @@ put -r *
 bye
 EOF
 
-    if sshpass -e sftp -P "$port" "${user}@${host}" -b "$batch" >> "$LOG_FILE" 2>&1; then
+    sshpass -e sftp -P "$port" "${user}@${host}" -b "$batch" >> "$LOG_FILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         rm -f "$batch"
         _log "Remote SFTP replication completed"
         return 0
     fi
-    local rc=$?
     rm -f "$batch"
     _log "WARNING: remote SFTP replication failed (rc=${rc}, host='${host}'); local backup retained"
     return 1
@@ -157,6 +165,8 @@ EOF
 # FTP (curl --netrc-file with a temporary 0600 credential file)
 # ---------------------------------------------------------------------------
 push_ftp() {
+    local rc=0
+    local curl_rc=0
     local host="${FTP_HOST:-}"
     local port="${FTP_PORT:-21}"
     local user="${FTP_USER:-}"
@@ -183,18 +193,17 @@ login ${user}
 password ${pass}
 EOF
 
-    local rc=0
     local f
     for f in "$BACKUP_DIR"/*; do
         [ -f "$f" ] || continue
         # --netrc-file supplies credentials; the URL carries NO userinfo.
-        if ! curl -s --connect-timeout 20 --max-time 120 \
+        curl -s --connect-timeout 20 --max-time 120 \
             --netrc-file "$netrc" \
             -T "$f" \
             "ftp://${host}:${port}/$(basename "$f")" \
-            >> "$LOG_FILE" 2>&1; then
-            rc=${?:-1}
-        fi
+            >> "$LOG_FILE" 2>&1
+        curl_rc=$?
+        [ "$curl_rc" -ne 0 ] && rc=$curl_rc
     done
     rm -f "$netrc"
 
@@ -210,6 +219,7 @@ EOF
 # NFS (pre-mounted directory)
 # ---------------------------------------------------------------------------
 push_nfs() {
+    local rc
     local mount="${NFS_MOUNT:-}"
     if [ -z "$mount" ]; then
         _log "WARNING: nfs remote selected but NFS_MOUNT is empty; skipping remote push"
@@ -221,11 +231,12 @@ push_nfs() {
     fi
     # Plain copy into the OS-managed mount point. No credentials here — NFS
     # auth is handled by the mount itself (sec=sys/krb5 via fstab).
-    if cp -a "$BACKUP_DIR"/. "$mount"/ >> "$LOG_FILE" 2>&1; then
+    cp -a "$BACKUP_DIR"/. "$mount"/ >> "$LOG_FILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         _log "Remote NFS replication completed"
         return 0
     fi
-    local rc=$?
     _log "WARNING: remote NFS replication failed (rc=${rc}, mount='${mount}'); local backup retained"
     return 1
 }
