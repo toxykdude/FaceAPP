@@ -85,7 +85,9 @@ exit 23
     env["ENV_FILE"] = str(tmp_path / "does-not-exist.env")
     env["RETENTION_DAYS"] = "30"
     # Live DB creds (password is a canary for log leakage).
-    env["DATABASE_URL"] = "postgresql://backup_user:DBPASS-SECRET@localhost:5432/membership_db"
+    env["DATABASE_URL"] = (
+        "postgresql://backup_user:DBPASS-SECRET@localhost:5432/membership_db"
+    )
     # Remote config: rsync to an unreachable host.
     env["BACKUP_REMOTE_TYPE"] = "rsync"
     env["RSYNC_USER"] = "bkp"
@@ -141,25 +143,23 @@ class TestRemoteBackupIsolation:
         assert _fresh("checksums_*.txt"), "no checksums file produced this run"
 
         # Retention ran: the seeded 40-day-old dump MUST be gone.
-        assert not old_artifact.exists(), (
-            "retention did not remove an artifact older than RETENTION_DAYS"
-        )
+        assert (
+            not old_artifact.exists()
+        ), "retention did not remove an artifact older than RETENTION_DAYS"
 
         log_text = isolated_env["log_file"].read_text()
 
         # Remote failure was logged as an unsuccessful replication (warn, not
         # fatal). Match either Spanish or English phrasing defensively.
-        assert "remote" in log_text.lower(), (
-            f"remote-failure warning missing from log:\n{log_text}"
-        )
+        assert (
+            "remote" in log_text.lower()
+        ), f"remote-failure warning missing from log:\n{log_text}"
 
         # Credential isolation: no secret token ever reaches the log.
-        assert "SMB-SECRET-TOKEN" not in log_text, (
-            "SMB_PASS value leaked into backup log"
-        )
-        assert "DBPASS-SECRET" not in log_text, (
-            "DB password leaked into backup log"
-        )
+        assert (
+            "SMB-SECRET-TOKEN" not in log_text
+        ), "SMB_PASS value leaked into backup log"
+        assert "DBPASS-SECRET" not in log_text, "DB password leaked into backup log"
 
     def test_remote_disabled_is_noop_and_exits_zero(self, isolated_env):
         """Triangulation: BACKUP_REMOTE_TYPE=none must skip remote entirely
@@ -176,7 +176,11 @@ class TestRemoteBackupIsolation:
         assert proc.returncode == 0, proc.stdout + proc.stderr
 
         backup_dir = isolated_env["backup_dir"]
-        fresh = [p for p in backup_dir.glob("db_backup_*.dump") if p.stat().st_mtime >= run_start]
+        fresh = [
+            p
+            for p in backup_dir.glob("db_backup_*.dump")
+            if p.stat().st_mtime >= run_start
+        ]
         assert fresh, "no local .dump produced in none-mode"
         log_text = isolated_env["log_file"].read_text()
         # No secret leakage even in the no-op path.

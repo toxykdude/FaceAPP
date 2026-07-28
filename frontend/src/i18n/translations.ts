@@ -362,6 +362,9 @@ export const translations = {
       fullName: 'Nombre Completo',
       darkMode: 'Modo Oscuro',
       lightMode: 'Modo Claro',
+      exportDb: 'Exportar base de datos',
+      exportDbHelp: 'Descarga un volcado fresco de la base de datos (formato personalizado de PostgreSQL). Incluye datos biométricos encriptados; uso restringido a administradores.',
+      backupRemoteStatus: 'Estado del respaldo remoto',
     },
     login: {
       title: 'Iniciar Sesión',
@@ -803,6 +806,9 @@ export const translations = {
       fullName: 'Full Name',
       darkMode: 'Dark Mode',
       lightMode: 'Light Mode',
+      exportDb: 'Export Database',
+      exportDbHelp: 'Download a fresh database dump (PostgreSQL custom format). Includes encrypted biometric data; admin-only.',
+      backupRemoteStatus: 'Remote backup status',
     },
     login: {
       title: 'Sign In',
