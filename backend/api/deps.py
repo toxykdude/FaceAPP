@@ -14,7 +14,10 @@ from models.user import User, UserRole
 from models.member import Member
 
 # Security scheme
-security = HTTPBearer()
+# auto_error=False so we control the response: HTTPBearer's default raises
+# 403 Forbidden on missing credentials, but RFC 7235 mandates 401 Unauthorized
+# for missing/invalid auth. We raise 401 explicitly below.
+security = HTTPBearer(auto_error=False)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -50,6 +53,11 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # HTTPBearer(auto_error=False) yields None when no Authorization header
+    # is present. Convert to explicit 401 (not the default 403).
+    if credentials is None:
+        raise credentials_exception
 
     # Decode token
     token = credentials.credentials
@@ -147,6 +155,11 @@ async def get_current_member(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # HTTPBearer(auto_error=False) yields None when no Authorization header
+    # is present. Convert to explicit 401 (not the default 403).
+    if credentials is None:
+        raise credentials_exception
 
     token = credentials.credentials
     payload = decode_access_token(token)
