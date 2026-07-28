@@ -45,13 +45,19 @@ export interface PasswordChange {
     new_password: string;
 }
 
+/** Paginated wrapper returned by GET /users. */
+export interface UserListResponse {
+    total: number;
+    users: User[];
+}
+
 export const usersApi = {
     /**
      * Get all users.
      */
     getUsers: async (): Promise<User[]> => {
-        const response = await apiClient.get<User[]>('/users');
-        return response.data;
+        const response = await apiClient.get<UserListResponse>('/users');
+        return response.data.users;
     },
 
     /**

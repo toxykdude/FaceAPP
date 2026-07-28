@@ -52,6 +52,24 @@ PROBE_HARD_TIMEOUT = 30  # safety net above the 20s coreutil deadline
 
 _DEFAULT_PORTS = {"sftp": 22, "ftp": 21}
 
+# Controlled vocabulary for SMB probe failures. Well-known NT_STATUS_*
+# protocol codes found in the probe log map to operator-actionable reason
+# phrases; only the mapped phrase is surfaced — never the raw code or any
+# remote banner text (spec "Bounded Sanitized Connection Test").
+_NT_STATUS_REASONS = {
+    "NT_STATUS_LOGON_FAILURE": "authentication failed - check username and password",
+    "NT_STATUS_BAD_NETWORK_NAME": "share not found on the server",
+    "NT_STATUS_ACCESS_DENIED": "access denied - check share and folder permissions",
+    "NT_STATUS_OBJECT_PATH_NOT_FOUND": "remote subfolder does not exist on the share",
+    "NT_STATUS_OBJECT_NAME_NOT_FOUND": "remote subfolder does not exist on the share",
+    "NT_STATUS_HOST_UNREACHABLE": "host unreachable",
+    "NT_STATUS_IO_TIMEOUT": "connection timed out",
+    "NT_STATUS_NETWORK_UNREACHABLE": "network unreachable",
+    "NT_STATUS_CONNECTION_REFUSED": "connection refused - SMB service not listening",
+    "NT_STATUS_REVISION_MISMATCH": "SMB protocol version mismatch",
+}
+_NT_STATUS_RE = re.compile(r"NT_STATUS_[A-Z0-9_]+")
+
 # remote_push.sh lives at <repo>/scripts/remote_push.sh; this module is at
 # <repo>/backend/services/backup_config.py.
 REMOTE_PUSH_SH = Path(__file__).resolve().parents[2] / "scripts" / "remote_push.sh"
@@ -366,13 +384,15 @@ def run_probe(db: Session) -> dict:
                 timeout=PROBE_HARD_TIMEOUT,
             )
             rc = completed.returncode
-            last_line = _last_log_line(log_file, completed)
+            log_text = _read_log_text(log_file, completed)
         except subprocess.TimeoutExpired:
             # The hard safety net fired before the coreutil could — still a
             # bounded, sanitized timeout outcome.
             return {"ok": False, "message": "probe timed out"}
 
-    message = _sanitize_message(last_line, rc, cfg)
+    lines = [ln for ln in log_text.splitlines() if ln.strip()]
+    last_line = lines[-1] if lines else ""
+    message = _sanitize_message(last_line, rc, cfg, log_text=log_text)
     return {"ok": rc == 0, "message": message}
 
 
@@ -416,26 +436,49 @@ def _build_probe_env(cfg: dict, backup_dir: str, log_file: str) -> dict:
     return env
 
 
-def _last_log_line(log_path: str, completed) -> str:
-    """Last non-empty line from the probe log, falling back to captured I/O."""
+def _read_log_text(log_path: str, completed) -> str:
+    """Full probe log text, falling back to captured I/O."""
     text = ""
     p = Path(log_path)
     if p.exists():
         text = p.read_text()
     if not text.strip():
         text = (completed.stderr or "") + "\n" + (completed.stdout or "")
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    return lines[-1] if lines else ""
+    return text
 
 
-def _sanitize_message(raw: str, rc: int, cfg: dict) -> str:
-    """Scrub host/user/path/share/password tokens; bound to 200 chars."""
+def _nt_status_reason(log_text: str) -> str:
+    """Map the first known NT_STATUS_* protocol code to a controlled reason phrase.
+
+    Only the mapped phrase is surfaced — never the raw code or remote error
+    text (spec: sanitized message, no remote banners).
+    """
+    for code in _NT_STATUS_RE.findall(log_text or ""):
+        reason = _NT_STATUS_REASONS.get(code)
+        if reason:
+            return reason
+    return ""
+
+
+def _sanitize_message(raw: str, rc: int, cfg: dict, log_text: str = "") -> str:
+    """Scrub host/user/path/share/password and NT_STATUS_* tokens; <=200 chars.
+
+    On a failed probe, a known NT_STATUS_* code found in the full probe log
+    appends a controlled reason phrase to the base line. The composed message
+    then passes through the scrubbers below, which mask every raw NT_STATUS_*
+    token — only the mapped reason phrase is surfaced, never the raw code.
+    """
     if rc == 0:
         base = "connection succeeded"
     elif rc == PROBE_TIMEOUT_RC:
         base = "probe timed out after 20s"
     else:
         base = raw or "remote push failed"
+
+    if rc not in (0, PROBE_TIMEOUT_RC):
+        reason = _nt_status_reason(log_text)
+        if reason:
+            base = f"{base}: {reason}" if base else reason
 
     secrets = [
         cfg.get("host"),
@@ -450,5 +493,8 @@ def _sanitize_message(raw: str, rc: int, cfg: dict) -> str:
             msg = msg.replace(str(s), "***")
     # Scrub any lingering key=value credential patterns.
     msg = re.sub(r"(?i)(password|passwd|secret|token)\s*[=:]\s*\S+", "***", msg)
+    # Scrub raw NT_STATUS_* protocol codes from the composed message; the
+    # mapped reason phrase carries no such token, so it survives untouched.
+    msg = _NT_STATUS_RE.sub("***", msg)
     msg = re.sub(r"\s+", " ", msg).strip()
     return msg[:200]

@@ -161,6 +161,25 @@ class TestProbeOutcome:
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
 
+    def test_probe_smb_failure_surfaces_controlled_reason(self, auth_client, env_path):
+        """An NT_STATUS_* code in the probe log maps to a controlled reason
+        phrase. The raw protocol code must NOT leak into the message (spec:
+        sanitized message, no remote banners)."""
+        _seed_sftp(auth_client, env_path)
+        with patch(
+            "services.backup_config.subprocess.run",
+            side_effect=_make_fake(
+                returncode=1,
+                line="session setup failed: NT_STATUS_LOGON_FAILURE (fa.ke)",
+            ),
+        ):
+            resp = auth_client.post(TEST_URL)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert "authentication failed" in body["message"]
+        assert "NT_STATUS_LOGON_FAILURE" not in body["message"]
+
     def test_secret_travels_via_env_not_argv(self, auth_client, env_path):
         _seed_sftp(auth_client, env_path)
         with patch(
