@@ -185,3 +185,335 @@ class TestRemoteBackupIsolation:
         log_text = isolated_env["log_file"].read_text()
         # No secret leakage even in the no-op path.
         assert "DBPASS-SECRET" not in log_text
+
+
+# ---------------------------------------------------------------------------
+# Mocked binaries for the new transports (sftp/ftp/smb).
+# Each records its argv into MOCK_MARKER_DIR so tests can prove secrets
+# travelled env-only / netrc-only and never reached argv or logs.
+# ---------------------------------------------------------------------------
+
+_MOCK_PG_DUMP = """#!/usr/bin/env bash
+f=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-f" ]; then f="$a"; fi
+  prev="$a"
+done
+[ -z "$f" ] && { echo 'mock pg_dump: no -f target' >&2; exit 1; }
+printf 'PGDMP mock-dump-body' > "$f"
+"""
+
+_MOCK_RSYNC_FAIL = """#!/usr/bin/env bash
+echo 'rsync: failed to connect (Name or service not known)' >&2
+exit 23
+"""
+
+# sshpass mock: records argv (SSHPASS must be env-only, never argv), then fails.
+_MOCK_SSHPASS = """#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${MOCK_MARKER_DIR}/sshpass.argv"
+exit 5
+"""
+
+# curl mock: records argv (FTP creds must live in --netrc-file, never argv/URL).
+_MOCK_CURL = """#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${MOCK_MARKER_DIR}/curl.argv"
+exit 7
+"""
+
+_MOCK_SMBCLIENT_FAIL = """#!/usr/bin/env bash
+exit 1
+"""
+
+_MOCK_NOOP = """#!/usr/bin/env bash
+exit 0
+"""
+
+
+@pytest.fixture
+def make_env(tmp_path):
+    """Factory: build an isolated env + mocked binaries for one transport.
+
+    ``with_smbclient=False`` simulates a fresh install where smbclient is NOT
+    installed (the D9 pre-flight path). The factory is transport-agnostic;
+    callers set the transport-specific env vars they need.
+    """
+
+    counter = {"n": 0}
+
+    def _build(*, transport, with_smbclient=False):
+        counter["n"] += 1
+        tag = f"{transport}-{counter['n']}"
+        backup_dir = tmp_path / f"bk-{tag}"
+        data_dir = tmp_path / "data"
+        log_file = tmp_path / f"backup-{tag}.log"
+        bin_dir = tmp_path / "bin"
+        marker_dir = tmp_path / f"markers-{tag}"
+
+        backup_dir.mkdir()
+        if not (data_dir / "biometric_data").exists():
+            (data_dir / "biometric_data").mkdir(parents=True)
+            (data_dir / "biometric_data" / "template.bin").write_bytes(b"\x00\x01\x02")
+        bin_dir.mkdir()
+        marker_dir.mkdir()
+
+        _write_exec(bin_dir / "pg_dump", _MOCK_PG_DUMP)
+        _write_exec(bin_dir / "rsync", _MOCK_RSYNC_FAIL)
+        _write_exec(bin_dir / "sshpass", _MOCK_SSHPASS)
+        _write_exec(
+            bin_dir / "sftp", _MOCK_NOOP
+        )  # sshpass execs sftp; mock fails at sshpass
+        _write_exec(bin_dir / "curl", _MOCK_CURL)
+        if with_smbclient:
+            _write_exec(bin_dir / "smbclient", _MOCK_SMBCLIENT_FAIL)
+        # else: smbclient deliberately absent -> D9 pre-flight must catch it.
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["BACKUP_DIR"] = str(backup_dir)
+        env["DATA_DIR"] = str(data_dir)
+        env["LOG_FILE"] = str(log_file)
+        env["ENV_FILE"] = str(tmp_path / "no-such-env")
+        env["RETENTION_DAYS"] = "30"
+        env["MOCK_MARKER_DIR"] = str(marker_dir)
+        env["DATABASE_URL"] = (
+            "postgresql://backup_user:DBPASS-SECRET@localhost:5432/membership_db"
+        )
+        env["BACKUP_REMOTE_TYPE"] = transport
+
+        return {
+            "env": env,
+            "backup_dir": backup_dir,
+            "log_file": log_file,
+            "marker_dir": marker_dir,
+        }
+
+    return _build
+
+
+def _seed_recent(backup_dir: Path, name: str, body: bytes) -> Path:
+    """Seed a recent (retention-safe) artifact that must survive a failed push."""
+    f = backup_dir / name
+    f.write_bytes(body)
+    return f
+
+
+class TestSmbMissingSmbclient:
+    """Spec: remote-backup/spec.md — 'Fresh-Install SMB Dependency'.
+
+    When smbclient is unavailable, SMB replication MUST fail warn-only with a
+    warning that names ``samba-client`` (design D9), and local backup success
+    MUST be preserved. The password-bearing ``-U user%pass`` argv MUST NEVER be
+    built, so no credential can reach bash's 'command not found' output.
+    """
+
+    def test_smb_missing_smbclient_warns_samba_client(self, make_env):
+        cfg = make_env(transport="smb", with_smbclient=False)
+        env = cfg["env"]
+        env["SMB_SHARE"] = "//host/share"
+        env["SMB_USER"] = "smbuser"
+        env["SMB_PASS"] = "SMB-SECRET-TOKEN"
+        env["SMB_PATH"] = "backups"
+
+        old_artifact = _seed_old_artifact(cfg["backup_dir"])
+        run_start = time.time()
+
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SH)], env=env, capture_output=True, text=True
+        )
+        # Warn-only: the overall backup still succeeds.
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        log_text = cfg["log_file"].read_text()
+
+        # The warning identifies the exact install package.
+        assert (
+            "samba-client" in log_text
+        ), f"missing-tool warning must name 'samba-client':\n{log_text}"
+
+        # Fresh local artifacts were produced despite the missing tool.
+        fresh = [
+            p
+            for p in cfg["backup_dir"].glob("db_backup_*.dump")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh, "no local .dump produced during failed smb push"
+        fresh_tars = [
+            p
+            for p in cfg["backup_dir"].glob("*.tar.gz")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh_tars, "no local .tar.gz produced during failed smb push"
+        fresh_checksums = [
+            p
+            for p in cfg["backup_dir"].glob("checksums_*.txt")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh_checksums, "no checksums file produced during failed smb push"
+
+        # Retention still ran.
+        assert not old_artifact.exists(), "retention did not run after smb failure"
+
+        # Credential isolation: the secret never reached any log/stdout/stderr.
+        assert "SMB-SECRET-TOKEN" not in log_text, "SMB_PASS leaked into backup log"
+        assert "SMB-SECRET-TOKEN" not in proc.stdout, "SMB_PASS leaked to stdout"
+        assert "SMB-SECRET-TOKEN" not in proc.stderr, "SMB_PASS leaked to stderr"
+
+
+class TestRemotePasswordsNeverLogged:
+    """Spec: remote-backup/spec.md — 'Remote Secret Log Isolation'.
+
+    SFTP/FTP password values MUST NOT appear in any log, including the success,
+    warning, and failure paths. Secrets travel env-only (sshpass/SSHPASS) or
+    netrc-only (curl/--netrc-file), never on the tool's argv or in a URL.
+    """
+
+    @pytest.mark.parametrize("transport", ["sftp", "ftp"])
+    def test_passwords_never_in_logs_or_argv(self, make_env, transport):
+        cfg = make_env(transport=transport)
+        env = cfg["env"]
+
+        if transport == "sftp":
+            env["SFTP_HOST"] = "remote.invalid"
+            env["SFTP_PORT"] = "22"
+            env["SFTP_USER"] = "sftpuser"
+            env["SFTP_PATH"] = "/bkp"
+            env["SSHPASS"] = "SSHP-SECRET-TOKEN"
+            marker_name = "sshpass.argv"
+            secret = "SSHP-SECRET-TOKEN"
+            phrase = "SFTP"
+        else:
+            env["FTP_HOST"] = "remote.invalid"
+            env["FTP_PORT"] = "21"
+            env["FTP_USER"] = "ftpuser"
+            env["FTP_PASS"] = "FTPP-SECRET-TOKEN"
+            marker_name = "curl.argv"
+            secret = "FTPP-SECRET-TOKEN"
+            phrase = "FTP"
+
+        old_artifact = _seed_old_artifact(cfg["backup_dir"])
+        run_start = time.time()
+
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SH)], env=env, capture_output=True, text=True
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        log_text = cfg["log_file"].read_text()
+
+        # The transport path actually ran (not the unknown-type fallback).
+        assert (
+            phrase in log_text
+        ), f"{phrase} replication path was not exercised:\n{log_text}"
+
+        # The tool was invoked (proves we did not trivially skip).
+        argv_marker = cfg["marker_dir"] / marker_name
+        assert (
+            argv_marker.exists()
+        ), f"{marker_name} not produced — {phrase} path did not invoke its tool"
+
+        # Secret never reached the tool's argv (env-only / netrc-only contract).
+        assert (
+            secret not in argv_marker.read_text()
+        ), f"{phrase} secret leaked into tool argv"
+
+        # Secret never reached any captured output stream.
+        assert secret not in log_text, f"{phrase} secret leaked into backup log"
+        assert secret not in proc.stdout, f"{phrase} secret leaked to stdout"
+        assert secret not in proc.stderr, f"{phrase} secret leaked to stderr"
+
+        # Local artifacts preserved + retention ran.
+        fresh = [
+            p
+            for p in cfg["backup_dir"].glob("db_backup_*.dump")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh
+        assert not old_artifact.exists()
+
+
+class TestFailedRemoteNeverRemovesLocalArtifacts:
+    """Spec: backup-remote-config/spec.md 'Probe failure MUST NOT alter local
+    backups' + remote-backup isolation contract (correction #3).
+
+    Any rc!=0 from remote_push (missing tool / unreachable host / tool failure)
+    MUST leave seeded + freshly produced local dumps, tarballs, and checksums
+    byte-identical and count-identical, retention MUST still run, and the
+    overall backup MUST exit 0 (warn-only).
+    """
+
+    @pytest.mark.parametrize("transport", ["smb", "sftp", "ftp", "rsync", "nfs"])
+    def test_failed_push_preserves_local_artifacts(self, make_env, transport):
+        cfg = make_env(transport=transport, with_smbclient=(transport == "smb"))
+        env = cfg["env"]
+
+        # Configure every transport so each reaches its own tool/branch, then
+        # fails (mocked tools exit non-zero; nfs points at a missing mount).
+        env["SMB_SHARE"] = "//host/share"
+        env["SMB_USER"] = "smbuser"
+        env["SMB_PASS"] = "SMB-SECRET"
+        env["SMB_PATH"] = "backups"
+        env["SFTP_HOST"] = "remote.invalid"
+        env["SFTP_PORT"] = "22"
+        env["SFTP_USER"] = "u"
+        env["SFTP_PATH"] = "/bkp"
+        env["SSHPASS"] = "SSHP-SECRET"
+        env["FTP_HOST"] = "remote.invalid"
+        env["FTP_PORT"] = "21"
+        env["FTP_USER"] = "u"
+        env["FTP_PASS"] = "FTPP-SECRET"
+        env["RSYNC_HOST"] = "remote.invalid"
+        env["RSYNC_PATH"] = "/srv/bkp"
+        env["NFS_MOUNT"] = "/no/such/mount/anywhere"
+
+        # Seed a RECENT artifact (retention-safe) that must survive untouched,
+        # plus an OLD one that retention MUST remove.
+        recent_dump = _seed_recent(
+            cfg["backup_dir"],
+            "db_backup_20260101_000000.dump",
+            b"precious-recent-dump",
+        )
+        recent_tar = _seed_recent(
+            cfg["backup_dir"],
+            "biometric_backup_20260101_000000.tar.gz",
+            b"precious-recent-tar",
+        )
+        old_artifact = _seed_old_artifact(cfg["backup_dir"])
+        run_start = time.time()
+
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SH)], env=env, capture_output=True, text=True
+        )
+        # Warn-only: local backup + retention complete despite the remote failure.
+        assert proc.returncode == 0, (
+            f"{transport}: backup.sh exited {proc.returncode}\n"
+            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+
+        # Seeded recent artifacts survive byte-identical.
+        assert recent_dump.exists(), f"{transport}: seeded dump was removed"
+        assert recent_dump.read_bytes() == b"precious-recent-dump"
+        assert recent_tar.exists(), f"{transport}: seeded tar was removed"
+        assert recent_tar.read_bytes() == b"precious-recent-tar"
+
+        # Fresh artifacts were produced this run.
+        fresh_dumps = [
+            p
+            for p in cfg["backup_dir"].glob("db_backup_*.dump")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh_dumps, f"{transport}: no fresh .dump produced"
+        fresh_checksums = [
+            p
+            for p in cfg["backup_dir"].glob("checksums_*.txt")
+            if p.stat().st_mtime >= run_start
+        ]
+        assert fresh_checksums, f"{transport}: no fresh checksums produced"
+
+        # Retention removed the old artifact.
+        assert not old_artifact.exists(), f"{transport}: retention did not run"
+
+        # The fresh dump is distinct from the seeded recent one (count grew).
+        all_dumps = list(cfg["backup_dir"].glob("db_backup_*.dump"))
+        assert recent_dump in all_dumps
+        assert len(all_dumps) >= 2, f"{transport}: fresh dump not produced distinctly"
