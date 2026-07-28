@@ -33,6 +33,8 @@ import {
 import { Add as AddIcon, Receipt as ReceiptIcon } from '@mui/icons-material';
 import { salesApi, SalesCreate } from '@/api/sales';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useAppTimezone } from '@/hooks/useAppTimezone';
+import { formatLocalDateTime } from '@/utils/dateTime';
 
 const paymentMethods = ['cash', 'card', 'transfer'];
 
@@ -41,6 +43,7 @@ export const SalesList: React.FC = () => {
     const { t } = useLanguage();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const timezone = useAppTimezone();
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [openDialog, setOpenDialog] = useState(false);
@@ -128,7 +131,7 @@ export const SalesList: React.FC = () => {
                                             </TableCell>
                                             {!isMobile && (
                                                 <TableCell>
-                                                    {new Date(tx.transaction_date).toLocaleDateString()}
+                                                    {formatLocalDateTime(tx.transaction_date, timezone)}
                                                 </TableCell>
                                             )}
                                         </TableRow>

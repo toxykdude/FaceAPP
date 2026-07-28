@@ -53,4 +53,33 @@ describe('buildReportRange', () => {
       expect(custom).toHaveProperty('end_date');
     });
   });
+
+  // Regression contract for the custom date-range feature (user-reported
+  // "range not working / not visible"). The picker emits date-only strings and
+  // this mapping is what every consumer (dashboard, summary, CSV export)
+  // relies on — pin it so a future refactor cannot silently change the wire
+  // shape.
+  describe('custom-range regression contract', () => {
+    it('passes date-only strings through unchanged, including month/DST boundaries', () => {
+      // DST-change weekend in America/Santiago (2026-09-06): the frontend does
+      // NO timezone math on these strings, the backend owns the window.
+      expect(buildReportRange('custom', '2026-09-05', '2026-09-07')).toEqual({
+        start_date: '2026-09-05',
+        end_date: '2026-09-07',
+      });
+      expect(buildReportRange('custom', '2026-01-31', '2026-02-01')).toEqual({
+        start_date: '2026-01-31',
+        end_date: '2026-02-01',
+      });
+    });
+
+    it('rejects reversed ranges across a month boundary', () => {
+      expect(() => buildReportRange('custom', '2026-02-01', '2026-01-31')).toThrow();
+    });
+
+    it('emits exactly start_date/end_date and nothing else for custom', () => {
+      const params = buildReportRange('custom', '2026-01-10', '2026-01-20');
+      expect(Object.keys(params).sort()).toEqual(['end_date', 'start_date']);
+    });
+  });
 });

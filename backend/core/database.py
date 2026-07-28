@@ -2,6 +2,7 @@
 Database configuration and session management.
 """
 
+import redis
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from core.config import settings
@@ -40,6 +41,24 @@ if settings.MEMBER_PORTAL_DATABASE_URL:
 
 class Base(DeclarativeBase):
     pass
+
+
+# Redis client (lazy, shared). decode_responses=True so cached values come back
+# as str — matching how the token blacklist and the timezone cache use it.
+_redis_client = None
+
+
+def get_redis():
+    """Get the shared Redis client (lazy initialization).
+
+    Used by cross-process caches such as the application-timezone cache
+    (services.timezone) and the JWT token blacklist. Kept here so the data
+    layer owns connection wiring, not individual services.
+    """
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_client
 
 
 def get_portal_db(member_id: str = None):

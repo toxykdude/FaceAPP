@@ -19,25 +19,33 @@ from schemas.event import (
     AccessEventListResponse,
     AccessStatsResponse,
 )
+from services.timezone import get_app_tz, utc_to_local
 
 router = APIRouter(prefix="/events", tags=["Access Events"])
 
-# Colombia timezone (UTC-5) — used for all "today" date calculations
-# so the dashboard reflects the business local date, not the server UTC date.
+# Legacy fallback offset (UTC-5). Endpoints below resolve the CONFIGURED IANA
+# zone via get_app_tz(db) so DST-observing zones apply the correct offset.
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 
-def colombia_today() -> date:
-    """Return today's date in Colombia (UTC-5)."""
-    return datetime.now(COLOMBIA_TZ).date()
+def colombia_today(db: Session = None) -> date:
+    """Return today's date in the configured application timezone.
+
+    ``db`` is accepted so the cached ZoneInfo can be resolved; callers that
+    already have a session pass it. When ``db`` is None the legacy fixed
+    offset is used (kept for backward compatibility with any external import).
+    """
+    tz = get_app_tz(db) if db is not None else COLOMBIA_TZ
+    return datetime.now(tz).date()
 
 
-def colombia_today_start_utc() -> datetime:
-    """Return midnight Colombia time as a naive UTC datetime, for DB queries.
-    DB columns are 'timestamp without time zone', so we must strip tzinfo."""
-    now_col = datetime.now(COLOMBIA_TZ)
-    midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight_col.astimezone(timezone.utc).replace(tzinfo=None)
+def colombia_today_start_utc(db: Session = None) -> datetime:
+    """Return midnight (configured tz) as a naive UTC datetime, for DB queries.
+    DB columns are 'timestamp without time zone', so we strip tzinfo."""
+    tz = get_app_tz(db) if db is not None else COLOMBIA_TZ
+    now_local = datetime.now(tz)
+    midnight_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight_local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 async def verify_internal_secret(
@@ -182,7 +190,7 @@ def get_today_recognized(
     from models.member import Member
     from models.membership import Membership
 
-    today_start = colombia_today_start_utc()
+    today_start = colombia_today_start_utc(db)
 
     # Get all access events with member_id from today
     events = (
@@ -206,7 +214,7 @@ def get_today_recognized(
             continue
 
         # Get the ACTIVE membership (status='active' AND end_date >= today)
-        today = colombia_today()
+        today = colombia_today(db)
         active_membership = (
             db.query(Membership)
             .filter(Membership.member_id == evt.member_id, Membership.end_date >= today)
@@ -273,7 +281,7 @@ def get_expiring_today(
     from models.member import Member
     from models.membership import Membership, MembershipPlan
 
-    today = colombia_today()
+    today = colombia_today(db)
     three_days_ago = today - __import__("datetime").timedelta(days=3)
 
     # Memberships expiring today or expired in last 3 days

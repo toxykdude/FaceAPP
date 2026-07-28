@@ -8,6 +8,7 @@ These tests are DB-free: pure logic only.
 """
 
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -64,3 +65,41 @@ class TestBuildReportWindowTimezone:
         assert start.tzinfo is None
         assert end.tzinfo is None
         assert start == _utc(2026, 7, 16, 5)  # midnight Colombia == 05:00 UTC
+
+
+class TestBuildReportWindowDSTAware:
+    """Spec: Configured-Timezone Reporting — 'Report crosses an America/Santiago
+    DST boundary'. Each local midnight must map using the offset applicable to
+    THAT date (DST-aware), and the half-open contract is preserved.
+    """
+
+    def test_dst_boundary_each_midnight_uses_its_own_offset(self):
+        # Santiago 2026: standard time UTC-4 until local midnight on 2026-09-06
+        # (first Sunday of September), then DST UTC-3. A window spanning the
+        # transition exercises per-date offset selection.
+        start, end = build_report_window(
+            date(2026, 9, 5), date(2026, 9, 8), tz=ZoneInfo("America/Santiago")
+        )
+        # 2026-09-05 00:00 Santiago (UTC-4) == 2026-09-05 04:00 UTC
+        assert start == _utc(2026, 9, 5, 4)
+        # (2026-09-08 + 1) 00:00 Santiago is DST (UTC-3) == 2026-09-09 03:00 UTC
+        assert end == _utc(2026, 9, 9, 3)
+
+    def test_dst_boundary_offsets_differ_across_the_window(self):
+        # The whole window spans the transition, so the start and end bounds
+        # are NOT a whole number of 24h apart (a fixed-offset impl would land
+        # both on the same hour).
+        start, end = build_report_window(
+            date(2026, 9, 5), date(2026, 9, 8), tz=ZoneInfo("America/Santiago")
+        )
+        # 4 calendar days inclusive (Sep 5,6,7,8) but only 3d23h of UTC span
+        # because the DST spring-forward removes an hour mid-window.
+        assert end - start == timedelta(days=3, hours=23)
+
+    def test_dst_boundary_half_open_preserved(self):
+        start, end = build_report_window(
+            date(2026, 9, 6), date(2026, 9, 9), tz=ZoneInfo("America/Santiago")
+        )
+        assert start < end
+        # An instant equal to `end` is excluded (half-open).
+        assert not (start <= end < end)

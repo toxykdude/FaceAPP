@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from api.deps import get_db, require_admin
 from models.setting import Setting
 from schemas.setting import SettingCreate, SettingResponse, SettingUpdate
+from services.timezone import invalidate_app_tz_cache
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -20,7 +21,13 @@ def get_settings(db: Session = Depends(get_db), current_user=Depends(require_adm
 @router.get("/public", response_model=Dict[str, Any])
 def get_public_settings(db: Session = Depends(get_db)):
     """Return specific public settings necessary for app initialization."""
-    public_keys = ["app_name", "theme_mode", "business_name", "business_logo"]
+    public_keys = [
+        "app_name",
+        "theme_mode",
+        "business_name",
+        "business_logo",
+        "timezone",
+    ]
     settings = db.query(Setting).filter(Setting.key.in_(public_keys)).all()
     return {s.key: s.value for s in settings}
 
@@ -135,6 +142,10 @@ def bulk_update_settings(
             results.append(new_setting)
 
     db.commit()
+    # Invalidate the cached app timezone if any written key was the timezone
+    # setting, so the new zone takes effect on the next request.
+    if any(s.key == "timezone" for s in settings):
+        invalidate_app_tz_cache()
     for r in results:
         db.refresh(r)
     return results
@@ -171,5 +182,9 @@ def update_setting(
             setting.description = update_data.description
 
     db.commit()
+    # Invalidate the cached app timezone if any of the written keys was the
+    # timezone setting (bulk path covers the single-row case too).
+    if key == "timezone":
+        invalidate_app_tz_cache()
     db.refresh(setting)
     return setting
