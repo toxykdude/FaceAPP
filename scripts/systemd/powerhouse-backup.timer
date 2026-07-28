@@ -1,0 +1,14 @@
+[Unit]
+Description=Run PowerHouse backup every 30 minutes
+Documentation=man:systemd.timer(5)
+
+[Timer]
+# Fire at :00 and :30 of every hour (every 30 minutes).
+OnCalendar=*:0/30
+# Catch up on a missed firing after a downtime (e.g. boot).
+Persistent=true
+# Avoid overlapping runs if a previous backup is still in flight.
+Unit=powerhouse-backup.service
+
+[Install]
+WantedBy=timers.target
