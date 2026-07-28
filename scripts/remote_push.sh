@@ -8,16 +8,19 @@
 #
 # Security contract (SECURITY.md sec 2, admin-data-tools threat matrix):
 #   * Credentials are read ONLY from environment variables (sourced from .env
-#     by backup.sh). No credential value is ever echoed to stdout/stderr/logs.
+#     and/or the DB-managed /etc/faceapp/backup-remote.env by backup.sh). No
+#     credential value is ever echoed to stdout/stderr/logs.
 #   * No ``eval`` is used anywhere; every variable is double-quoted.
-#   * Transport is selected by BACKUP_REMOTE_TYPE (none|smb|nfs|rsync).
+#   * Transport is selected by BACKUP_REMOTE_TYPE (none|rsync|sftp|ftp|smb|nfs).
 #
 # Env vars consumed:
-#   BACKUP_REMOTE_TYPE   none|smb|nfs|rsync  (default: none -> no-op success)
+#   BACKUP_REMOTE_TYPE   none|rsync|sftp|ftp|smb|nfs  (default: none -> no-op)
 #   BACKUP_DIR           local artifacts to replicate
 #   LOG_FILE             shared backup log path
 #   RSYNC_USER/HOST/PATH rsync target (or BACKUP_REMOTE_TARGET=user@host:/path)
-#   SMB_SHARE/SMB_USER/SMB_PASS/SMB_PATH   smbclient target
+#   SFTP_HOST/PORT/USER/PATH + SSHPASS   sftp target (SSHPASS env-only, via sshpass -e)
+#   FTP_HOST/PORT/USER + FTP_PASS        ftp target (FTP_PASS -> temp 0600 netrc only)
+#   SMB_SHARE/SMB_USER/SMB_PASS/SMB_PATH   smbclient target (preflight: command -v smbclient)
 #   NFS_MOUNT            pre-mounted NFS directory to copy into
 #
 # Exit codes: 0 = remote replication succeeded (or intentionally skipped);
@@ -84,6 +87,16 @@ push_smb() {
         return 1
     fi
 
+    # D9: pre-flight smbclient BEFORE constructing the -U user%pass argv. A
+    # fresh install without samba-client would otherwise emit an opaque
+    # 'command not found' and could expose the password-bearing argv into the
+    # log. The warning names the exact install package so operators can fix it
+    # without server access (spec 'Fresh-Install SMB Dependency').
+    if ! command -v smbclient >/dev/null 2>&1; then
+        _log "WARNING: smbclient not found — install 'samba-client'; remote push skipped"
+        return 1
+    fi
+
     # pass is interpolated into the -U argument only; it is NEVER echoed. We
     # redirect smbclient output to the log so any server banners do not reach
     # the console; smbclient does not echo the password itself.
@@ -95,6 +108,101 @@ push_smb() {
     fi
     local rc=$?
     _log "WARNING: remote SMB replication failed (rc=${rc}, share='${share}'); local backup retained"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# SFTP (sshpass -e sftp -b)
+# ---------------------------------------------------------------------------
+push_sftp() {
+    local host="${SFTP_HOST:-}"
+    local port="${SFTP_PORT:-22}"
+    local user="${SFTP_USER:-}"
+    local path="${SFTP_PATH:-}"
+    local batch
+
+    if [ -z "$host" ] || [ -z "$user" ]; then
+        _log "WARNING: sftp remote selected but SFTP_HOST/SFTP_USER not set; skipping remote push"
+        return 1
+    fi
+
+    # The password travels ONLY through the SSHPASS environment variable
+    # (sshpass -e). It NEVER appears on the command line, in the batch file,
+    # or in any log. All variables are double-quoted; no eval is used.
+    batch=$(mktemp 2>/dev/null) || {
+        _log "WARNING: sftp batch temp file unavailable; skipping remote push"
+        return 1
+    }
+    # Batch carries only the remote path + transfer commands — never creds.
+    cat > "$batch" <<EOF
+-mkdir ${path}
+lcd ${BACKUP_DIR}
+cd ${path}
+put -r *
+bye
+EOF
+
+    if sshpass -e sftp -P "$port" "${user}@${host}" -b "$batch" >> "$LOG_FILE" 2>&1; then
+        rm -f "$batch"
+        _log "Remote SFTP replication completed"
+        return 0
+    fi
+    local rc=$?
+    rm -f "$batch"
+    _log "WARNING: remote SFTP replication failed (rc=${rc}, host='${host}'); local backup retained"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# FTP (curl --netrc-file with a temporary 0600 credential file)
+# ---------------------------------------------------------------------------
+push_ftp() {
+    local host="${FTP_HOST:-}"
+    local port="${FTP_PORT:-21}"
+    local user="${FTP_USER:-}"
+    local pass="${FTP_PASS:-}"
+    local netrc
+
+    if [ -z "$host" ] || [ -z "$user" ]; then
+        _log "WARNING: ftp remote selected but FTP_HOST/FTP_USER not set; skipping remote push"
+        return 1
+    fi
+
+    # Credentials live ONLY in a temporary mode-0600 netrc file consumed by
+    # curl. They NEVER appear in the URL or on the argv (spec 'FTP
+    # Replication'). FTP is cleartext on the wire — the risk is documented in
+    # .env.example and README and is operator-opted-in.
+    netrc=$(mktemp 2>/dev/null) || {
+        _log "WARNING: ftp netrc temp file unavailable; skipping remote push"
+        return 1
+    }
+    chmod 600 "$netrc"
+    cat > "$netrc" <<EOF
+machine ${host}
+login ${user}
+password ${pass}
+EOF
+
+    local rc=0
+    local f
+    for f in "$BACKUP_DIR"/*; do
+        [ -f "$f" ] || continue
+        # --netrc-file supplies credentials; the URL carries NO userinfo.
+        if ! curl -s --connect-timeout 20 --max-time 120 \
+            --netrc-file "$netrc" \
+            -T "$f" \
+            "ftp://${host}:${port}/$(basename "$f")" \
+            >> "$LOG_FILE" 2>&1; then
+            rc=${?:-1}
+        fi
+    done
+    rm -f "$netrc"
+
+    if [ "$rc" -eq 0 ]; then
+        _log "Remote FTP replication completed"
+        return 0
+    fi
+    _log "WARNING: remote FTP replication failed (rc=${rc}, host='${host}'); local backup retained"
     return 1
 }
 
@@ -132,6 +240,14 @@ case "$REMOTE_TYPE" in
         ;;
     rsync)
         push_rsync
+        exit $?
+        ;;
+    sftp)
+        push_sftp
+        exit $?
+        ;;
+    ftp)
+        push_ftp
         exit $?
         ;;
     smb)

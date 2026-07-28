@@ -7,11 +7,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-28 (admin-data-tools SDD cycle archived) |
-| **Current HEAD** | `6fcab85` — Merge PR #6 `chore/refresh-status-resume` |
+| **Last updated** | 2026-07-28 (`remote-backup-config-ui` SDD cycle archived; `admin-data-tools` also archived) |
+| **Current HEAD** | `6fcab85` — Merge PR #6 `chore/refresh-status-resume` (archive moves are uncommitted on local slice branches) |
 | **Commits on main** | 88 |
 | **PRs merged to date** | 6 (#1 feature, #2 fix, #3 chore, #4 chore+docs, #5 fix, #6 chore+docs) |
-| **CI workflow** | `.github/workflows/ci.yml` — green at last `main` run (PR #6). **admin-data-tools slices NOT yet pushed — no CI run on them.** |
+| **CI workflow** | `.github/workflows/ci.yml` — green at last `main` run (PR #6). **Both archived SDD chains (admin-data-tools + remote-backup-config-ui) NOT yet pushed — no CI run on them.** |
 
 `git rev-parse HEAD` → `6fcab850e02141eeb49bb7cd201960f07e7540d6` (main)
 
@@ -23,19 +23,22 @@
   feat/admin-data-tools-slice-a               # LOCAL ONLY — slice A: #3 timezone + #5 CSV + #4 diagnosis (tip 3a6b54c, black-clean)
   feat/admin-data-tools-slice-b               # LOCAL ONLY — slice B: #6 membership accordion (tip 8704e75, rebased onto slice-a)
   feat/admin-data-tools-slice-c               # LOCAL ONLY — slice C: #1 DB export + #2 remote backup (tip b3193c7, rebased onto slice-b)
+  feat/remote-backup-config-ui                # LOCAL ONLY — remote-backup-config-ui tracker (base c8bc6d2; artifacts e4c8bb2)
+  feat/remote-backup-config-ui-slice-s1       # LOCAL ONLY — slice S1: backend backup_config service + system.py handlers + remote_push.sh sftp/ftp/smb + backup.sh source (tip 5dfde78)
+  feat/remote-backup-config-ui-slice-s2       # LOCAL ONLY — slice S2: admin Backup tab + Export DB move + i18n (tip 20c62f2)
+  feat/remote-backup-config-ui-slice-s3       # LOCAL ONLY — slice S3: install.sh samba-client+sshpass + .env.example + README (tip 501ebf9)
   feature/pr2-membership-expiration-access    # local only, merged via PR #1
   feature/tracker                             # local only, SDD work for membership-report-kiosk-tunnel OpenSpec change
   fix/kiosk-recognition-state-regressions     # local only, merged via PR #2
 ```
 
-Remote (`origin`) is clean: only `refs/heads/main` exists. The three
-`feat/admin-data-tools-slice-*` branches plus `feature/admin-data-tools`
-form the **`admin-data-tools` feature-branch chain** — the SDD cycle is
-COMPLETE and ARCHIVED but **NONE of these branches have been pushed**.
-Push / PR opening is pending a user decision (see Open work). The other
-three local-only branches were merged via their respective PRs and can be
-deleted once you confirm no unmerged work remains
-(`git log main..<branch> --oneline`).
+Remote (`origin`) is clean: only `refs/heads/main` exists. Two **archived-but-unpushed
+feature-branch chains** are now local-only: the `admin-data-tools` chain (tracker +
+slices a/b/c) and the `remote-backup-config-ui` chain (tracker + slices s1/s2/s3).
+Both SDD cycles are COMPLETE and ARCHIVED but **NONE of these branches have been
+pushed**. Push / PR opening is pending a user decision (see Open work). The other
+three local-only branches were merged via their respective PRs and can be deleted
+once you confirm no unmerged work remains (`git log main..<branch> --oneline`).
 
 ## Recent merges
 
@@ -53,26 +56,37 @@ fixes for cross-version tool divergence.
 
 ## Open work
 
-**`main` itself is clean**, but the **`admin-data-tools` SDD change is
-COMPLETE + ARCHIVED yet UNPUSHED** — this is the active decision point:
+**`main` itself is clean**, but **two archived SDD changes are COMPLETE + ARCHIVED yet
+UNPUSHED** — this is the active decision point:
 
-- SDD cycle done: 6 features delivered, 12/12 requirements, 18/18 scenarios,
-  0 critical findings. Delta specs synced into `openspec/specs/` (4 new
-  domain specs); change folder moved to
+- **`remote-backup-config-ui`** — SDD cycle done (2026-07-28): admin Backup tab delivering
+  secure remote-backup configuration (6 transports), testing, and Export-DB relocation.
+  11/11 requirements, 0 critical findings. Delta specs synced into `openspec/specs/`
+  (NEW `backup-remote-config` domain + UPDATED `remote-backup` with the relaxed
+  "Environment-Only Remote Credentials" requirement + 5 ADDED transport/override reqs);
+  change folder moved to `openspec/changes/archive/2026-07-28-remote-backup-config-ui/`.
+  See its `archive-report.md` for the full terminal record (incl. the S1 contract-gate
+  repair `5dfde78` and accepted low-severity W1 managed-override runtime-test gap).
+- **`admin-data-tools`** — SDD cycle done: 6 features delivered, 12/12 requirements,
+  18/18 scenarios, 0 critical findings. Delta specs synced into `openspec/specs/`
+  (4 new domain specs); change folder moved to
   `openspec/changes/archive/2026-07-28-admin-data-tools/`.
-- The four feature-branch-chain branches (`feature/admin-data-tools` tracker +
-  `feat/admin-data-tools-slice-{a,b,c}`) are **LOCAL ONLY**. Final
-  post-remediation evidence: backend 98/98 pytest, frontend 42/42 vitest,
-  `black --check .` 99 files clean, tsc/eslint/flake8/mypy clean.
-- **CI has NOT run on any admin-data-tools commit** — first real CI run
-  happens on the next push/PR.
-- The archive filesystem move (delta-spec sync + folder relocation) is
-  currently an **uncommitted change on `feat/admin-data-tools-slice-c`** —
-  decide whether to commit it on slice-c, move it to a separate `chore/`
-  branch, or land it on the tracker before pushing.
-- Feature #4 (custom-range "not visible") is reframed: code is correct in
-  `main`; user-facing symptom is a stale LXC build. Remediation =
-  rebuild+redeploy per `docs/deployed-build-diagnosis.md`, NOT code.
+- Both feature-branch chains (`remote-backup-config-ui` tracker + slices s1/s2/s3,
+  and `admin-data-tools` tracker + slices a/b/c) are **LOCAL ONLY**. Final
+  post-remediation evidence — **remote-backup-config-ui**: backend 140/140 pytest,
+  frontend 49/49 vitest, mypy 94 files, black/flake8/tsc/eslint/bash -n clean;
+  **admin-data-tools**: backend 98/98, frontend 42/42, `black --check` 99 files clean.
+- **CI has NOT run on any of these commits** — first real CI run happens on the next push/PR.
+- The **two archive filesystem moves** (delta-spec sync + folder relocation) are currently
+  **uncommitted changes** — `admin-data-tools` on `feat/admin-data-tools-slice-c`,
+  `remote-backup-config-ui` on `feat/remote-backup-config-ui-slice-s3`. Decide whether to
+  commit each on its slice, move to a separate `chore/` branch, or land on the tracker
+  before pushing.
+- **Backup UI deploy caveat**: the dev LXC currently lacks `smbclient` (SMB) and
+  `sshpass` (SFTP). Either rerun the updated `install.sh` (now installs
+  `samba-client sshpass`) or `apt-get install` them manually; until then SMB/SFTP degrade
+  to the documented warn-only path with the literal `samba-client` hint. The systemd
+  backup timer already ships in `main`.
 
 Separately, the `membership-report-kiosk-tunnel` OpenSpec change has
 Phases 4–5 outstanding on its task list (see below) — explicitly not started
@@ -125,8 +139,9 @@ files — not silently ignored):
 ## CI status
 
 `.github/workflows/ci.yml` is **green at the last `main` run** (PR #6, `6fcab85`).
-Three jobs, all passing. **Note:** the `admin-data-tools` slice chain has NOT
-been pushed — these counts reflect `main` only, not the archived SDD change.
+Three jobs, all passing. **Note:** both archived SDD chains (`admin-data-tools` and
+`remote-backup-config-ui`) have NOT been pushed — these counts reflect `main` only,
+not the archived SDD changes.
 
 - `backend` (~1m) — flake8, black --check, mypy, pytest with Postgres+Redis
   services. Backend pytest: **69 passed, 0 failed**.
@@ -172,24 +187,36 @@ The dev LXC (`ssh faceapp`, hostname `DEVFaceApp`) runs the app stack
 
 ## Upcoming priorities
 
-1. **Merge the `admin-data-tools` PR chain** — PRs #7 (slice-a→tracker),
-   #8 (slice-b→slice-a), #9 (slice-c→slice-b) are OPEN on GitHub. Merge in
-   order #7 → #8 → #9, then open the tracker → `main` PR (which triggers CI
-   for the first time; the workflow only fires on `main`).
+1. **Push the archived SDD chains** — two complete+archived feature-branch chains await a
+   push/PR decision (CI has run on neither):
+   - **`remote-backup-config-ui`** (just archived) — feature-branch chain: PR S1→tracker,
+     S2→S1, S3→S2, tracker→`main` last. Backup UI delivered; 11/11 reqs, 140/140 backend,
+     49/49 frontend. The archive move is an uncommitted change on slice-s3.
+   - **`admin-data-tools`** — per `tasks.md` forecast, PRs #7 (slice-a→tracker), #8
+     (slice-b→slice-a), #9 (slice-c→slice-b), then tracker→`main`. The archive move is an
+     uncommitted change on slice-c.
+   Commit each archive move somewhere coherent (its slice, or a `chore/` branch) before
+   pushing. The workflow only fires on `main`, so the tracker→`main` PR triggers the first
+   real CI run for each chain.
 2. ~~Rebuild the LXC frontend~~ — DONE 2026-07-28 (see Dev LXC deployment above).
-3. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
+3. **Provide SMB/SFTP tooling on the dev LXC** — the current LXC lacks `smbclient`
+   (SMB transport) and `sshpass` (SFTP). Either rerun the updated `install.sh` (now installs
+   `samba-client sshpass`) or `apt-get install samba-client sshpass`. Until then SMB/SFTP
+   degrade to the documented warn-only path; local backup still succeeds. `rsync`/`nfs`/`ftp`
+   are unaffected.
+4. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
    it is gitignored but should be rotated as hygiene. Note: PAT creation
    requires the GitHub web UI (no API); after regenerating, update
    `/root/faceapp/gh.env` and re-run `gh auth setup-git`.
-4. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
+5. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations
    in PR #4 and 2 in PR #5. Locking prevents recurrence.
-5. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
+6. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
    start with task 4.1 (HMAC-SHA256 webhook RED test) in `openspec/changes/membership-report-kiosk-tunnel/tasks.md`.
-6. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
+7. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
    production payment flow goes live.
-7. **Reconcile `feature/tracker`** with `main` — decide whether remaining
+8. **Reconcile `feature/tracker`** with `main` — decide whether remaining
    commits are redundant post-PR-#1 or carry value; delete if the former.
-8. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
+9. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
    `any`/unused-vars warnings; migrate models to `Mapped[T]` to drop the mypy
    `disable_error_code` scopes; remove `# type: ignore` shims.

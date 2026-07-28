@@ -34,6 +34,16 @@ vi.mock('@/api/settings', () => ({
         getPublic: vi.fn().mockResolvedValue({ timezone: 'America/Bogota' }),
         uploadLogo: vi.fn(),
         exportDatabase: exportDbMock,
+        // The Export Database block now lives in the Backup tab alongside
+        // SettingsBackupTab; provide no-op backup-config methods so mounting
+        // the Backup tab does not crash this Export-DB-focused test.
+        getBackupConfig: vi.fn().mockResolvedValue({
+            type: 'none', host: '', port: null, share: '', path: '', username: '', has_password: false,
+        }),
+        putBackupConfig: vi.fn().mockResolvedValue({
+            type: 'none', host: '', port: null, share: '', path: '', username: '', has_password: false,
+        }),
+        testBackupConfig: vi.fn().mockResolvedValue({ ok: false, message: '' }),
     },
 }));
 
@@ -48,7 +58,7 @@ function renderSettings() {
     );
 }
 
-const SYSTEM_TAB = /sistema|system/i;
+const BACKUP_TAB = /respaldo|backup/i;
 const EXPORT_BTN = /exportar base de datos|export database/i;
 
 describe('Settings — Export Database', () => {
@@ -64,8 +74,8 @@ describe('Settings — Export Database', () => {
         const user = userEvent.setup();
         renderSettings();
 
-        // Wait for the settings query to resolve and the tabs to mount.
-        await user.click(await screen.findByRole('tab', { name: SYSTEM_TAB }));
+        // The Export Database block was moved into the Backup tab.
+        await user.click(await screen.findByRole('tab', { name: BACKUP_TAB }));
         // RED target: the Export Database button must appear (admin-gated).
         await user.click(await screen.findByRole('button', { name: EXPORT_BTN }));
 
@@ -76,14 +86,14 @@ describe('Settings — Export Database', () => {
 
     it('non-admin: Export DB button is not rendered (server-side gate is authoritative)', async () => {
         authState.user = { role: 'staff' };
-        const user = userEvent.setup();
         renderSettings();
 
-        await user.click(await screen.findByRole('tab', { name: SYSTEM_TAB }));
-        // The button must NOT be present for non-admin users.
+        // The Backup tab itself is admin-only, so it must not be rendered for
+        // non-admins — which also means the Export DB button cannot appear.
         await waitFor(() =>
-            expect(screen.queryByRole('button', { name: EXPORT_BTN })).toBeNull(),
+            expect(screen.queryByRole('tab', { name: BACKUP_TAB })).toBeNull(),
         );
+        expect(screen.queryByRole('button', { name: EXPORT_BTN })).toBeNull();
         expect(exportDbMock).not.toHaveBeenCalled();
     });
 });

@@ -13,7 +13,8 @@
 #   * Local retention        -> ALWAYS runs, even after a remote failure.
 #
 # Security contract (SECURITY.md sec 2, threat matrix):
-#   * Database + remote credentials are sourced ONLY from .env (env-only).
+#   * Database + remote credentials are sourced ONLY from env (the application
+#     .env and, when present, the DB-managed /etc/faceapp/backup-remote.env).
 #   * No credential value is ever written to the log or manifest.
 #   * All variables are quoted; no eval is used anywhere.
 
@@ -39,6 +40,19 @@ if [ -f "$ENV_FILE" ]; then
     set -a
     # shellcheck source=/dev/null
     . "$ENV_FILE"
+    set +a
+fi
+
+# ---------------------------------------------------------------------------
+# Source the DB-managed remote-backup env AFTER .env so admin-managed values
+# override fallback values (spec 'Managed Environment Override'). Written
+# atomically (0600 root:root) by the backend backup_config service on each
+# admin save. Absent on fresh installs -> pure .env fallback, unchanged.
+# ---------------------------------------------------------------------------
+if [ -f /etc/faceapp/backup-remote.env ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . /etc/faceapp/backup-remote.env
     set +a
 fi
 

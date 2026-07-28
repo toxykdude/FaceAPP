@@ -19,18 +19,40 @@ import subprocess
 import time
 from urllib.parse import urlparse
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_admin
 from core.audit import log_action
 from core.config import settings
 from models.user import User
+from services import backup_config as backup_config_service
 
 router = APIRouter(prefix="/system", tags=["System"])
 
 _CHUNK_SIZE = 64 * 1024  # 64 KiB streaming chunks
+
+
+class BackupConfigUpdate(BaseModel):
+    """Partial, write-only backup-config payload.
+
+    Every field is optional so callers can patch a single transport field.
+    ``type`` is a plain string (validated by the service, not the schema) so
+    an unknown transport yields a 400 business error rather than a 422 schema
+    error. ``password`` omitted or empty acts as a keep-sentinel (design D4).
+    """
+
+    type: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    share: Optional[str] = None
+    path: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 def _parse_db_url(url: str) -> dict:
@@ -140,3 +162,103 @@ def export_database(
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Remote backup configuration (spec: backup-remote-config)
+#
+# Admin-only GET/PUT/POST on /system/backup-config. The router stays thin:
+# all crypto, per-transport validation, atomic env materialization, and the
+# sanitized probe live in services/backup_config.py (design D2). Passwords are
+# never returned (masked reads), never audited (only {type,host}), and never
+# echoed in probe output.
+# ---------------------------------------------------------------------------
+
+
+def _client_ip(request: Request) -> Optional[str]:
+    return request.client.host if request.client else None
+
+
+@router.get("/backup-config")
+def get_backup_config(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Return the masked remote-backup configuration.
+
+    Exposes ``has_password`` but never the ciphertext or plaintext password
+    (spec "Protected Masked Configuration"). ``backup_remote`` is deliberately
+    NOT part of ``/settings/public``.
+    """
+    return backup_config_service.get_backup_config(db)
+
+
+@router.put("/backup-config")
+def update_backup_config(
+    request: Request,
+    payload: BackupConfigUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Validate, persist, and materialize the remote-backup configuration.
+
+    An empty or omitted ``password`` preserves the current encrypted secret;
+    a non-empty value is encrypted with AES-256-GCM. On success the managed
+    env file is atomically rewritten and a safe ``{type,host}`` audit row is
+    written (no secrets). Invalid input returns 400 and changes nothing.
+    """
+    data = payload.model_dump(exclude_none=True)
+    try:
+        masked = backup_config_service.apply_update(db, data)
+    except backup_config_service.BackupConfigError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    log_action(
+        db,
+        action="backup_config_update",
+        resource_type="system",
+        user_id=str(admin.id),
+        username=admin.username,
+        details={"type": masked["type"], "host": masked["host"]},
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    return masked
+
+
+@router.post("/backup-config/test")
+def test_backup_config(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Run a bounded, sanitized connection probe against the stored config.
+
+    Decrypts in-memory, runs a 1-byte probe through ``timeout 20 bash
+    remote_push.sh`` (argv list, env-only secret), and returns ``{ok,message}``
+    with host/user/password tokens scrubbed. Probe failure MUST NOT alter local
+    backups. Audited with safe ``{type,host,ok}`` details.
+    """
+    try:
+        result = backup_config_service.run_probe(db)
+    except backup_config_service.BackupConfigError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    stored = backup_config_service.get_backup_config(db)
+    log_action(
+        db,
+        action="backup_config_test",
+        resource_type="system",
+        user_id=str(admin.id),
+        username=admin.username,
+        details={
+            "type": stored["type"],
+            "host": stored["host"],
+            "ok": result["ok"],
+        },
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    return result
