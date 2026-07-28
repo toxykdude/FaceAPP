@@ -91,4 +91,19 @@ export const salesApi = {
         const response = await apiClient.get<SalesReport>('/sales/report/summary', { params });
         return response.data;
     },
+
+    /**
+     * Download the server-side CSV sales report for the selected range.
+     *
+     * Accepts the same range params as the dashboard (`{ days }` preset or
+     * `{ start_date, end_date }` custom). Returns the raw Blob so the caller
+     * can trigger an object-URL anchor download.
+     */
+    exportReport: async (params: ReportRangeParams): Promise<Blob> => {
+        const response = await apiClient.get('/sales/report/export', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
 };

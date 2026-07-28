@@ -7,17 +7,25 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, date, timedelta, timezone
 
-# Colombia timezone (UTC-5) — for "today" date calculations
+# Colombia timezone (UTC-5) — legacy fallback for "today" date calculations.
+# Production callers resolve the CONFIGURED IANA zone via get_app_tz(db) in
+# DashboardService.__init__; this constant remains for backward compatibility.
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 
-def _colombia_today_start_utc() -> datetime:
-    """Midnight Colombia time expressed as a naive UTC datetime, for DB queries.
-    DB columns are 'timestamp without time zone', so we must strip tzinfo."""
-    now_col = datetime.now(COLOMBIA_TZ)
-    midnight_col = now_col.replace(hour=0, minute=0, second=0, microsecond=0)
-    utc_dt = midnight_col.astimezone(timezone.utc)
+def _today_start_utc(tz) -> datetime:
+    """Midnight in ``tz`` expressed as a naive UTC datetime, for DB queries.
+    DB columns are 'timestamp without time zone', so we strip tzinfo."""
+    now_local = datetime.now(tz)
+    midnight_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc_dt = midnight_local.astimezone(timezone.utc)
     return utc_dt.replace(tzinfo=None)  # Strip for naive DB columns
+
+
+def _colombia_today_start_utc() -> datetime:
+    """Backward-compatible wrapper retained for any external caller; new code
+    passes the configured zone through _today_start_utc(tz)."""
+    return _today_start_utc(COLOMBIA_TZ)
 
 
 from typing import Dict, Any, List, Optional
@@ -34,6 +42,12 @@ class DashboardService:
 
     def __init__(self, db: Session):
         self.db = db
+        # Resolve the CONFIGURED DST-aware IANA zone once per instance; all
+        # date bucketing and "today" bounds below use it (spec: Configured-
+        # Timezone Reporting). Falls back to DEFAULT_TZ when unset/invalid.
+        from services.timezone import get_app_tz
+
+        self.tz = get_app_tz(db)
 
     def get_revenue_trend(
         self,
@@ -60,7 +74,7 @@ class DashboardService:
             for s in sales:
                 col_date = (
                     s.transaction_date.replace(tzinfo=timezone.utc)
-                    .astimezone(COLOMBIA_TZ)
+                    .astimezone(self.tz)
                     .date()
                 )
                 key = col_date.strftime("%Y-%m-%d")
@@ -181,7 +195,7 @@ class DashboardService:
         return checkin_trend
 
     def get_new_signups(self) -> Dict[str, Any]:
-        col_now = datetime.now(COLOMBIA_TZ)
+        col_now = datetime.now(self.tz)
         month_start = (
             col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             .astimezone(timezone.utc)
@@ -225,7 +239,7 @@ class DashboardService:
         return {"active": active_count, "expired": expired_count}
 
     def get_checkins_today(self) -> int:
-        today_start = _colombia_today_start_utc()
+        today_start = _today_start_utc(self.tz)
         return (
             self.db.query(AccessEvent)
             .filter(
@@ -235,9 +249,9 @@ class DashboardService:
         )
 
     def get_checkins_week(self) -> int:
-        today_start = _colombia_today_start_utc()
-        # Colombia's Monday of this week
-        col_now = datetime.now(COLOMBIA_TZ)
+        today_start = _today_start_utc(self.tz)
+        # Configured-zone Monday of this week
+        col_now = datetime.now(self.tz)
         days_since_monday = col_now.weekday()
         monday_col = col_now.replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -255,7 +269,7 @@ class DashboardService:
         )
 
     def get_revenue_change_pct(self, days: int = 30) -> float:
-        col_now = datetime.now(COLOMBIA_TZ)
+        col_now = datetime.now(self.tz)
         col_now_utc = col_now.astimezone(timezone.utc).replace(tzinfo=None)
         month_start = (
             col_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

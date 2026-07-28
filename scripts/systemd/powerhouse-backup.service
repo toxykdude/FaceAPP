@@ -1,0 +1,19 @@
+[Unit]
+Description=PowerHouse Membership Backup (pg_dump + biometric + remote replication)
+Documentation=file:///opt/powerhouse-membership/scripts/backup.sh
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# .env provides DATABASE_URL + BACKUP_REMOTE_* / SMB_* / RSYNC_* credentials.
+EnvironmentFile=/opt/powerhouse-membership/.env
+ExecStart=/opt/powerhouse-membership/scripts/backup.sh
+# Backup failures must surface to the journal for the operator; the timer
+# remains armed for the next run regardless of the last exit code.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
