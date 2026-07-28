@@ -4,10 +4,13 @@ Sales/Transactions API endpoints.
 
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
+import csv
+import io
 
 from api.deps import get_db, require_staff
 from models.user import User
@@ -278,6 +281,93 @@ def get_sales_report(
         "transactions_by_method": transactions_by_method,
         "revenue_by_method": revenue_by_method,
     }
+
+
+@router.get("/report/export")
+def export_sales_report(
+    days: int = Query(30, ge=1, le=365),
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Stream a server-side CSV of sales transactions for the selected range.
+
+    Reuses ``_resolve_report_window`` so the CSV applies the SAME half-open
+    configured-timezone window as ``/report/summary`` (spec: Server-Side CSV
+    Report Export). When no dates are given the preset ``days`` window is used.
+    The ``transaction_date`` column is rendered in the configured timezone
+    (date+time) so the file matches what admins see on screen.
+    """
+    from services.timezone import get_app_tz, utc_to_local
+
+    tz = get_app_tz(db)
+
+    query = db.query(SalesTransaction).options(
+        joinedload(SalesTransaction.member),
+        joinedload(SalesTransaction.membership),
+    )
+
+    resolved = _resolve_report_window(start_date, end_date, db)
+    if resolved is not None:
+        (window_start, window_end), range_start, range_end = resolved
+        query = query.filter(
+            SalesTransaction.transaction_date >= window_start,
+            SalesTransaction.transaction_date < window_end,
+        )
+        range_label = f"{range_start.isoformat()}_to_{range_end.isoformat()}"
+    else:
+        now = datetime.now(timezone.utc)
+        period_start = now - timedelta(days=days)
+        query = query.filter(SalesTransaction.transaction_date >= period_start)
+        range_label = f"last_{days}_days"
+
+    transactions = query.order_by(SalesTransaction.transaction_date.desc()).all()
+
+    header = [
+        "invoice_number",
+        "member_name",
+        "member_id_number",
+        "amount",
+        "payment_method",
+        "transaction_date",
+        "notes",
+    ]
+
+    def _row(tx: SalesTransaction) -> list:
+        member = tx.member
+        member_name = (
+            f"{member.first_name} {member.last_name}" if member else "Unknown"
+        )
+        local_dt = utc_to_local(tx.transaction_date, tz)
+        return [
+            tx.invoice_number or "",
+            member_name,
+            (member.id_number if member else ""),
+            f"{tx.amount:.2f}",
+            tx.payment_method or "",
+            local_dt.strftime("%Y-%m-%d %H:%M"),
+            tx.notes or "",
+        ]
+
+    def _stream():
+        buf = io.StringIO()
+        # Excel-friendly UTF-8 BOM so accented names render correctly.
+        buf.write("\ufeff")
+        writer = csv.writer(buf)
+        writer.writerow(header)
+        yield buf.getvalue()
+        for tx in transactions:
+            row_buf = io.StringIO()
+            csv.writer(row_buf).writerow(_row(tx))
+            yield row_buf.getvalue()
+
+    filename = f"sales_report_{range_label}.csv"
+    return StreamingResponse(
+        _stream(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{transaction_id}", response_model=SalesTransactionResponse)
