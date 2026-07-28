@@ -23,6 +23,7 @@ from api import (
     portal_auth,
     portal,
     sync,
+    system,
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "portal_auth",
     "portal",
     "sync",
+    "system",
 ]
