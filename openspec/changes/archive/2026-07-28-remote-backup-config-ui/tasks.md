@@ -48,10 +48,10 @@ Chain base boundary (feature-branch-chain): tracker branch `feat/remote-backup-c
 
 ## Phase S3 — Install deps, docs, hardening
 
-- [ ] S3.1 GREEN `install.sh` (MODIFY): add `samba-client sshpass` to the `apt-get install -y` list (line 38–48). Verify: `bash -n install.sh`; `grep -E 'samba-client|sshpass' install.sh`. Deps: S1.
-- [ ] S3.2 GREEN `.env.example` (MODIFY): collapse to one authoritative block — `BACKUP_REMOTE_TYPE=none` fallback, add `sftp`/`ftp` to transport comment, UI-override-precedence pointer ("managed `/etc/faceapp/backup-remote.env` sourced after this file → DB-managed values win"), FTP cleartext warning, `samba-client`/`sshpass` install note (D10). Verify: `grep -c 'samba-client\|sshpass\|cleartext\|backup-remote.env' .env.example` ≥ 4. Deps: S1.
-- [ ] S3.3 GREEN `README.md` (MODIFY): Backup section pointing at admin UI Backup tab; repeat FTP cleartext warning + `samba-client`/`sshpass` install dependencies; note UI override precedence (D10). Verify: `grep -c 'Backup tab\|samba-client\|sshpass\|cleartext' README.md`. Deps: S3.1.
-- [ ] S3.4 VERIFY S3 slice + full change: `bash -n install.sh scripts/backup.sh scripts/remote_push.sh`; backend `pytest tests/` from `backend/` with `.env` exported; frontend `npm run test && npm run lint && npm run type-check`. Work-unit commit `docs(backup): install samba-client/sshpass, document UI override and FTP cleartext`. Deps: S3.1–S3.3.
+- [x] S3.1 GREEN `install.sh` (MODIFY): add `samba-client sshpass` to the `apt-get install -y` list (line 38–48). Verify: `bash -n install.sh`; `grep -E 'samba-client|sshpass' install.sh`. Deps: S1.
+- [x] S3.2 GREEN `.env.example` (MODIFY): collapse to one authoritative block — `BACKUP_REMOTE_TYPE=none` fallback, add `sftp`/`ftp` to transport comment, UI-override-precedence pointer ("managed `/etc/faceapp/backup-remote.env` sourced after this file → DB-managed values win"), FTP cleartext warning, `samba-client`/`sshpass` install note (D10). Verify: `grep -c 'samba-client\|sshpass\|cleartext\|backup-remote.env' .env.example` ≥ 4. Deps: S1.
+- [x] S3.3 GREEN `README.md` (MODIFY): Backup section pointing at admin UI Backup tab; repeat FTP cleartext warning + `samba-client`/`sshpass` install dependencies; note UI override precedence (D10). Verify: `grep -c 'Backup tab\|samba-client\|sshpass\|cleartext' README.md`. Deps: S3.1.
+- [x] S3.4 VERIFY S3 slice + full change: `bash -n install.sh scripts/backup.sh scripts/remote_push.sh`; backend `pytest tests/` from `backend/` with `.env` exported; frontend `npm run test && npm run lint && npm run type-check`. Work-unit commit `docs(backup): install samba-client/sshpass, document UI override and FTP cleartext`. Deps: S3.1–S3.3.
 
 ## Security Acceptance — all 11 spec requirements
 
