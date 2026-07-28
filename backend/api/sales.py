@@ -22,16 +22,22 @@ from schemas.sale import (
     DashboardResponse,
 )
 from services.report_window import build_report_window, DateRangeError
+from services.timezone import get_app_tz
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
 
 def _resolve_report_window(
-    start_date: Optional[date], end_date: Optional[date]
+    start_date: Optional[date], end_date: Optional[date], db: Session
 ) -> Optional[tuple]:
     """Resolve an optional custom report window or raise HTTP 422. Returns
     ``None`` for the preset path (no dates), or
-    ``(window_start, window_end, range_start, range_end)`` for a valid range."""
+    ``(window_start, window_end, range_start, range_end)`` for a valid range.
+
+    The window is built in the CONFIGURED application timezone
+    (``get_app_tz(db)``), not a legacy hardcoded offset, so DST-observing zones
+    apply the correct per-date offset (spec: Configured-Timezone Reporting).
+    """
     if start_date is None and end_date is None:
         return None
     if start_date is None or end_date is None:
@@ -40,7 +46,7 @@ def _resolve_report_window(
             detail="start_date and end_date must be provided together",
         )
     try:
-        window = build_report_window(start_date, end_date)
+        window = build_report_window(start_date, end_date, tz=get_app_tz(db))
     except DateRangeError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -207,7 +213,7 @@ def get_dashboard_report(
 
     window = None
     range_start = range_end = None
-    resolved = _resolve_report_window(start_date, end_date)
+    resolved = _resolve_report_window(start_date, end_date, db)
     if resolved is not None:
         window, range_start, range_end = resolved
 
@@ -238,7 +244,7 @@ def get_sales_report(
     query = db.query(SalesTransaction)
 
     # Filter by half-open custom date window (422 on partial/reversed range).
-    resolved = _resolve_report_window(start_date, end_date)
+    resolved = _resolve_report_window(start_date, end_date, db)
     if resolved is not None:
         (window_start, window_end), _rs, _re = resolved
         query = query.filter(
