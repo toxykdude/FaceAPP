@@ -5,8 +5,9 @@
 
 ## Last session summary
 
-Across **2026-07-27 and 2026-07-28** we landed **PRs #3, #4, and #5** to take
-FaceAPP from "no CI on GitHub" to "fully green 3-job pipeline".
+Across **2026-07-27, 2026-07-28** we landed **PRs #3, #4, #5, #6** to take
+FaceAPP from "no CI on GitHub" to "fully green 3-job pipeline", and then
+**completed + archived the `admin-data-tools` SDD change** locally.
 
 - **PR #3** (`b476944`) — Committed the missing CI workflow, GitHub templates,
   OpenSpec artifact trail, and hardened `.gitignore` to protect `gh.env`.
@@ -18,27 +19,61 @@ FaceAPP from "no CI on GitHub" to "fully green 3-job pipeline".
   of 401 for missing auth, users endpoint missing pagination wrapper, test
   password mismatch, FastAPI/pydantic version drift, and missing
   `INTERNAL_API_SECRET` in CI env.
+- **PR #6** (`6fcab85`) — `chore/refresh-status-resume`: docs refresh only.
+- **`admin-data-tools` SDD cycle** — COMPLETE + ARCHIVED (local only, NOT
+  pushed). 6 admin features (#1 DB export, #2 remote backup, #3 timezone,
+  #4 custom-range diagnosis, #5 CSV export, #6 membership accordion)
+  delivered as a 3-slice feature-branch chain. 12/12 requirements, 18/18
+  scenarios, 0 critical findings. Delta specs synced into `openspec/specs/`
+  (4 new domain specs); change folder moved to
+  `openspec/changes/archive/2026-07-28-admin-data-tools/`. See the archive
+  report there for the full terminal record.
 
-**Current state**: `main` is at `1acf916`, 86 commits, 5 PRs merged. CI runs
-end-to-end green: backend (flake8/black/mypy/pytest 69/69), frontend
+**Current state**: `main` is at `6fcab85` (88 commits, 6 PRs merged). CI runs
+end-to-end green on `main`: backend (flake8/black/mypy/pytest 69/69), frontend
 (lint/type-check/test 24/24), cv_service (pytest 12/12). Remote is clean —
-only `refs/heads/main` exists.
+only `refs/heads/main` exists. The `admin-data-tools` chain
+(`feature/admin-data-tools` + `feat/admin-data-tools-slice-{a,b,c}`) is
+**local-only and awaits a push/PR decision**.
 
 ## Immediate next actions
 
-1. **Rotate the `gh.env` PAT** — its value was discussed in chat. Replace the
+1. **Decide the `admin-data-tools` push/PR strategy.** The SDD cycle is
+   complete and archived, but the 4 feature-branch-chain branches
+   (`feature/admin-data-tools` tracker + `feat/admin-data-tools-slice-{a,b,c}`)
+   are **LOCAL ONLY**. Options: (a) 3 chained PRs per `tasks.md` forecast
+   (A→tracker, B and C onto A), (b) squash to one PR, (c) push chain as-is.
+   CI has not run on any of these commits yet. The archive filesystem move
+   (delta-spec sync + folder relocation to `openspec/changes/archive/`) is
+   currently an **uncommitted change on `feat/admin-data-tools-slice-c`** —
+   commit it somewhere coherent before pushing.
+2. **Feature #4 — rebuild the LXC frontend** if the deployed instance still
+   hides the custom-range flow. Code is correct in `main` (PR #1); symptom is
+   a stale deployed build. Procedure: `docs/deployed-build-diagnosis.md`.
+3. **Rotate the `gh.env` PAT** — its value was discussed in chat. Replace the
    file contents with a fresh fine-grained PAT. The file is gitignored.
-2. **Adopt a dependency lockfile** — `uv lock` or `pip freeze > requirements.lock`.
+4. **Adopt a dependency lockfile** — `uv lock` or `pip freeze > requirements.lock`.
    The silent venv-vs-requirements.txt drift caused most of the PR #4/#5 pain.
-3. **If starting new feature work**, open an SDD change in `openspec/changes/`
+5. **If starting new feature work**, open an SDD change in `openspec/changes/`
    before writing code (see [SKILL.md SDD workflow](./SKILL.md)).
-4. **Update STATUS.md** after any merge lands — keep the snapshot honest.
-5. **Reconcile `feature/tracker`** against `main`:
+6. **Update STATUS.md** after any merge lands — keep the snapshot honest.
+7. **Reconcile `feature/tracker`** against `main`:
    `git log main..feature/tracker --oneline`. Delete if all commits already
    landed via PR #1.
 
 ## Open threads
 
+- **`admin-data-tools` SDD change — ARCHIVED but UNPUSHED.** The full SDD cycle
+  (6 features, 12/12 requirements, 18/18 scenarios, 0 critical findings) is
+  complete and archived at
+  `openspec/changes/archive/2026-07-28-admin-data-tools/`, with delta specs
+  synced into `openspec/specs/` (4 new domain specs). The feature-branch chain
+  (`feature/admin-data-tools` + `feat/admin-data-tools-slice-{a,b,c}`) is
+  **LOCAL ONLY** — no CI run yet, no PR opened. Push/PR strategy is the user's
+  decision. The archive filesystem move is currently an uncommitted change on
+  `feat/admin-data-tools-slice-c`. Feature #4 (custom-range) is reframed: code
+  is correct; the user-facing "not visible" symptom is a stale LXC build —
+  rebuild per `docs/deployed-build-diagnosis.md`.
 - **`/root/faceapp/gh.env` fine-grained PAT** — required for `git push` because
   the default OAuth token lacks `workflow` scope. Discussed in chat → rotate.
   Push pattern that does not persist the token in remote URL config:
@@ -78,7 +113,9 @@ Ordered reading list for a fresh agent:
    touching auth/biometrics/payments)
 5. [SKILL.md](./SKILL.md) — domain primer, kiosk state machine, memorable bugs
 6. [openspec/changes/membership-report-kiosk-tunnel/proposal.md](./openspec/changes/membership-report-kiosk-tunnel/proposal.md)
-   — active SDD change intent and scope
+   — in-flight SDD change (Phases 4–5 outstanding: portal security + tunnel)
+7. [openspec/changes/archive/2026-07-28-admin-data-tools/archive-report.md](./openspec/changes/archive/2026-07-28-admin-data-tools/archive-report.md)
+   — terminal record of the just-archived `admin-data-tools` cycle (unpushed)
 
 ## Key commands
 
