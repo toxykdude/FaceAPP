@@ -308,6 +308,22 @@ export const Reports: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['recent-sales'] });
     };
 
+    // Export the currently selected range (preset or custom) as a server-side
+    // CSV. Uses the SAME resolved params as the on-screen queries so the file
+    // matches what the admin sees. Disabled while a custom range is incomplete.
+    const handleExport = async () => {
+        if (!dashboardParams) return;
+        const blob = await salesApi.exportReport(dashboardParams);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `sales_report_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <Box sx={{ p: { xs: 2, sm: 3 } }}>
             <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={4} gap={2}>
@@ -377,6 +393,8 @@ export const Reports: React.FC = () => {
                         variant="contained"
                         startIcon={<DownloadIcon />}
                         sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' } }}
+                        onClick={handleExport}
+                        disabled={!customReady}
                     >
                         {isMobile ? '' : t.reports.exportReport}
                     </Button>
