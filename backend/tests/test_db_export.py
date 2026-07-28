@@ -139,12 +139,15 @@ class TestDbExportSubprocessSafety:
         """The DB password must never appear in any argv token."""
         # Parse the password from the live DATABASE_URL the same way the
         # endpoint does, then assert it is absent from every argv element.
+        # CI runs Postgres with user=password=postgres, which would
+        # false-positive a naive substring check on the "-U postgres" token.
         from urllib.parse import urlparse
 
         from core.config import settings
 
         parsed = urlparse(settings.DATABASE_URL)
         password = parsed.password or ""
+        username = parsed.username or ""
 
         with patch("api.system.subprocess.Popen", return_value=_FakeProc()) as mocked:
             auth_client.get("/api/system/db-export")
@@ -152,7 +155,18 @@ class TestDbExportSubprocessSafety:
         argv = mocked.call_args.args[0]
         if password:
             for token in argv:
+                # The username legitimately appears in argv (e.g. "-U user")
+                # and is not a credential. When password == username (CI uses
+                # postgres/postgres) a substring check cannot distinguish a
+                # leak from the username — the URI-userinfo check below still
+                # catches real leaks in that case.
+                if token == username:
+                    continue
                 assert password not in token, "DB password leaked into pg_dump argv"
+            for token in argv:
+                assert (
+                    f":{password}@" not in token
+                ), "DB password leaked via URI-style argv token"
 
 
 # --- flow + audit + filename ------------------------------------------------
