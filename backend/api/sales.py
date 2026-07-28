@@ -336,9 +336,7 @@ def export_sales_report(
 
     def _row(tx: SalesTransaction) -> list:
         member = tx.member
-        member_name = (
-            f"{member.first_name} {member.last_name}" if member else "Unknown"
-        )
+        member_name = f"{member.first_name} {member.last_name}" if member else "Unknown"
         local_dt = utc_to_local(tx.transaction_date, tz)
         return [
             tx.invoice_number or "",

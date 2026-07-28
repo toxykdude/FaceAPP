@@ -21,7 +21,13 @@ def get_settings(db: Session = Depends(get_db), current_user=Depends(require_adm
 @router.get("/public", response_model=Dict[str, Any])
 def get_public_settings(db: Session = Depends(get_db)):
     """Return specific public settings necessary for app initialization."""
-    public_keys = ["app_name", "theme_mode", "business_name", "business_logo", "timezone"]
+    public_keys = [
+        "app_name",
+        "theme_mode",
+        "business_name",
+        "business_logo",
+        "timezone",
+    ]
     settings = db.query(Setting).filter(Setting.key.in_(public_keys)).all()
     return {s.key: s.value for s in settings}
 
