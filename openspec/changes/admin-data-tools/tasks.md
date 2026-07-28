@@ -50,8 +50,8 @@ Chain strategy: pending
 
 ## Slice B: Membership Accordion (PR-B)
 
-- [ ] **B.1 RED — accordion behavior**: add `frontend/src/test/MembershipAccordion.test.tsx`: 2 memberships → no accordion; 3 → 2 visible + accordion with 1; 50 → 2 visible + accordion with 48; admin edit/delete/renew buttons render inside accordion; non-admin hides admin actions. Run: `npm run test -- MembershipAccordion` → **fail**. Deps: none.
-- [ ] **B.2 GREEN+REFACTOR — partition + i18n**: modify `frontend/src/pages/Members/MemberForm.tsx` (sort by most-recent end date; `slice(0,2)` visible; `slice(2,50)` in single MUI `<Accordion>` collapsed by default; preserve edit/renew/delete + auth rules). Add i18n keys `members.olderMemberships` (with `{count}`), `members.hideOlderMemberships` (es+en) in `frontend/src/i18n/translations.ts`. Verify: `npm run test -- MembershipAccordion` → green; manual: open member with ≥3 memberships. Deps: B.1.
+- [x] **B.1 RED — accordion behavior**: add `frontend/src/test/MembershipAccordion.test.tsx`: 2 memberships → no accordion; 3 → 2 visible + accordion with 1; 50 → 2 visible + accordion with 48; admin edit/delete/renew buttons render inside accordion; non-admin hides admin actions. Run: `npm run test -- MembershipAccordion` → **fail**. Deps: none.
+- [x] **B.2 GREEN+REFACTOR — partition + i18n**: modify `frontend/src/pages/Members/MemberForm.tsx` (sort by most-recent end date; `slice(0,2)` visible; `slice(2,50)` in single MUI `<Accordion>` collapsed by default; preserve edit/renew/delete + auth rules). Add i18n keys `members.olderMemberships` (with `{count}`), `members.hideOlderMemberships` (es+en) in `frontend/src/i18n/translations.ts`. Verify: `npm run test -- MembershipAccordion` → green; manual: open member with ≥3 memberships. Deps: B.1.
 
 **Commit plan (PR-B)**: `feat(members): collapse older membership history into accordion` — B.1+B.2 (test+code+i18n together).
 **Rollback**: revert `MemberForm.tsx` partition + 3 i18n keys; flat list returns.
