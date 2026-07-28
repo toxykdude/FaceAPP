@@ -229,6 +229,22 @@ _MOCK_NOOP = """#!/usr/bin/env bash
 exit 0
 """
 
+# pg_dump mock that ALSO records argv (one token per line) and the PGPASSWORD
+# it received into canary files, so tests can assert which connection the
+# script targeted without ever printing the values.
+_MOCK_PG_DUMP_RECORD = """#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${MOCK_MARKER_DIR}/pg_dump.argv"
+printf '%s' "${PGPASSWORD:-}" > "${MOCK_MARKER_DIR}/pg_dump.pgpassword"
+f=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-f" ]; then f="$a"; fi
+  prev="$a"
+done
+[ -z "$f" ] && { echo 'mock pg_dump: no -f target' >&2; exit 1; }
+printf 'PGDMP mock-dump-body' > "$f"
+"""
+
 
 @pytest.fixture
 def make_env(tmp_path):
@@ -430,6 +446,71 @@ class TestRemotePasswordsNeverLogged:
         ]
         assert fresh
         assert not old_artifact.exists()
+
+
+class TestBackupDatabaseUrlOverride:
+    """backup.sh MUST run pg_dump against BACKUP_DATABASE_URL when it is set
+    (dedicated backup role, e.g. BYPASSRLS on an RLS-enforced database),
+    falling back to DATABASE_URL otherwise. The override password travels
+    env-only (PGPASSWORD) and never reaches argv or logs.
+    """
+
+    OVERRIDE_URL = "postgresql://bk_user:BK-PASS-SECRET@db-host:5433/otherdb"
+
+    @staticmethod
+    def _flag_value(tokens: list, flag: str) -> str:
+        return tokens[tokens.index(flag) + 1]
+
+    def _run_with_recording_pg_dump(self, cfg):
+        bin_dir = Path(cfg["env"]["PATH"].split(":")[0])
+        _write_exec(bin_dir / "pg_dump", _MOCK_PG_DUMP_RECORD)
+        return subprocess.run(
+            ["bash", str(BACKUP_SH)],
+            env=cfg["env"],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_pg_dump_uses_backup_database_url_when_set(self, make_env):
+        cfg = make_env(transport="none")
+        cfg["env"]["BACKUP_DATABASE_URL"] = self.OVERRIDE_URL
+
+        proc = self._run_with_recording_pg_dump(cfg)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        tokens = (cfg["marker_dir"] / "pg_dump.argv").read_text().splitlines()
+        assert self._flag_value(tokens, "-h") == "db-host"
+        assert self._flag_value(tokens, "-p") == "5433"
+        assert self._flag_value(tokens, "-U") == "bk_user"
+        assert self._flag_value(tokens, "-d") == "otherdb"
+        # The runtime DATABASE_URL role must NOT be used when the override is set.
+        assert "backup_user" not in tokens
+
+        # PGPASSWORD came from the override, env-only (asserted, not printed).
+        pgpassword = (cfg["marker_dir"] / "pg_dump.pgpassword").read_text()
+        assert pgpassword == "BK-PASS-SECRET"
+
+        # No password (override or runtime) ever reaches the logs/streams.
+        log_text = cfg["log_file"].read_text()
+        for secret in ("BK-PASS-SECRET", "DBPASS-SECRET"):
+            assert secret not in log_text
+            assert secret not in proc.stdout
+            assert secret not in proc.stderr
+
+    def test_pg_dump_falls_back_to_database_url_when_unset(self, make_env):
+        cfg = make_env(transport="none")
+        cfg["env"].pop("BACKUP_DATABASE_URL", None)
+
+        proc = self._run_with_recording_pg_dump(cfg)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        tokens = (cfg["marker_dir"] / "pg_dump.argv").read_text().splitlines()
+        assert self._flag_value(tokens, "-h") == "localhost"
+        assert self._flag_value(tokens, "-p") == "5432"
+        assert self._flag_value(tokens, "-U") == "backup_user"
+        assert self._flag_value(tokens, "-d") == "membership_db"
+        pgpassword = (cfg["marker_dir"] / "pg_dump.pgpassword").read_text()
+        assert pgpassword == "DBPASS-SECRET"
 
 
 class TestFailedRemoteNeverRemovesLocalArtifacts:

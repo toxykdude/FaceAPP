@@ -19,6 +19,7 @@ import io
 import re
 import uuid
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -167,6 +168,73 @@ class TestDbExportSubprocessSafety:
                 assert (
                     f":{password}@" not in token
                 ), "DB password leaked via URI-style argv token"
+
+
+# --- dedicated backup role (BACKUP_DATABASE_URL) -----------------------------
+
+
+class TestBackupDatabaseUrlOverride:
+    """When BACKUP_DATABASE_URL is set, the export endpoint MUST build the
+    pg_dump argv + PGPASSWORD from it INSTEAD of settings.DATABASE_URL
+    (dedicated BYPASSRLS backup role for RLS-enforced databases). When unset,
+    the current DATABASE_URL behavior is preserved. Neither the URL nor its
+    password may ever be logged or placed on the argv.
+    """
+
+    # Fake, test-only values — never real credentials.
+    OVERRIDE_URL = "postgresql://bk_user:bk_pass@db-host:5433/otherdb"
+
+    @staticmethod
+    def _flag_value(argv: list, flag: str) -> str:
+        return argv[argv.index(flag) + 1]
+
+    def test_backup_database_url_drives_pg_dump_argv_and_env(
+        self, auth_client, monkeypatch
+    ):
+        monkeypatch.setenv("BACKUP_DATABASE_URL", self.OVERRIDE_URL)
+
+        with patch("api.system.subprocess.Popen", return_value=_FakeProc()) as mocked:
+            resp = auth_client.get("/api/system/db-export")
+
+        assert resp.status_code == 200
+        argv = mocked.call_args.args[0]
+        env = mocked.call_args.kwargs.get("env", {})
+
+        assert self._flag_value(argv, "-h") == "db-host"
+        assert self._flag_value(argv, "-p") == "5433"
+        assert self._flag_value(argv, "-U") == "bk_user"
+        assert self._flag_value(argv, "-d") == "otherdb"
+
+        # The override password travels via PGPASSWORD only (asserted, never
+        # printed) and never leaks into any argv token.
+        assert env.get("PGPASSWORD") == "bk_pass"
+        for token in argv:
+            assert "bk_pass" not in token
+            assert ":bk_pass@" not in token
+
+    def test_database_url_behavior_preserved_when_override_unset(
+        self, auth_client, monkeypatch
+    ):
+        monkeypatch.delenv("BACKUP_DATABASE_URL", raising=False)
+
+        from core.config import settings
+
+        parsed = urlparse(settings.DATABASE_URL)
+
+        with patch("api.system.subprocess.Popen", return_value=_FakeProc()) as mocked:
+            resp = auth_client.get("/api/system/db-export")
+
+        assert resp.status_code == 200
+        argv = mocked.call_args.args[0]
+        env = mocked.call_args.kwargs.get("env", {})
+
+        assert self._flag_value(argv, "-h") == (parsed.hostname or "localhost")
+        assert self._flag_value(argv, "-p") == str(parsed.port or 5432)
+        assert self._flag_value(argv, "-U") == (parsed.username or "postgres")
+        assert self._flag_value(argv, "-d") == (
+            (parsed.path or "/").lstrip("/") or "postgres"
+        )
+        assert env.get("PGPASSWORD") == (parsed.password or "")
 
 
 # --- flow + audit + filename ------------------------------------------------
