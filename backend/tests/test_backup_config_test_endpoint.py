@@ -112,7 +112,9 @@ class TestProbeOutcome:
         _seed_sftp(auth_client, env_path)
         with patch(
             "services.backup_config.subprocess.run",
-            side_effect=_make_fake(returncode=0, line="Remote sftp replication completed"),
+            side_effect=_make_fake(
+                returncode=0, line="Remote sftp replication completed"
+            ),
         ) as mocked:
             resp = auth_client.post(TEST_URL)
         assert resp.status_code == 200
@@ -190,7 +192,9 @@ class TestIncompleteConfig:
 
 
 class TestAudit:
-    def test_test_audits_safe_details(self, auth_client, env_path, admin_user, db_session):
+    def test_test_audits_safe_details(
+        self, auth_client, env_path, admin_user, db_session
+    ):
         _seed_sftp(auth_client, env_path)
         with patch(
             "services.backup_config.subprocess.run",
@@ -220,7 +224,9 @@ class TestAudit:
 
 
 class TestProbeLeavesLocalArtifactsUntouched:
-    def test_probe_does_not_modify_local_backup_dir(self, auth_client, env_path, tmp_path, monkeypatch):
+    def test_probe_does_not_modify_local_backup_dir(
+        self, auth_client, env_path, tmp_path, monkeypatch
+    ):
         # Simulate a production BACKUP_DIR holding real artifacts.
         prod_backup = tmp_path / "prod-backups"
         prod_backup.mkdir()

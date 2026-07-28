@@ -66,7 +66,8 @@ def staff_client(client, staff_user):
 
 def _stored(db_session) -> dict:
     row = db_session.query(Setting).filter(Setting.key == "backup_remote").first()
-    return row.value if row else None
+    # Always a dict (never None): callers index the result directly after a PUT.
+    return dict(row.value) if row and isinstance(row.value, dict) else {}
 
 
 # --- masking ---------------------------------------------------------------
@@ -105,7 +106,9 @@ class TestMaskedRead:
         assert "password_enc" not in body
         assert "password" not in body
 
-    def test_backup_remote_absent_from_public_settings(self, auth_client, env_path, client):
+    def test_backup_remote_absent_from_public_settings(
+        self, auth_client, env_path, client
+    ):
         # Seed the protected row directly.
         auth_client.put(
             CONFIG_URL,
@@ -120,10 +123,18 @@ class TestMaskedRead:
 
 
 class TestWriteOnlyPassword:
-    def test_replace_password_encrypts_with_aes_gcm(self, auth_client, env_path, db_session):
+    def test_replace_password_encrypts_with_aes_gcm(
+        self, auth_client, env_path, db_session
+    ):
         resp = auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "h", "username": "u", "password": "newsecret", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "h",
+                "username": "u",
+                "password": "newsecret",
+                "path": "/x",
+            },
         )
         assert resp.status_code == 200
         stored = _stored(db_session)
@@ -134,7 +145,13 @@ class TestWriteOnlyPassword:
     def test_omitted_password_keeps_existing(self, auth_client, env_path, db_session):
         auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "h", "username": "u", "password": "keepme", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "h",
+                "username": "u",
+                "password": "keepme",
+                "path": "/x",
+            },
         )
         before = _stored(db_session)["password_enc"]
         # Omit password entirely -> sentinel "keep".
@@ -150,12 +167,24 @@ class TestWriteOnlyPassword:
     def test_empty_password_keeps_existing(self, auth_client, env_path, db_session):
         auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "h", "username": "u", "password": "keepme", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "h",
+                "username": "u",
+                "password": "keepme",
+                "path": "/x",
+            },
         )
         before = _stored(db_session)["password_enc"]
         auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "h", "username": "u", "password": "", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "h",
+                "username": "u",
+                "password": "",
+                "path": "/x",
+            },
         )
         after = _stored(db_session)
         assert after["password_enc"] == before
@@ -227,10 +256,18 @@ class TestAuthorization:
 
 
 class TestAudit:
-    def test_put_audits_safe_details(self, auth_client, env_path, admin_user, db_session):
+    def test_put_audits_safe_details(
+        self, auth_client, env_path, admin_user, db_session
+    ):
         resp = auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "audit.example", "username": "u", "password": "supersecret", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "audit.example",
+                "username": "u",
+                "password": "supersecret",
+                "path": "/x",
+            },
         )
         assert resp.status_code == 200
         rows = (
@@ -258,7 +295,13 @@ class TestEnvMaterialization:
     def test_env_file_mode_0600(self, auth_client, env_path):
         auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "h", "username": "u", "password": "p", "path": "/x"},
+            json={
+                "type": "sftp",
+                "host": "h",
+                "username": "u",
+                "password": "p",
+                "path": "/x",
+            },
         )
         assert env_path.exists()
         mode = os.stat(env_path).st_mode & 0o777
@@ -267,7 +310,14 @@ class TestEnvMaterialization:
     def test_env_file_contains_transport_keys_only(self, auth_client, env_path):
         auth_client.put(
             CONFIG_URL,
-            json={"type": "sftp", "host": "srv", "username": "u", "password": "p", "path": "/bkp", "port": 2222},
+            json={
+                "type": "sftp",
+                "host": "srv",
+                "username": "u",
+                "password": "p",
+                "path": "/bkp",
+                "port": 2222,
+            },
         )
         text = env_path.read_text()
         assert "BACKUP_REMOTE_TYPE='sftp'" in text
@@ -280,7 +330,13 @@ class TestEnvMaterialization:
     def test_transport_change_removes_stale_keys(self, auth_client, env_path):
         auth_client.put(
             CONFIG_URL,
-            json={"type": "smb", "share": "//h/share", "username": "u", "password": "p", "path": "sub"},
+            json={
+                "type": "smb",
+                "share": "//h/share",
+                "username": "u",
+                "password": "p",
+                "path": "sub",
+            },
         )
         smb_text = env_path.read_text()
         assert "SMB_SHARE" in smb_text

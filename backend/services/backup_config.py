@@ -59,10 +59,23 @@ REMOTE_PUSH_SH = Path(__file__).resolve().parents[2] / "scripts" / "remote_push.
 # Env keys the probe must override/clear so the child never inherits an ambient
 # production BACKUP_DIR or stale transport creds from the caller's environment.
 _TRANSPORT_ENV_KEYS = (
-    "RSYNC_HOST", "RSYNC_PATH", "RSYNC_USER", "BACKUP_REMOTE_TARGET",
-    "SFTP_HOST", "SFTP_PORT", "SFTP_USER", "SFTP_PATH", "SSHPASS",
-    "FTP_HOST", "FTP_PORT", "FTP_USER", "FTP_PASS",
-    "SMB_SHARE", "SMB_USER", "SMB_PASS", "SMB_PATH",
+    "RSYNC_HOST",
+    "RSYNC_PATH",
+    "RSYNC_USER",
+    "BACKUP_REMOTE_TARGET",
+    "SFTP_HOST",
+    "SFTP_PORT",
+    "SFTP_USER",
+    "SFTP_PATH",
+    "SSHPASS",
+    "FTP_HOST",
+    "FTP_PORT",
+    "FTP_USER",
+    "FTP_PASS",
+    "SMB_SHARE",
+    "SMB_USER",
+    "SMB_PASS",
+    "SMB_PATH",
     "NFS_MOUNT",
 )
 
@@ -436,8 +449,6 @@ def _sanitize_message(raw: str, rc: int, cfg: dict) -> str:
         if s:
             msg = msg.replace(str(s), "***")
     # Scrub any lingering key=value credential patterns.
-    msg = re.sub(
-        r"(?i)(password|passwd|secret|token)\s*[=:]\s*\S+", "***", msg
-    )
+    msg = re.sub(r"(?i)(password|passwd|secret|token)\s*[=:]\s*\S+", "***", msg)
     msg = re.sub(r"\s+", " ", msg).strip()
     return msg[:200]
