@@ -34,6 +34,7 @@ echo -e "${YELLOW}Installing in: ${APP_DIR}${NC}"
 
 # 1. System dependencies
 echo -e "${GREEN}[1/8] Installing system dependencies...${NC}"
+# samba-client: SMB replication (smbclient) · sshpass: SFTP replication (sshpass -e)
 apt-get update
 apt-get install -y \
     python3 python3-pip python3-venv \
@@ -45,7 +46,8 @@ apt-get install -y \
     ffmpeg \
     curl wget git \
     python3-pil \
-    ufw
+    ufw \
+    samba-client sshpass
 
 # 2. Database setup
 echo -e "${GREEN}[2/8] Setting up PostgreSQL...${NC}"

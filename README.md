@@ -153,6 +153,50 @@ ADMIN_PASSWORD=admin123
 - Includes: sales summary, new members, recognized expired members
 - Manual trigger: Settings → or `POST /api/reports-email/send-now`
 
+### Backups
+
+Automated backups run every 30 minutes via the `powerhouse-backup` systemd
+timer (`scripts/systemd/powerhouse-backup.timer` → `scripts/backup.sh`). Each
+run writes a local dump + tarball + checksums under `BACKUP_DIR`
+(default `/var/backups/powerhouse`) with 30-day retention.
+
+**Primary configuration path — admin UI:** Settings → **Backup** tab
+(admin only). Choose a transport, fill the conditional fields, and use the
+**Test** button to run a sanitized 1-byte probe. The password is encrypted at
+rest and materialized into a root-only file
+(`/etc/faceapp/backup-remote.env`, mode 0600) that `backup.sh` sources AFTER
+`.env`, so UI-managed values override anything in `.env`. This is the
+recommended path.
+
+**Advanced / fallback — `.env`:** edit `backend/.env` directly (see
+`.env.example` for the full reference). Used for headless/pre-UI deployments or
+when the managed file is absent. Deleting `/etc/faceapp/backup-remote.env`
+falls back to `.env`.
+
+Supported transports (6):
+
+| Transport | Tool | Notes |
+|-----------|------|-------|
+| `none` | — | Local backup only (default) |
+| `rsync` | `rsync` over SSH | Preferred. SSH key or `RSYNC_PASSWORD` |
+| `sftp` | `sshpass -e sftp -b` | Requires the `sshpass` package |
+| `ftp` | `curl --netrc-file` (0600) | ⚠️ **Cleartext** — prefer SFTP/rsync |
+| `smb` | `smbclient` (SMB3) | Requires the `samba-client` package |
+| `nfs` | `cp` into pre-mounted dir | Mount via `/etc/fstab` first |
+
+> ⚠️ **FTP warning:** FTP transmits credentials and data in cleartext. Only
+> select FTP on a trusted network; prefer SFTP or rsync otherwise.
+
+**Install dependencies** (added automatically by `install.sh` on a fresh LXC,
+listed here for manual installs):
+
+- `samba-client` — provides `smbclient` for the SMB transport
+- `sshpass` — required for the SFTP transport
+
+Remote replication is always **warn-only**: a failed, missing-tool, or
+unreachable remote target logs one sanitized line and the local backup +
+retention still succeed. No password ever appears in the log.
+
 ### User Roles & Permissions
 - **Admin**: Full access to all features
 - **Staff**: Configurable per-page access
