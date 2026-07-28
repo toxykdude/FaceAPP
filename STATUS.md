@@ -7,90 +7,96 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-28 (`remote-backup-config-ui` SDD cycle archived; `admin-data-tools` also archived) |
-| **Current HEAD** | `6fcab85` — Merge PR #6 `chore/refresh-status-resume` (archive moves are uncommitted on local slice branches) |
-| **Commits on main** | 88 |
-| **PRs merged to date** | 6 (#1 feature, #2 fix, #3 chore, #4 chore+docs, #5 fix, #6 chore+docs) |
-| **CI workflow** | `.github/workflows/ci.yml` — green at last `main` run (PR #6). **Both archived SDD chains (admin-data-tools + remote-backup-config-ui) NOT yet pushed — no CI run on them.** |
+| **Last updated** | 2026-07-28 (both `admin-data-tools` and `remote-backup-config-ui` SDD cycles merged to `main`; backup platform live on dev LXC) |
+| **Current HEAD** | `ae95e02` — Merge PR #15 `fix/backup-database-url` |
+| **Commits on main** | 121 |
+| **PRs merged to date** | 15 (#1–#15; all CI-gated since #3) |
+| **CI workflow** | `.github/workflows/ci.yml` — green at `ae95e02`. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `6fcab850e02141eeb49bb7cd201960f07e7540d6` (main)
+`git rev-parse HEAD` → `ae95e02d66409498b4c7c610965314b668992fa5` (main).
+Remote is clean and in sync.
 
 ## Active branches
 
 ```
-* main                                        # 6fcab85 (PR #6 merge)
-  feature/admin-data-tools                    # LOCAL ONLY — admin-data-tools tracker (at main; no commits beyond main)
-  feat/admin-data-tools-slice-a               # LOCAL ONLY — slice A: #3 timezone + #5 CSV + #4 diagnosis (tip 3a6b54c, black-clean)
-  feat/admin-data-tools-slice-b               # LOCAL ONLY — slice B: #6 membership accordion (tip 8704e75, rebased onto slice-a)
-  feat/admin-data-tools-slice-c               # LOCAL ONLY — slice C: #1 DB export + #2 remote backup (tip b3193c7, rebased onto slice-b)
-  feat/remote-backup-config-ui                # LOCAL ONLY — remote-backup-config-ui tracker (base c8bc6d2; artifacts e4c8bb2)
-  feat/remote-backup-config-ui-slice-s1       # LOCAL ONLY — slice S1: backend backup_config service + system.py handlers + remote_push.sh sftp/ftp/smb + backup.sh source (tip 5dfde78)
-  feat/remote-backup-config-ui-slice-s2       # LOCAL ONLY — slice S2: admin Backup tab + Export DB move + i18n (tip 20c62f2)
-  feat/remote-backup-config-ui-slice-s3       # LOCAL ONLY — slice S3: install.sh samba-client+sshpass + .env.example + README (tip 501ebf9)
-  feature/pr2-membership-expiration-access    # local only, merged via PR #1
-  feature/tracker                             # local only, SDD work for membership-report-kiosk-tunnel OpenSpec change
-  fix/kiosk-recognition-state-regressions     # local only, merged via PR #2
+* main                                        # ae95e02 (PR #15 merge) — synced with origin
 ```
 
-Remote (`origin`) is clean: only `refs/heads/main` exists. Two **archived-but-unpushed
-feature-branch chains** are now local-only: the `admin-data-tools` chain (tracker +
-slices a/b/c) and the `remote-backup-config-ui` chain (tracker + slices s1/s2/s3).
-Both SDD cycles are COMPLETE and ARCHIVED but **NONE of these branches have been
-pushed**. Push / PR opening is pending a user decision (see Open work). The other
-three local-only branches were merged via their respective PRs and can be deleted
-once you confirm no unmerged work remains (`git log main..<branch> --oneline`).
+Merged-and-deletable local branches (remotes already gone or pending cleanup):
+
+| Branch | State |
+|--------|-------|
+| `feat/remote-backup-config-ui` | merged via PR #14 — delete after verifying `git branch --merged main` |
+| `feature/admin-data-tools` | merged via PR #10 — delete after verifying |
+| `fix/backup-database-url` | merged via PR #15 — delete after verifying |
+| `feature/pr2-membership-expiration-access` | merged via PR #1 (local-only) — delete after verifying |
+| `fix/kiosk-recognition-state-regressions` | merged via PR #2 (local-only) — delete after verifying |
+| `feature/tracker` | SDD tracker for `membership-report-kiosk-tunnel`; reconcile vs `main` (`git log main..feature/tracker`) — likely redundant post-PR-#1 |
 
 ## Recent merges
 
 | PR | Merge SHA | Title |
 |----|-----------|-------|
+| #15 | `ae95e02` | fix(backup): honor BACKUP_DATABASE_URL for pg_dump |
+| #14 | `62b7617` | Merge `feat/remote-backup-config-ui` tracker → main |
+| #13 | `ad69b02` | remote-backup-config-ui slice S3 (install.sh deps + docs) |
+| #12 | `6dd9b5e` | remote-backup-config-ui slice S2 (admin Backup tab + Export DB move + i18n) |
+| #11 | `8cf40df` | remote-backup-config-ui slice S1 (backup_config service + system.py + sftp/ftp/smb transports + managed env override) |
+| #10 | `c8bc6d2` | Merge `feature/admin-data-tools` tracker → main |
+| #7–#9 | (into tracker) | admin-data-tools slices A/B/C (timezone + CSV + diagnosis; membership accordion; DB export + remote backup) |
 | #5 | `1acf916` | fix(backend): resolve 8 hidden pytest failures surfaced by CI |
 | #4 | `7745610` | chore(ci): green CI baseline + project handoff docs (AGENTS/SKILL/STATUS/RESUME) |
 | #3 | `b476944` | chore(ci): add CI workflow, GitHub templates, and OpenSpec artifact trail |
-| #2 | `2213bee` | fix(kiosk): resolve stuck-verifying, camera-restart freeze, denial masking + vanishing retry overlay, concurrent camera-start race, check-in name leak |
-| #1 | `114d0ee` | feat(kiosk): premium dark redesign + split membership display from access + 3-path CV invalidation + custom date-range reports |
+| #2 | `2213bee` | fix(kiosk): stuck-verifying, camera-restart freeze, denial masking + retry overlay, start race, name leak |
+| #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
-PR #5 landed 6 commits across 4 root-cause categories. PR #4 landed 8 commits
-across 3 work units (docs, baseline configs, black reformat) plus 3 follow-up
-fixes for cross-version tool divergence.
+## What's live on the dev LXC (`ssh faceapp` / DEVFaceApp)
+
+- **Unified backup platform**: Settings → Backup tab (6 transports, sanitized
+  connection test, write-only encrypted password), Export Database button moved
+  into the same tab.
+- **Backup timer ACTIVE**: `powerhouse-backup.timer` fires every 30 min. First
+  real backup `db_backup_20260728_163851.dump` (9.3M, 14/14 tables) in
+  `/var/backups/powerhouse`. Remote transport still `none` — user will point it
+  at a NAS from the UI.
+- **RLS workaround in production use**: dedicated `powerhouse_backup` role
+  (`BYPASSRLS` + `pg_read_all_data`), credentials in `/etc/faceapp/backup-db.env`
+  (0600), consumed via `BACKUP_DATABASE_URL` by both `backup.sh` and
+  `/api/system/db-export` (PR #15).
+- **Custom-range reporting visible again**: frontend rebuilt+deployed twice from
+  the canonical clone; bundle now `index-Ctx_oAT7.js`. The "bug" was a
+  3-month-stale static bundle (see `docs/deployed-build-diagnosis.md`).
+- **Deploy layout**: canonical git clone at `/opt/faceapp` (pull→build→rsync),
+  flat app copy at `/opt/powerhouse-membership` (no `.git`; Nginx serves its
+  `frontend/dist`). Backup volume expanded to 30G by the user.
+- **Production LXC untouched** — this wave of changes is live on DEV only;
+  prod update awaits explicit user approval.
+
+## Test counts (post-merge, main)
+
+| Suite | Result | Command |
+|-------|--------|---------|
+| Backend | **144 passed** | `cd backend && set -a && . ./.env && set +a && python init_db.py && pytest tests/` |
+| Frontend | **49 passed** | `cd frontend && npm run test` |
+| cv_service | 12 passed | `cd cv_service && pytest tests/` |
+
+⚠️ Backend `conftest.py` does NOT load `backend/.env` — export it into the
+shell first or auth tests 401.
 
 ## Open work
 
-**`main` itself is clean**, but **two archived SDD changes are COMPLETE + ARCHIVED yet
-UNPUSHED** — this is the active decision point:
-
-- **`remote-backup-config-ui`** — SDD cycle done (2026-07-28): admin Backup tab delivering
-  secure remote-backup configuration (6 transports), testing, and Export-DB relocation.
-  11/11 requirements, 0 critical findings. Delta specs synced into `openspec/specs/`
-  (NEW `backup-remote-config` domain + UPDATED `remote-backup` with the relaxed
-  "Environment-Only Remote Credentials" requirement + 5 ADDED transport/override reqs);
-  change folder moved to `openspec/changes/archive/2026-07-28-remote-backup-config-ui/`.
-  See its `archive-report.md` for the full terminal record (incl. the S1 contract-gate
-  repair `5dfde78` and accepted low-severity W1 managed-override runtime-test gap).
-- **`admin-data-tools`** — SDD cycle done: 6 features delivered, 12/12 requirements,
-  18/18 scenarios, 0 critical findings. Delta specs synced into `openspec/specs/`
-  (4 new domain specs); change folder moved to
-  `openspec/changes/archive/2026-07-28-admin-data-tools/`.
-- Both feature-branch chains (`remote-backup-config-ui` tracker + slices s1/s2/s3,
-  and `admin-data-tools` tracker + slices a/b/c) are **LOCAL ONLY**. Final
-  post-remediation evidence — **remote-backup-config-ui**: backend 140/140 pytest,
-  frontend 49/49 vitest, mypy 94 files, black/flake8/tsc/eslint/bash -n clean;
-  **admin-data-tools**: backend 98/98, frontend 42/42, `black --check` 99 files clean.
-- **CI has NOT run on any of these commits** — first real CI run happens on the next push/PR.
-- The **two archive filesystem moves** (delta-spec sync + folder relocation) are currently
-  **uncommitted changes** — `admin-data-tools` on `feat/admin-data-tools-slice-c`,
-  `remote-backup-config-ui` on `feat/remote-backup-config-ui-slice-s3`. Decide whether to
-  commit each on its slice, move to a separate `chore/` branch, or land on the tracker
-  before pushing.
-- **Backup UI deploy caveat**: the dev LXC currently lacks `smbclient` (SMB) and
-  `sshpass` (SFTP). Either rerun the updated `install.sh` (now installs
-  `samba-client sshpass`) or `apt-get install` them manually; until then SMB/SFTP degrade
-  to the documented warn-only path with the literal `samba-client` hint. The systemd
-  backup timer already ships in `main`.
+1. **User configures NAS replication via the UI** (Settings → Backup tab).
+   All transports are shipped and tested; remote is currently `none`.
+2. **Optional follow-ups from the archived cycles**: W1 — the
+   managed-override runtime test gap accepted in `remote-backup-config-ui`
+   (see its archive report); a cosmetic locale item in the same cycle.
+3. **Production LXC update** — build+deploy awaits explicit user approval.
+4. **Tracker-branches cleanup** — delete the merged local/remote branches
+   listed above after `git branch --merged main` confirms them.
 
 Separately, the `membership-report-kiosk-tunnel` OpenSpec change has
-Phases 4–5 outstanding on its task list (see below) — explicitly not started
-and not blocking.
+Phases 4–5 outstanding (portal security + tunnel deployment) — explicitly not
+started and not blocking.
 
 ## Known issues / tech debt
 
@@ -112,8 +118,8 @@ From [SECURITY.md](./SECURITY.md) (open items, pre-existing):
 - Habeas Data: SIC registration, public privacy policy, and designated data
   officer are all unchecked compliance items.
 
-Introduced or surfaced by PR #4 / PR #5 (documented as TODOs inside config
-files — not silently ignored):
+From PR #4 / PR #5 (documented as TODOs inside config files — not silently
+ignored):
 
 - **Lint baseline**: `backend/.flake8` ignores `F401/F811/F841/E402/E712/E722/E741`
   as documented historical debt. `E712` (`== True`) is a legitimate SQLAlchemy
@@ -126,27 +132,27 @@ files — not silently ignored):
   `react-refresh/only-export-components`) to `'off'`. The lint script also
   dropped `--report-unused-disable-directives` because of a stale directive
   in `Kiosk.tsx:630`. Re-enable after source cleanup.
-- **`requirements.txt` drift**: PR #4 (#4648ac9) bumped lint tools (black 24→26,
-  flake8 7.0→7.3, mypy 1.8→2.3); PR #5 (#22843b9) bumped core deps (fastapi
-  0.109→0.139, pydantic 2.5→2.13, pydantic-settings 2.1→2.14, sqlalchemy
-  2.0.25→2.0.51). The local `.venv` is the de facto source of truth. Recommend
-  `uv lock` or `pip freeze > requirements.lock` to prevent silent recurrence.
+- **`requirements.txt` drift**: PR #4 bumped lint tools, PR #5 bumped core deps.
+  The local `.venv` is the de facto source of truth. Recommend `uv lock` or
+  `pip freeze > requirements.lock` to prevent silent recurrence.
 - **Dev DB masks CI bugs**: `backend/.env` provisions `INTERNAL_API_SECRET`,
-  `API_KEY`, `APP_ENV`, `ENVIRONMENT`, `DEBUG` — none of which CI sets by
-  default. CI was extended in PR #5 (`a468e73`) to set `INTERNAL_API_SECRET`.
-  Other env vars may still diverge. Local pytest is NOT a substitute for CI.
+  `API_KEY`, `APP_ENV`, `ENVIRONMENT`, `DEBUG` — CI only sets the first one
+  (PR #5). Local pytest is NOT a substitute for CI.
 
 ## CI status
 
-`.github/workflows/ci.yml` is **green at the last `main` run** (PR #6, `6fcab85`).
-Three jobs, all passing. **Note:** both archived SDD chains (`admin-data-tools` and
-`remote-backup-config-ui`) have NOT been pushed — these counts reflect `main` only,
-not the archived SDD changes.
+`.github/workflows/ci.yml` is **green at `ae95e02`**. Three jobs, triggered
+only on PRs/pushes targeting `main` (feature-branch pushes and inter-feature
+PRs run no checks — verified during the #7–#15 chain).
 
-- `backend` (~1m) — flake8, black --check, mypy, pytest with Postgres+Redis
-  services. Backend pytest: **69 passed, 0 failed**.
-- `frontend` (~45s) — npm ci, lint, type-check, vitest run. **24 tests pass.**
-- `cv_service` (~1m15s) — pip install, pytest. **12 tests pass.**
+- `backend` (~1m) — flake8, black --check, mypy, `python init_db.py`, pytest
+  with Postgres+Redis GitHub Actions services.
+- `frontend` (~45s) — npm ci, lint, type-check, vitest run.
+- `cv_service` (~1m15s) — pip install, pytest.
+
+CI already earned its keep: it caught the env-sensitive
+`test_password_not_in_argv` assertion in the PR #15 chain (passed locally,
+failed in CI because the local `.env` masked it).
 
 CI env vars for the backend job: `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`,
 `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`,
@@ -166,48 +172,24 @@ Expected running services in a healthy prod deployment:
 | Redis | 6379 | Local socket |
 | Nginx | 80/443 | TLS termination, rate limits, `/api/cv/` ACL |
 | APScheduler email reports | (in backend) | Fires every 2h |
+| `powerhouse-backup.timer` | — | Every 30 min → `scripts/backup.sh` |
 
 Systemd units created by `install.sh`: `powerhouse-backend`, `powerhouse-cv`
-(referenced in [SECURITY.md §9](./SECURITY.md)). Health checks: `GET /api/health`
-(basic), `/api/health/db` (internal), `/cv/health`.
-
-## Dev LXC deployment (discovered 2026-07-28)
-
-The dev LXC (`ssh faceapp`, hostname `DEVFaceApp`) runs the app stack
-(`facegym-backend`, `facegym-cv`, `nginx`). Key paths:
-
-- Canonical repo checkout: `/opt/faceapp` (fresh clone of `main`, created
-  2026-07-28; future deploys: `git pull && npm ci && npm run build && rsync`).
-- Nginx served dir: `/opt/powerhouse-membership/frontend/dist` (app lives as
-  a flat copy at `/opt/powerhouse-membership`, NO `.git`).
-- Previous dist backup: `/opt/powerhouse-membership/frontend/dist.bak-20260728-112656`.
-- Frontend rebuilt and redeployed 2026-07-28 from `main` 6fcab85: bundle
-  `index-DvYf6lga.js`, `customRange` verified present (feature #4 now live).
-- rsync 3.2.7 present; smbclient NOT installed (needed if BACKUP_REMOTE_TYPE=smb).
+(referenced in [SECURITY.md §9](./SECURITY.md)); the backup timer's units ship
+in `scripts/systemd/`. Health checks: `GET /api/health` (basic),
+`/api/health/db` (internal), `/cv/health`.
 
 ## Upcoming priorities
 
-1. **Push the archived SDD chains** — two complete+archived feature-branch chains await a
-   push/PR decision (CI has run on neither):
-   - **`remote-backup-config-ui`** (just archived) — feature-branch chain: PR S1→tracker,
-     S2→S1, S3→S2, tracker→`main` last. Backup UI delivered; 11/11 reqs, 140/140 backend,
-     49/49 frontend. The archive move is an uncommitted change on slice-s3.
-   - **`admin-data-tools`** — per `tasks.md` forecast, PRs #7 (slice-a→tracker), #8
-     (slice-b→slice-a), #9 (slice-c→slice-b), then tracker→`main`. The archive move is an
-     uncommitted change on slice-c.
-   Commit each archive move somewhere coherent (its slice, or a `chore/` branch) before
-   pushing. The workflow only fires on `main`, so the tracker→`main` PR triggers the first
-   real CI run for each chain.
-2. ~~Rebuild the LXC frontend~~ — DONE 2026-07-28 (see Dev LXC deployment above).
-3. **Provide SMB/SFTP tooling on the dev LXC** — the current LXC lacks `smbclient`
-   (SMB transport) and `sshpass` (SFTP). Either rerun the updated `install.sh` (now installs
-   `samba-client sshpass`) or `apt-get install samba-client sshpass`. Until then SMB/SFTP
-   degrade to the documented warn-only path; local backup still succeeds. `rsync`/`nfs`/`ftp`
-   are unaffected.
-4. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
+1. **Point the remote backup at the NAS from Settings → Backup tab** (user
+   task — UI is shipped; no code needed).
+2. **Production LXC update** when approved (rebuild + rsync per
+   `docs/deployed-build-diagnosis.md`; canonical clone → flat app copy).
+3. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
    it is gitignored but should be rotated as hygiene. Note: PAT creation
    requires the GitHub web UI (no API); after regenerating, update
    `/root/faceapp/gh.env` and re-run `gh auth setup-git`.
+4. **Tracker-branches cleanup** (see Active branches).
 5. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations
    in PR #4 and 2 in PR #5. Locking prevents recurrence.
@@ -215,8 +197,6 @@ The dev LXC (`ssh faceapp`, hostname `DEVFaceApp`) runs the app stack
    start with task 4.1 (HMAC-SHA256 webhook RED test) in `openspec/changes/membership-report-kiosk-tunnel/tasks.md`.
 7. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
    production payment flow goes live.
-8. **Reconcile `feature/tracker`** with `main` — decide whether remaining
-   commits are redundant post-PR-#1 or carry value; delete if the former.
-9. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
+8. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
    `any`/unused-vars warnings; migrate models to `Mapped[T]` to drop the mypy
    `disable_error_code` scopes; remove `# type: ignore` shims.
