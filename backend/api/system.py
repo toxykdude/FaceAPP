@@ -55,8 +55,20 @@ class BackupConfigUpdate(BaseModel):
     password: Optional[str] = None
 
 
+def _resolve_pg_dump_url() -> str:
+    """Return the connection URL pg_dump should target for the export.
+
+    When the ``BACKUP_DATABASE_URL`` environment variable is set (a dedicated
+    backup role, e.g. BYPASSRLS, used when the primary database enforces
+    Row-Level Security and the runtime role cannot pg_dump), it takes
+    precedence over the runtime ``DATABASE_URL``. Read at request time; the
+    URL is never logged.
+    """
+    return os.environ.get("BACKUP_DATABASE_URL") or settings.DATABASE_URL
+
+
 def _parse_db_url(url: str) -> dict:
-    """Parse a PostgreSQL DATABASE_URL into connection parameters.
+    """Parse a PostgreSQL connection URL into connection parameters.
 
     Returns a dict with keys: host, port, user, password, dbname. Values fall
     back to libpq/PostgreSQL defaults when the URL omits them. Raises 500 on a
@@ -66,7 +78,7 @@ def _parse_db_url(url: str) -> dict:
     if not parsed.scheme.startswith("postgres"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="DATABASE_URL is not a valid PostgreSQL connection string",
+            detail="configured database URL is not a valid PostgreSQL connection string",
         )
     return {
         "host": parsed.hostname or "localhost",
@@ -119,7 +131,7 @@ def export_database(
     biometric templates — is included; access is admin-only and audit-logged
     (SECURITY.md sec 4, Ley 1581/2012).
     """
-    conn = _parse_db_url(settings.DATABASE_URL)
+    conn = _parse_db_url(_resolve_pg_dump_url())
     argv = _build_pg_dump_argv(conn)
     env = _pg_env(conn)
 

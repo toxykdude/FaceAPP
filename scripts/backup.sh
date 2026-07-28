@@ -56,11 +56,14 @@ if [ -f /etc/faceapp/backup-remote.env ]; then
     set +a
 fi
 
-# Extract database connection details from DATABASE_URL.
+# Extract database connection details from the connection URL.
 # Format: postgresql://user:pass@host:port/dbname
-DB_URL="${DATABASE_URL:-}"
+# A dedicated backup role (e.g. BYPASSRLS, for when the app DB enforces
+# Row-Level Security and the runtime role cannot pg_dump) can be supplied via
+# BACKUP_DATABASE_URL; when set it takes precedence over DATABASE_URL.
+DB_URL="${BACKUP_DATABASE_URL:-${DATABASE_URL:-}}"
 if [ -z "$DB_URL" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: DATABASE_URL not configured" | tee -a "$LOG_FILE" >&2
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: no database URL configured (BACKUP_DATABASE_URL or DATABASE_URL)" | tee -a "$LOG_FILE" >&2
     exit 1
 fi
 DB_USER=$(echo "$DB_URL" | sed -n 's|.*://\([^:]*\):.*|\1|p')
