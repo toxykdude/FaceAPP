@@ -30,11 +30,13 @@ import {
     Storage as StorageIcon,
     People as PeopleIcon,
     Image as ImageIcon,
+    Download as DownloadIcon,
 } from '@mui/icons-material';
 import { settingsApi } from '@/api/settings';
 import { UserManagement } from '@/components/UserManagement';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useThemeMode } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SettingsProps { }
 
@@ -57,6 +59,7 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     const queryClient = useQueryClient();
     const { lang, setLang, t } = useLanguage();
     const { mode, toggleTheme } = useThemeMode();
+    const { user } = useAuth();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [activeTab, setActiveTab] = useState(0);
@@ -64,6 +67,7 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
     const [hasChanges, setHasChanges] = useState(false);
     const [uploadingLogo, setUploadingLogo] = useState(false);
     const [logoMessage, setLogoMessage] = useState('');
+    const [exportingDb, setExportingDb] = useState(false);
 
     const { data: serverSettings, isLoading } = useQuery({
         queryKey: ['settings'],
@@ -130,6 +134,27 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
             setTimeout(() => setLogoMessage(''), 5000);
         } finally {
             setUploadingLogo(false);
+        }
+    };
+
+    // Export a fresh database dump (admin-only). The server enforces
+    // require_admin independently; this UI is convenience, not a security gate.
+    const handleExportDb = async () => {
+        setExportingDb(true);
+        try {
+            const blob = await settingsApi.exportDatabase();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `powerhouse_db_${Math.floor(Date.now() / 1000)}.dump`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (error: any) {
+            alert(error?.response?.data?.detail || error?.message || 'Export failed');
+        } finally {
+            setExportingDb(false);
         }
     };
 
@@ -320,7 +345,33 @@ export const SettingsPage: React.FC<SettingsProps> = () => {
                     )}
                     {activeTab === 1 && renderCategory('access')}
                     {activeTab === 2 && renderCategory('membership')}
-                    {activeTab === 3 && renderCategory('system')}
+                    {activeTab === 3 && (
+                        <Box>
+                            {user?.role === 'admin' && (
+                                <Paper sx={{ p: 3, mb: 3 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                        <StorageIcon color="primary" />
+                                        <Typography variant="h6">{t.settings.exportDb}</Typography>
+                                    </Box>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                        {t.settings.exportDbHelp}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                                        {t.settings.backupRemoteStatus}: systemd timer (30 min)
+                                    </Typography>
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<DownloadIcon />}
+                                        disabled={exportingDb}
+                                        onClick={handleExportDb}
+                                    >
+                                        {t.settings.exportDb}
+                                    </Button>
+                                </Paper>
+                            )}
+                            {renderCategory('system')}
+                        </Box>
+                    )}
                     {activeTab === 4 && <UserManagement />}
                 </Box>
             </Paper>

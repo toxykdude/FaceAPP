@@ -191,9 +191,19 @@ Environment=PATH=${APP_DIR}/cv_service/venv/bin:/usr/bin
 WantedBy=multi-user.target
 EOF
 
+# Backup oneshot service + 30-minute timer (remote-backup spec).
+# Units are authored under scripts/systemd/ and copied verbatim so the repo
+# remains the single source of truth.
+cp "${APP_DIR}/scripts/systemd/powerhouse-backup.service" /etc/systemd/system/ 2>/dev/null || true
+cp "${APP_DIR}/scripts/systemd/powerhouse-backup.timer" /etc/systemd/system/ 2>/dev/null || true
+chmod 644 /etc/systemd/system/powerhouse-backup.service /etc/systemd/system/powerhouse-backup.timer 2>/dev/null || true
+
 systemctl daemon-reload
 systemctl enable facegym-backend facegym-cv
 systemctl start facegym-backend facegym-cv
+# Arm the scheduled backup timer (OnCalendar=*:0/30, Persistent=true). We
+# enable+start the TIMER only — the oneshot service runs on schedule, not now.
+systemctl enable --now powerhouse-backup.timer 2>/dev/null || true
 
 # 8. Nginx configuration
 echo -e "${GREEN}[8/8] Configuring Nginx...${NC}"

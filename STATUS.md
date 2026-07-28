@@ -7,28 +7,35 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-28 |
-| **Current HEAD** | `1acf916` — Merge PR #5 `fix/backend-test-failures` |
-| **Commits on main** | 86 |
-| **PRs merged to date** | 5 (#1 feature, #2 fix, #3 chore, #4 chore+docs, #5 fix) |
-| **CI workflow** | `.github/workflows/ci.yml` — **fully green** on the last run |
+| **Last updated** | 2026-07-28 (admin-data-tools SDD cycle archived) |
+| **Current HEAD** | `6fcab85` — Merge PR #6 `chore/refresh-status-resume` |
+| **Commits on main** | 88 |
+| **PRs merged to date** | 6 (#1 feature, #2 fix, #3 chore, #4 chore+docs, #5 fix, #6 chore+docs) |
+| **CI workflow** | `.github/workflows/ci.yml` — green at last `main` run (PR #6). **admin-data-tools slices NOT yet pushed — no CI run on them.** |
 
-`git rev-parse HEAD` → `1acf9162c1ccd496b991592466e4d26370f2f462`
+`git rev-parse HEAD` → `6fcab850e02141eeb49bb7cd201960f07e7540d6` (main)
 
 ## Active branches
 
 ```
-* main                                    # 1acf916 (PR #5 merge)
-  feature/pr2-membership-expiration-access  # local only, merged via PR #1
-  feature/tracker                          # local only, SDD work for OpenSpec change
-  fix/kiosk-recognition-state-regressions  # local only, merged via PR #2
+* main                                        # 6fcab85 (PR #6 merge)
+  feature/admin-data-tools                    # LOCAL ONLY — admin-data-tools tracker (at main; no commits beyond main)
+  feat/admin-data-tools-slice-a               # LOCAL ONLY — slice A: #3 timezone + #5 CSV + #4 diagnosis (tip 3a6b54c, black-clean)
+  feat/admin-data-tools-slice-b               # LOCAL ONLY — slice B: #6 membership accordion (tip 8704e75, rebased onto slice-a)
+  feat/admin-data-tools-slice-c               # LOCAL ONLY — slice C: #1 DB export + #2 remote backup (tip b3193c7, rebased onto slice-b)
+  feature/pr2-membership-expiration-access    # local only, merged via PR #1
+  feature/tracker                             # local only, SDD work for membership-report-kiosk-tunnel OpenSpec change
+  fix/kiosk-recognition-state-regressions     # local only, merged via PR #2
 ```
 
-Remote (`origin`) is clean: only `refs/heads/main` exists. All three local-only
-branches have been merged to `main` via their respective PRs and can be deleted
-once you confirm no unmerged work remains (`git log main..<branch> --oneline`).
-`feature/tracker` may still carry unmerged SDD work for the
-`membership-report-kiosk-tunnel` OpenSpec change — verify before deleting.
+Remote (`origin`) is clean: only `refs/heads/main` exists. The three
+`feat/admin-data-tools-slice-*` branches plus `feature/admin-data-tools`
+form the **`admin-data-tools` feature-branch chain** — the SDD cycle is
+COMPLETE and ARCHIVED but **NONE of these branches have been pushed**.
+Push / PR opening is pending a user decision (see Open work). The other
+three local-only branches were merged via their respective PRs and can be
+deleted once you confirm no unmerged work remains
+(`git log main..<branch> --oneline`).
 
 ## Recent merges
 
@@ -46,9 +53,30 @@ fixes for cross-version tool divergence.
 
 ## Open work
 
-**None on `main`.** CI is fully green. The OpenSpec change
-`membership-report-kiosk-tunnel` has Phases 4–5 outstanding on its task list
-(see below) but those are explicitly not started and not blocking.
+**`main` itself is clean**, but the **`admin-data-tools` SDD change is
+COMPLETE + ARCHIVED yet UNPUSHED** — this is the active decision point:
+
+- SDD cycle done: 6 features delivered, 12/12 requirements, 18/18 scenarios,
+  0 critical findings. Delta specs synced into `openspec/specs/` (4 new
+  domain specs); change folder moved to
+  `openspec/changes/archive/2026-07-28-admin-data-tools/`.
+- The four feature-branch-chain branches (`feature/admin-data-tools` tracker +
+  `feat/admin-data-tools-slice-{a,b,c}`) are **LOCAL ONLY**. Final
+  post-remediation evidence: backend 98/98 pytest, frontend 42/42 vitest,
+  `black --check .` 99 files clean, tsc/eslint/flake8/mypy clean.
+- **CI has NOT run on any admin-data-tools commit** — first real CI run
+  happens on the next push/PR.
+- The archive filesystem move (delta-spec sync + folder relocation) is
+  currently an **uncommitted change on `feat/admin-data-tools-slice-c`** —
+  decide whether to commit it on slice-c, move it to a separate `chore/`
+  branch, or land it on the tracker before pushing.
+- Feature #4 (custom-range "not visible") is reframed: code is correct in
+  `main`; user-facing symptom is a stale LXC build. Remediation =
+  rebuild+redeploy per `docs/deployed-build-diagnosis.md`, NOT code.
+
+Separately, the `membership-report-kiosk-tunnel` OpenSpec change has
+Phases 4–5 outstanding on its task list (see below) — explicitly not started
+and not blocking.
 
 ## Known issues / tech debt
 
@@ -96,8 +124,9 @@ files — not silently ignored):
 
 ## CI status
 
-`.github/workflows/ci.yml` is **fully green** as of the last run on `1acf916`.
-Three jobs, all passing:
+`.github/workflows/ci.yml` is **green at the last `main` run** (PR #6, `6fcab85`).
+Three jobs, all passing. **Note:** the `admin-data-tools` slice chain has NOT
+been pushed — these counts reflect `main` only, not the archived SDD change.
 
 - `backend` (~1m) — flake8, black --check, mypy, pytest with Postgres+Redis
   services. Backend pytest: **69 passed, 0 failed**.
@@ -127,19 +156,40 @@ Systemd units created by `install.sh`: `powerhouse-backend`, `powerhouse-cv`
 (referenced in [SECURITY.md §9](./SECURITY.md)). Health checks: `GET /api/health`
 (basic), `/api/health/db` (internal), `/cv/health`.
 
+## Dev LXC deployment (discovered 2026-07-28)
+
+The dev LXC (`ssh faceapp`, hostname `DEVFaceApp`) runs the app stack
+(`facegym-backend`, `facegym-cv`, `nginx`). Key paths:
+
+- Canonical repo checkout: `/opt/faceapp` (fresh clone of `main`, created
+  2026-07-28; future deploys: `git pull && npm ci && npm run build && rsync`).
+- Nginx served dir: `/opt/powerhouse-membership/frontend/dist` (app lives as
+  a flat copy at `/opt/powerhouse-membership`, NO `.git`).
+- Previous dist backup: `/opt/powerhouse-membership/frontend/dist.bak-20260728-112656`.
+- Frontend rebuilt and redeployed 2026-07-28 from `main` 6fcab85: bundle
+  `index-DvYf6lga.js`, `customRange` verified present (feature #4 now live).
+- rsync 3.2.7 present; smbclient NOT installed (needed if BACKUP_REMOTE_TYPE=smb).
+
 ## Upcoming priorities
 
-1. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
-   it is gitignored but should be rotated as hygiene.
-2. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
+1. **Merge the `admin-data-tools` PR chain** — PRs #7 (slice-a→tracker),
+   #8 (slice-b→slice-a), #9 (slice-c→slice-b) are OPEN on GitHub. Merge in
+   order #7 → #8 → #9, then open the tracker → `main` PR (which triggers CI
+   for the first time; the workflow only fires on `main`).
+2. ~~Rebuild the LXC frontend~~ — DONE 2026-07-28 (see Dev LXC deployment above).
+3. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
+   it is gitignored but should be rotated as hygiene. Note: PAT creation
+   requires the GitHub web UI (no API); after regenerating, update
+   `/root/faceapp/gh.env` and re-run `gh auth setup-git`.
+4. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations
    in PR #4 and 2 in PR #5. Locking prevents recurrence.
-3. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
-   start with task 4.1 (HMAC-SHA256 webhook RED test).
-4. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
+5. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
+   start with task 4.1 (HMAC-SHA256 webhook RED test) in `openspec/changes/membership-report-kiosk-tunnel/tasks.md`.
+6. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
    production payment flow goes live.
-5. **Reconcile `feature/tracker`** with `main` — decide whether remaining
+7. **Reconcile `feature/tracker`** with `main` — decide whether remaining
    commits are redundant post-PR-#1 or carry value; delete if the former.
-6. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
-  `any`/unused-vars warnings; migrate models to `Mapped[T]` to drop the mypy
-  `disable_error_code` scopes; remove `# type: ignore` shims.
+8. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
+   `any`/unused-vars warnings; migrate models to `Mapped[T]` to drop the mypy
+   `disable_error_code` scopes; remove `# type: ignore` shims.

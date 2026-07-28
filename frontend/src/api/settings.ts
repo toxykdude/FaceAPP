@@ -42,4 +42,15 @@ export const settingsApi = {
         });
         return response.data;
     },
+    /**
+     * Download a fresh custom-format database dump (GET /system/db-export).
+     * Admin-only on the server. Returns a Blob so the caller can trigger a
+     * client-side download with an object URL.
+     */
+    exportDatabase: async (): Promise<Blob> => {
+        const response = await apiClient.get('/system/db-export', {
+            responseType: 'blob',
+        });
+        return response.data;
+    },
 };
