@@ -40,6 +40,7 @@ jobs:
       ENCRYPTION_KEY: ci-encryption-key-32-bytes-long!
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ci-admin-password
+      INTERNAL_API_SECRET: ci-internal-secret-not-for-production
     steps:
       - uses: actions/checkout@v4
 
