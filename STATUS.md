@@ -156,21 +156,31 @@ Systemd units created by `install.sh`: `powerhouse-backend`, `powerhouse-cv`
 (referenced in [SECURITY.md §9](./SECURITY.md)). Health checks: `GET /api/health`
 (basic), `/api/health/db` (internal), `/cv/health`.
 
+## Dev LXC deployment (discovered 2026-07-28)
+
+The dev LXC (`ssh faceapp`, hostname `DEVFaceApp`) runs the app stack
+(`facegym-backend`, `facegym-cv`, `nginx`). Key paths:
+
+- Canonical repo checkout: `/opt/faceapp` (fresh clone of `main`, created
+  2026-07-28; future deploys: `git pull && npm ci && npm run build && rsync`).
+- Nginx served dir: `/opt/powerhouse-membership/frontend/dist` (app lives as
+  a flat copy at `/opt/powerhouse-membership`, NO `.git`).
+- Previous dist backup: `/opt/powerhouse-membership/frontend/dist.bak-20260728-112656`.
+- Frontend rebuilt and redeployed 2026-07-28 from `main` 6fcab85: bundle
+  `index-DvYf6lga.js`, `customRange` verified present (feature #4 now live).
+- rsync 3.2.7 present; smbclient NOT installed (needed if BACKUP_REMOTE_TYPE=smb).
+
 ## Upcoming priorities
 
-1. **Decide push/PR strategy for `admin-data-tools`** — the SDD cycle is
-   archived and verified locally, but the 4 feature-branch-chain branches
-   have NOT been pushed. Options: (a) open 3 chained PRs (A→B, A→C) per the
-   tasks.md forecast, (b) squash to a single PR, (c) push the chain as-is
-   for review. CI will run for the first time on push. Remember to commit
-   the archive filesystem move (currently uncommitted on slice-c) somewhere
-   coherent first.
-2. **Feature #4 — rebuild the LXC frontend** if the deployed instance still
-   hides the custom-range flow: `cd frontend && npm ci && npm run build`,
-   replace served `dist/`. Diagnosis protocol:
-   `docs/deployed-build-diagnosis.md`.
+1. **Merge the `admin-data-tools` PR chain** — PRs #7 (slice-a→tracker),
+   #8 (slice-b→slice-a), #9 (slice-c→slice-b) are OPEN on GitHub. Merge in
+   order #7 → #8 → #9, then open the tracker → `main` PR (which triggers CI
+   for the first time; the workflow only fires on `main`).
+2. ~~Rebuild the LXC frontend~~ — DONE 2026-07-28 (see Dev LXC deployment above).
 3. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
-   it is gitignored but should be rotated as hygiene.
+   it is gitignored but should be rotated as hygiene. Note: PAT creation
+   requires the GitHub web UI (no API); after regenerating, update
+   `/root/faceapp/gh.env` and re-run `gh auth setup-git`.
 4. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations
    in PR #4 and 2 in PR #5. Locking prevents recurrence.
