@@ -3,6 +3,23 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
+## Current delivery handoff (2026-07-29)
+
+PR #19 is deployed on DEVFaceApp at exact SHA
+`bb6a859f7cd6daf637adadad4009df9f3161c72d`. Roll back from
+`/opt/deploy-rollbacks/bb6a859-20260729T091230Z` if needed.
+
+Verification passed: frontend 200, backend health 200, authenticated CV health
+200, and required services active. DEV Nginx exposes `/cv/stream/` and
+`/cv/ws/` with WebSocket upgrade handling; a configured camera UUID returned
+HTTP 200 `multipart/x-mixed-replace` and timed out at the bounded probe instead
+of returning 404.
+
+Remaining checks: the outer Nginx Proxy Manager could not be inspected, and the
+kiosk still needs manual browser confirmation. The frontend build completed on
+Node 18 with an npm engine warning; upgrade the DEV build runtime before that
+warning becomes a hard toolchain requirement.
+
 ## Last session summary
 
 On **2026-07-28** we completed, merged, and went live with **two SDD cycles**
@@ -62,7 +79,8 @@ tracker→main at `62b7617`):
 - CI proved itself: the 3-job pipeline (main-gated) caught the env-sensitive
   `test_password_not_in_argv` assertion in the PR #15 chain.
 
-**Current state**: `main` at `ae95e02` (121 commits, 15 PRs merged), CI green.
+**End-of-session state (2026-07-28)**: `main` at `ae95e02` (121 commits, 15 PRs
+merged), CI green.
 Test counts: backend 144, frontend 49, cv_service 12. Both SDD cycles archived
 under `openspec/changes/archive/2026-07-28-*`; accepted specs in
 `openspec/specs/`.
@@ -81,14 +99,12 @@ under `openspec/changes/archive/2026-07-28-*`; accepted specs in
    Flow: `git pull` in `/opt/faceapp` → `npm ci && npm run build` → rsync to
    `/opt/powerhouse-membership` excluding `.env*` (NOT `biometric*`) → restart
    services. Follow `docs/deployed-build-diagnosis.md`.
-4. **Rotate the `gh.env` PAT** — its value was discussed in chat. GitHub web
-   UI only (no API for PAT creation); update the file after regenerating.
-5. **Adopt a dependency lockfile** — `uv lock` or `pip freeze >
+4. **Adopt a dependency lockfile** — `uv lock` or `pip freeze >
    requirements.lock`; venv-vs-requirements drift caused most of the PR #4/#5
    pain.
-6. **If starting new feature work**, open an SDD change in `openspec/changes/`
+5. **If starting new feature work**, open an SDD change in `openspec/changes/`
    before writing code (see [SKILL.md SDD workflow](./SKILL.md)).
-7. **Update STATUS.md** after any merge lands — keep the snapshot honest.
+6. **Update STATUS.md** after any merge lands — keep the snapshot honest.
 
 ## Open threads
 
@@ -100,14 +116,17 @@ under `openspec/changes/archive/2026-07-28-*`; accepted specs in
   gap and one cosmetic locale item were accepted as low-severity at archive;
   see `openspec/changes/archive/2026-07-28-remote-backup-config-ui/archive-report.md`.
 - **`/root/faceapp/gh.env` fine-grained PAT** — required for `git push` (the
-  default OAuth token lacks `workflow` scope). The PAT sits on a **bare line**;
-  extract with `grep`, never `source`:
+  default OAuth token lacks `workflow` scope). The PAT sits on a **bare line**.
+  It was rotated on 2026-07-29 after the prior exposure. Keep the file
+  gitignored, never source it, and never embed the token in a Git URL because
+  Git may print that URL on failure:
   ```bash
-  TOKEN=$(grep '^github_pat_' gh.env)
-  git push "https://x-access-token:${TOKEN}@github.com/toxykdude/FaceAPP.git" BRANCH:BRANCH
-  export GH_TOKEN=$(grep '^github_pat_' gh.env)   # for gh CLI commands
+  export GH_TOKEN=$(grep '^github_pat_' gh.env)
+  gh auth setup-git
+  git push origin BRANCH:BRANCH
   ```
-  Discussed in chat → rotate.
+  `GH_TOKEN` authenticates `gh`; `gh auth setup-git` configures
+  `gh auth git-credential` for Git without writing the PAT into `origin`.
 - **`requirements.txt` drift is a real recurring hazard.** Local `.venv` is
   the de facto source of truth; CI installs whatever `requirements.txt` pins.
   PR #4 bumped lint tools, PR #5 bumped core app deps, but nothing prevents
@@ -178,10 +197,10 @@ sudo tail -f /var/log/powerhouse-backup.log          # watch a run live
 sudo /opt/powerhouse-membership/scripts/backup.sh    # manual run
 ls -lh /var/backups/powerhouse/                      # artifacts + retention
 
-# --- Git push (requires gh.env PAT, see Open threads) ---
-TOKEN=$(grep '^github_pat_' gh.env)
-git push "https://x-access-token:${TOKEN}@github.com/toxykdude/FaceAPP.git" BRANCH:BRANCH
+# --- Git/GitHub auth (requires gh.env PAT, see Open threads) ---
 export GH_TOKEN=$(grep '^github_pat_' gh.env)
+gh auth setup-git
+git push origin BRANCH:BRANCH
 gh pr create --title "<type>: <subject>" --body-file <file>
 gh pr checks <PR> --watch                            # wait for CI
 gh pr merge <PR> --merge                             # merge-commit style
@@ -198,6 +217,36 @@ codegraph status                            # check local code index
 git log main..feature/tracker --oneline     # reconcile tracker branch
 ```
 
+## PR-to-DEV release boundary
+
+Run the release gate only after CI/merge readiness and before publication or
+deployment. A pre-PR receipt proves review state; it does not supply the five
+independent release artifacts.
+
+1. Generate or obtain the release configuration, evidence-freshness record,
+   generated-artifact manifest, provenance record, and sealed publication
+   boundary from their independent providers.
+2. Validate all five together:
+
+   ```bash
+   gentle-ai review validate --gate release \
+     --release-configuration <configuration-artifact> \
+     --release-evidence-freshness <freshness-artifact> \
+     --release-generated <generated-artifact-manifest> \
+     --release-provenance <provenance-artifact> \
+     --release-publication-boundary <publication-boundary-artifact>
+   ```
+
+3. Cross the deploy boundary only on a genuine PASS, then record the merged SHA,
+   deployed SHA, and runtime verification in `STATUS.md`.
+
+If this repository has no provider/tool for any required artifact, record the
+typed gate result `delivery-derivation/unavailable`; do not fabricate evidence
+or convert it to PASS. Stop and ask the maintainer to choose explicitly between
+provisioning the missing provider/evidence or authorizing a documented release
+exception. Record that decision before deployment so the next worker does not
+mistake a pre-PR receipt or unavailable result for release approval.
+
 ## Contact points / decision log
 
 - **Engram memory**: `mem_search query="faceapp"` (or `query="facegym"`) for
@@ -211,8 +260,8 @@ git log main..feature/tracker --oneline     # reconcile tracker branch
   accepted requirements land in [`openspec/specs/`](./openspec/specs/).
 - **Security decisions**: [SECURITY.md](./SECURITY.md) is the authoritative
   security contract; updates there are the security decision log.
-- **Commit history**: `git log --oneline` — Conventional Commits, 121 commits
-  on main, 15 PRs merged (`#1`–`#15`).
+- **Commit history**: `git log --oneline` — Conventional Commits, 131 commits
+  on main, 19 PRs merged (`#1`–`#19`).
 
 ## Rollback / safety
 

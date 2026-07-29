@@ -7,19 +7,19 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-28 (both `admin-data-tools` and `remote-backup-config-ui` SDD cycles merged to `main`; backup platform live on dev LXC) |
-| **Current HEAD** | `ae95e02` — Merge PR #15 `fix/backup-database-url` |
-| **Commits on main** | 121 |
-| **PRs merged to date** | 15 (#1–#15; all CI-gated since #3) |
-| **CI workflow** | `.github/workflows/ci.yml` — green at `ae95e02`. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-07-29 (PR #19 deployed and runtime-verified on DEVFaceApp) |
+| **Current HEAD** | `bb6a859` — Merge PR #19 `fix/kiosk-camera-domain-portability` |
+| **Commits on main** | 131 |
+| **PRs merged to date** | 19 (#1–#19; all CI-gated since #3) |
+| **CI workflow** | `.github/workflows/ci.yml` — PR #19 passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `ae95e02d66409498b4c7c610965314b668992fa5` (main).
+`git rev-parse HEAD` → `bb6a859f7cd6daf637adadad4009df9f3161c72d` (main).
 Remote is clean and in sync.
 
 ## Active branches
 
 ```
-* main                                        # ae95e02 (PR #15 merge) — synced with origin
+* main                                        # bb6a859 (PR #19 merge) — synced with origin
 ```
 
 Merged-and-deletable local branches (remotes already gone or pending cleanup):
@@ -37,6 +37,7 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 
 | PR | Merge SHA | Title |
 |----|-----------|-------|
+| #19 | `bb6a859` | fix(kiosk): reconcile configured camera streams |
 | #15 | `ae95e02` | fix(backup): honor BACKUP_DATABASE_URL for pg_dump |
 | #14 | `62b7617` | Merge `feat/remote-backup-config-ui` tracker → main |
 | #13 | `ad69b02` | remote-backup-config-ui slice S3 (install.sh deps + docs) |
@@ -51,6 +52,21 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 | #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
 ## What's live on the dev LXC (`ssh faceapp` / DEVFaceApp)
+
+- **PR #19 deployed**: exact SHA
+  `bb6a859f7cd6daf637adadad4009df9f3161c72d`; rollback snapshot at
+  `/opt/deploy-rollbacks/bb6a859-20260729T091230Z`.
+- **Runtime checks passed**: frontend 200, backend health 200, authenticated CV
+  health 200, and required services active.
+- **Camera proxy verified on the DEV LXC**: Nginx has `/cv/stream/` and
+  `/cv/ws/` routes with WebSocket upgrade handling. A configured camera UUID
+  returned HTTP 200 `multipart/x-mixed-replace` and reached the bounded timeout
+  as expected instead of returning 404.
+- **Remaining boundary checks**: the outer Nginx Proxy Manager could not be
+  inspected, and manual browser confirmation of the kiosk flow remains.
+- **Build caveat**: Node 18 emitted an npm engine warning during the frontend
+  build; the build completed, but the DEV build runtime should be upgraded
+  before a future toolchain release makes that warning fatal.
 
 - **Unified backup platform**: Settings → Backup tab (6 transports, sanitized
   connection test, write-only encrypted password), Export Database button moved
@@ -141,7 +157,8 @@ ignored):
 
 ## CI status
 
-`.github/workflows/ci.yml` is **green at `ae95e02`**. Three jobs, triggered
+`.github/workflows/ci.yml` was **green for PR #19 before merge to `bb6a859`**.
+Three jobs, triggered
 only on PRs/pushes targeting `main` (feature-branch pushes and inter-feature
 PRs run no checks — verified during the #7–#15 chain).
 
@@ -185,18 +202,14 @@ in `scripts/systemd/`. Health checks: `GET /api/health` (basic),
    task — UI is shipped; no code needed).
 2. **Production LXC update** when approved (rebuild + rsync per
    `docs/deployed-build-diagnosis.md`; canonical clone → flat app copy).
-3. **Rotate the `gh.env` fine-grained PAT** — its value was discussed in chat;
-   it is gitignored but should be rotated as hygiene. Note: PAT creation
-   requires the GitHub web UI (no API); after regenerating, update
-   `/root/faceapp/gh.env` and re-run `gh auth setup-git`.
-4. **Tracker-branches cleanup** (see Active branches).
-5. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
+3. **Tracker-branches cleanup** (see Active branches).
+4. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations
    in PR #4 and 2 in PR #5. Locking prevents recurrence.
-6. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
+5. **OpenSpec Phase 4 (portal security)** when the portal tunnel work resumes —
    start with task 4.1 (HMAC-SHA256 webhook RED test) in `openspec/changes/membership-report-kiosk-tunnel/tasks.md`.
-7. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
+6. **Provision `WOMPI_INTEGRITY_SECRET`** from the Wompi dashboard before any
    production payment flow goes live.
-8. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
+7. **Optional cleanup**: re-enable silenced ESLint rules after fixing the 89
    `any`/unused-vars warnings; migrate models to `Mapped[T]` to drop the mypy
    `disable_error_code` scopes; remove `# type: ignore` shims.
