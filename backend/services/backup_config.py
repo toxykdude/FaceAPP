@@ -211,6 +211,14 @@ def validate(value: dict) -> dict:
     elif raw_type == "smb":
         if not share or not user or not has_pw:
             raise BackupConfigError("smb requires share, username, and password")
+        normalized_share = share.replace("\\", "/")
+        if normalized_share.lower().startswith("smb://"):
+            normalized_share = normalized_share[6:]
+        normalized_share = normalized_share.strip("/")
+        if "/" not in normalized_share:
+            raise BackupConfigError("smb share must include server and share name")
+        cfg["share"] = f"//{normalized_share}"
+        cfg["path"] = path.replace("\\", "/").strip("/")
     elif raw_type == "nfs":
         if not path:
             raise BackupConfigError("nfs requires path")
@@ -298,7 +306,7 @@ def _env_lines(cfg: dict) -> list:
         lines.append(f"SMB_SHARE={_q(cfg.get('share'))}")
         lines.append(f"SMB_USER={_q(cfg.get('username'))}")
         lines.append(f"SMB_PASS={_q(_decrypt_or_empty(cfg))}")
-        lines.append(f"SMB_PATH={_q(cfg.get('path') or 'backups')}")
+        lines.append(f"SMB_PATH={_q(cfg.get('path'))}")
     elif t == "nfs":
         lines.append(f"NFS_MOUNT={_q(cfg.get('path'))}")
     # none: only BACKUP_REMOTE_TYPE is emitted, so remote_push.sh no-ops.
@@ -430,7 +438,7 @@ def _build_probe_env(cfg: dict, backup_dir: str, log_file: str) -> dict:
         env["SMB_SHARE"] = cfg.get("share") or ""
         env["SMB_USER"] = cfg.get("username") or ""
         env["SMB_PASS"] = _decrypt_or_empty(cfg)
-        env["SMB_PATH"] = cfg.get("path") or "backups"
+        env["SMB_PATH"] = cfg.get("path") or ""
     elif t == "nfs":
         env["NFS_MOUNT"] = cfg.get("path") or ""
     return env

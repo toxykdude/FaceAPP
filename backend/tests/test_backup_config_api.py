@@ -352,6 +352,26 @@ class TestEnvMaterialization:
         assert "SMB_SHARE" not in rsync_text
         assert "SMB_PASS" not in rsync_text
 
+    def test_smb_normalizes_share_and_preserves_empty_optional_path(
+        self, auth_client, env_path
+    ):
+        response = auth_client.put(
+            CONFIG_URL,
+            json={
+                "type": "smb",
+                "share": r"\\server\share",
+                "username": "u",
+                "password": "p",
+                "path": "",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["share"] == "//server/share"
+        text = env_path.read_text()
+        assert "SMB_SHARE='//server/share'" in text
+        assert "SMB_PATH=''" in text
+
     def test_materialize_leaves_no_temp_fragment(self, auth_client, env_path, tmp_path):
         parent = env_path.parent
         auth_client.put(

@@ -232,6 +232,8 @@ exit 1
 # smbclient mock that emits the well-known auth-failure protocol line on
 # stderr and exits with a non-zero transport code.
 _MOCK_SMBCLIENT_RC7 = """#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${MOCK_MARKER_DIR}/smbclient.argv"
+[ -n "${PASSWD:-}" ] && printf 'set' > "${MOCK_MARKER_DIR}/smbclient.passwd"
 echo 'session setup failed: NT_STATUS_LOGON_FAILURE' >&2
 exit 7
 """
@@ -537,7 +539,7 @@ class TestSmbFailureReportsRealExitCode:
         env["SMB_SHARE"] = "//host/share"
         env["SMB_USER"] = "smbuser"
         env["SMB_PASS"] = "SMB-SECRET-TOKEN"
-        env["SMB_PATH"] = "backups"
+        env["SMB_PATH"] = ""
 
         # Replace the fixture's generic smbclient mock with the rc=7 one.
         bin_dir = Path(env["PATH"].split(":")[0])
@@ -558,6 +560,13 @@ class TestSmbFailureReportsRealExitCode:
 
         # Credential isolation: the canary never reached the log.
         assert "SMB-SECRET-TOKEN" not in log_text, "SMB_PASS leaked into backup log"
+
+        argv = (cfg["marker_dir"] / "smbclient.argv").read_text().splitlines()
+        assert argv[:4] == ["-m", "SMB3", "-U", "smbuser"]
+        assert "//host/share" in argv
+        assert "-D" not in argv
+        assert "SMB-SECRET-TOKEN" not in argv
+        assert (cfg["marker_dir"] / "smbclient.passwd").read_text() == "set"
 
 
 class TestFailedRemoteNeverRemovesLocalArtifacts:
