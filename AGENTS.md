@@ -155,14 +155,18 @@ CI-placeholder env vars (see the workflow file). Locally, run
 
 1. **`gh.env` is a fine-grained PAT** at `/root/faceapp/gh.env` (gitignored).
    Required for `git push` because the default OAuth token lacks the `workflow`
-   scope needed to push the CI workflow file. **The PAT sits on a bare line** —
-   extract it with `grep`, never `source gh.env` (sourcing does not export it):
+   scope needed to push the CI workflow file. **The PAT sits on a bare line.**
+   Never source the file and never put the token in a push URL: Git may print a
+   failing credential-bearing URL. Export it for GitHub CLI, configure `gh` as
+   Git's credential helper, and push through the token-free `origin` URL:
    ```bash
-   TOKEN=$(grep '^github_pat_' gh.env)
-   git push "https://x-access-token:${TOKEN}@github.com/toxykdude/FaceAPP.git" BRANCH:BRANCH
-   export GH_TOKEN=$(grep '^github_pat_' gh.env)   # for gh CLI commands
+   export GH_TOKEN=$(grep '^github_pat_' gh.env)
+   gh auth setup-git
+   git push origin BRANCH:BRANCH
    ```
-   Treat as a secret; rotate after any chat discussion.
+   `gh auth setup-git` installs the `gh auth git-credential` helper; it does not
+   put the PAT in the remote URL. The previously exposed PAT was rotated on
+   2026-07-29. Keep `gh.env` gitignored and rotate again after any new exposure.
 2. ~~**CI was just added**~~ — **RESOLVED (2026-07-28).** CI is real and
    enforced: 3 jobs gate every PR to `main`, and PRs #7–#15 all merged through
    it. It already caught real issues (env-sensitive argv test in PR #15's
@@ -224,6 +228,17 @@ CI-placeholder env vars (see the workflow file). Locally, run
     both on fresh installs; on an existing LXC run
     `apt-get install samba-client sshpass`. Without them, remote replication
     degrades to the documented warn-only skip (local backup still succeeds).
+16. **The release gate needs independent release evidence, not only a pre-PR
+    receipt.** Before crossing the release/deploy boundary, prepare all five
+    artifacts required by `gentle-ai review validate --gate release` and pass
+    them with `--release-configuration`, `--release-evidence-freshness`,
+    `--release-generated`, `--release-provenance`, and
+    `--release-publication-boundary`. If no project provider/tool can generate
+    them, record the typed `delivery-derivation/unavailable` outcome and stop.
+    A maintainer must explicitly choose either to provision the missing evidence
+    or authorize a documented exception for that deployment. Never invent an
+    artifact or report PASS; a pre-PR receipt alone is insufficient. The
+    executable sequence is in [RESUME.md](./RESUME.md#pr-to-dev-release-boundary).
 
 ## Where to look next
 
