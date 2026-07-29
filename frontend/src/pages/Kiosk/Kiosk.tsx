@@ -51,6 +51,9 @@ interface WsRecognitionResult {
     denial_reason: string | null;
     face_bbox: number[] | null;
     membership_end_date: string | null;
+    // Whole days left on the membership. Only populated on a grant; null when
+    // the CV service couldn't determine it.
+    days_remaining: number | null;
 }
 
 interface WsStatusMessage {
@@ -69,17 +72,53 @@ interface LocalEvent {
     confidence: number;
     timestamp: Date;
     denial_reason?: string | null;
+    days_remaining?: number | null;
 }
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
-type RecognitionState = 'idle' | 'verifying' | 'granted' | 'membership_denied' | 'unknown_denied';
+type RecognitionState =
+    | 'idle'
+    | 'verifying'
+    | 'granted'
+    | 'granted_expiring'
+    | 'membership_denied'
+    | 'unknown_denied';
 type DenialCategory = 'membership' | 'unknown';
+// States that take over the whole screen to announce an outcome.
+type SplashState = Exclude<RecognitionState, 'idle' | 'verifying'>;
 
 // How long the transient "Verifying identity..." beat is shown before revealing
 // the final granted/denied result. There is no backend "detecting" event —
 // this is purely a client-side pacing device so the kiosk never feels frozen.
 const VERIFYING_DURATION_MS = 500;
 const RESULT_RESET_DELAY_MS = 3000;
+
+// A granted member with this many days or fewer left still gets in, but the
+// splash turns amber and names the day count so they can renew at reception
+// before it actually lapses.
+const EXPIRY_WARNING_DAYS = 5;
+
+// An unattended kiosk has nobody to pick a camera for it, so it remembers the
+// last one it used and re-claims it after a reload or power cycle.
+const CAMERA_STORAGE_KEY = 'kiosk.cameraId';
+
+function readStoredCameraId(): string {
+    try {
+        return localStorage.getItem(CAMERA_STORAGE_KEY) || '';
+    } catch {
+        // Storage can be unavailable (private mode, locked-down kiosk
+        // browser). Falling back to the camera list is fine.
+        return '';
+    }
+}
+
+function rememberCameraId(cameraId: string): void {
+    try {
+        localStorage.setItem(CAMERA_STORAGE_KEY, cameraId);
+    } catch {
+        // Non-fatal: the kiosk still works, it just won't remember.
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Denial reason classification
@@ -105,6 +144,29 @@ const MEMBERSHIP_REASON_KEY: Record<string, keyof KioskTranslations['kiosk']> = 
     access_time_restriction: 'reasonAccessTimeRestriction',
     access_location_restriction: 'reasonAccessLocationRestriction',
 };
+
+// A granted-but-expiring member is still welcomed — the amber styling and the
+// day count carry the "renew soon" message, not a scarier headline.
+const SPLASH_TITLE_KEY: Record<SplashState, keyof KioskTranslations['kiosk']> = {
+    granted: 'welcomeBack',
+    granted_expiring: 'welcomeBack',
+    membership_denied: 'membershipIssue',
+    unknown_denied: 'unknownTitle',
+};
+
+function isSplashState(state: RecognitionState): state is SplashState {
+    return state !== 'idle' && state !== 'verifying';
+}
+
+// Membership dates arrive as date-only strings. Anchoring at midday avoids the
+// UTC-shift that makes a date render as the previous day in western timezones.
+function formatExpiryDate(endDate: string): string {
+    return new Date(endDate + 'T12:00:00').toLocaleDateString('es-CO', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+    });
+}
 
 function humanizeDenialReason(reason: string | null, t: KioskTranslations): string {
     if (!reason) return t.kiosk.reasonGeneric;
@@ -170,6 +232,17 @@ const scanSweep = keyframes`
   100% { top: 88%; opacity: 0; }
 `;
 
+const splashIn = keyframes`
+  from { opacity: 0; transform: scale(1.04); }
+  to { opacity: 1; transform: scale(1); }
+`;
+
+const iconPop = keyframes`
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+`;
+
 // ---------------------------------------------------------------------------
 // Styled Components
 // ---------------------------------------------------------------------------
@@ -178,6 +251,7 @@ const STATE_BORDER_COLOR: Record<RecognitionState, string> = {
     idle: alpha(COLORS.text, 0.12),
     verifying: COLORS.accent,
     granted: COLORS.success,
+    granted_expiring: COLORS.warning,
     membership_denied: COLORS.warning,
     unknown_denied: COLORS.danger,
 };
@@ -186,9 +260,39 @@ const STATE_ANIMATION: Record<RecognitionState, string> = {
     idle: 'none',
     verifying: `${pulseAccent} 1.1s ease-in-out infinite`,
     granted: `${pulseGreen} 1.4s ease-in-out 2`,
+    granted_expiring: `${pulseWarning} 1.4s ease-in-out 2`,
     membership_denied: `${pulseWarning} 1.8s ease-in-out 1`,
     unknown_denied: `${pulseDanger} 1.8s ease-in-out 1`,
 };
+
+// The result splash owns the whole screen, so its palette is what a member
+// reads from across the lobby. It answers one question first — did the door
+// open? Green and amber mean come in, red means see reception. Icon and
+// title then separate the two amber cases and the two red ones.
+const SPLASH_ACCENT: Record<SplashState, string> = {
+    granted: COLORS.success,
+    granted_expiring: COLORS.warning,
+    membership_denied: COLORS.danger,
+    unknown_denied: COLORS.danger,
+};
+
+const SplashOverlay = styled('div')<{ $state: SplashState }>(({ $state }) => {
+    const accent = SPLASH_ACCENT[$state];
+    return {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: 24,
+        background: `radial-gradient(ellipse at center, ${alpha(accent, 0.28)} 0%, ${alpha(COLORS.background, 0.97)} 70%)`,
+        backdropFilter: 'blur(12px)',
+        animation: `${splashIn} 0.35s ease-out`,
+    };
+});
 
 const CameraContainer = styled('div')<{
     $state: RecognitionState;
@@ -286,9 +390,14 @@ export const Kiosk: React.FC = () => {
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const [searchParams, setSearchParams] = useSearchParams();
     const urlCameraId = searchParams.get('cameraId');
-    const [selectedCameraId, setSelectedCameraId] = useState<string>(urlCameraId || '');
+    const [selectedCameraId, setSelectedCameraId] = useState<string>(
+        () => urlCameraId || readStoredCameraId()
+    );
 
-    const [usbMode, setUsbMode] = useState(false);
+    // The kiosk drives the camera attached to the machine it runs on, so local
+    // camera mode is the default — staff shouldn't have to enable it by hand at
+    // every start. ?mode=remote opts back into a server-side RTSP stream.
+    const [usbMode, setUsbMode] = useState(() => searchParams.get('mode') !== 'remote');
 
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
     const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
@@ -299,6 +408,7 @@ export const Kiosk: React.FC = () => {
     const [recognizedName, setRecognizedName] = useState<string>('');
     const [denialReason, setDenialReason] = useState<string | null>(null);
     const [membershipExpiry, setMembershipExpiry] = useState<string | null>(null);
+    const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
 
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -358,6 +468,7 @@ export const Kiosk: React.FC = () => {
         setRecognizedName('');
         setDenialReason(null);
         setMembershipExpiry(null);
+        setDaysRemaining(null);
     }, []);
 
     useEffect(() => {
@@ -380,7 +491,14 @@ export const Kiosk: React.FC = () => {
             return;
         }
 
-        const { access_granted, denial_reason, member_name, membership_end_date, member_id } = latestRecognition;
+        const {
+            access_granted,
+            denial_reason,
+            member_name,
+            membership_end_date,
+            member_id,
+            days_remaining,
+        } = latestRecognition;
         const resultKey = `${member_id ?? 'unknown'}:${access_granted}`;
 
         // Same person/outcome as the frame we're already showing — just keep
@@ -419,9 +537,17 @@ export const Kiosk: React.FC = () => {
             verifyTimerRef.current = null;
             setRecognizedName(member_name);
             setMembershipExpiry(membership_end_date || null);
+            setDaysRemaining(days_remaining ?? null);
 
             if (access_granted) {
-                setRecognitionState('granted');
+                // Still a grant — the door opens either way. The amber variant
+                // only adds a nudge to renew. `0` is a real warning value (the
+                // final valid day), so test the null-ness separately.
+                const expiringSoon =
+                    days_remaining !== null &&
+                    days_remaining !== undefined &&
+                    days_remaining <= EXPIRY_WARNING_DAYS;
+                setRecognitionState(expiringSoon ? 'granted_expiring' : 'granted');
             } else {
                 setDenialReason(denial_reason || null);
                 setRecognitionState(classifyDenial(denial_reason) === 'unknown' ? 'unknown_denied' : 'membership_denied');
@@ -515,6 +641,7 @@ export const Kiosk: React.FC = () => {
                                     confidence: msg.confidence,
                                     timestamp: new Date(),
                                     denial_reason: msg.denial_reason,
+                                    days_remaining: msg.days_remaining,
                                 };
                                 return [newEvent, ...prev].slice(0, 50);
                             });
@@ -631,6 +758,23 @@ export const Kiosk: React.FC = () => {
         setStreamError(false);
     }, [selectedCameraId]);
 
+    // Nobody is standing at an unattended kiosk to choose a camera, so adopt
+    // the first configured one as soon as the list arrives. An explicit URL
+    // selection may intentionally be outside this list, but a remembered ID
+    // must still exist because cameras can be deleted between restarts.
+    useEffect(() => {
+        if (urlCameraId) return;
+        const firstCamera = camerasData?.[0];
+        if (!firstCamera) return;
+        if (selectedCameraId && camerasData.some((camera) => camera.id === selectedCameraId)) return;
+        setSelectedCameraId(firstCamera.id);
+    }, [camerasData, selectedCameraId, urlCameraId]);
+
+    useEffect(() => {
+        if (!selectedCameraId) return;
+        rememberCameraId(selectedCameraId);
+    }, [selectedCameraId]);
+
     const handleCameraChange = (e: any) => {
         const id = e.target.value;
         setSelectedCameraId(id);
@@ -725,8 +869,9 @@ export const Kiosk: React.FC = () => {
                     pb: 6,
                 }}
             >
-                {/* Recognition Overlay */}
-                <Fade in={recognitionState !== 'idle'} timeout={400}>
+                {/* Verifying beat. The final outcome is announced by the
+                    full-screen splash at the bottom of this component. */}
+                <Fade in={recognitionState === 'verifying'} timeout={400}>
                     <Box
                         sx={{
                             textAlign: 'center',
@@ -743,53 +888,6 @@ export const Kiosk: React.FC = () => {
                                 <CircularProgress size={isMobile ? 26 : 32} thickness={4} sx={{ color: COLORS.accent }} />
                                 <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} sx={{ color: COLORS.accent, letterSpacing: '0.02em' }}>
                                     {t.kiosk.verifying}
-                                </Typography>
-                            </Box>
-                        )}
-                        {recognitionState === 'granted' && (
-                            <Box sx={{ animation: `${slideDown} 0.4s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <CheckCircleIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: COLORS.success, mb: 0.5 }} />
-                                <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} sx={{ color: COLORS.success, letterSpacing: '0.02em', textShadow: `0 0 20px ${alpha(COLORS.success, 0.4)}` }}>
-                                    {t.kiosk.welcomeBack}
-                                </Typography>
-                                <Typography variant={isMobile ? "h6" : "h5"} fontWeight={600} sx={{ color: alpha(COLORS.text, 0.9), mt: 0.5 }}>
-                                    {recognizedName}
-                                </Typography>
-                                {membershipExpiry && (
-                                    <Typography variant="body2" sx={{ color: alpha(COLORS.success, 0.8), mt: 0.5, fontSize: { xs: '0.8rem', sm: '0.9rem' }, fontWeight: 400 }}>
-                                        {t.kiosk.membershipValidUntil}: {new Date(membershipExpiry + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
-                                    </Typography>
-                                )}
-                                <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 0.75 }}>
-                                    {t.kiosk.doorOpening}
-                                </Typography>
-                            </Box>
-                        )}
-                        {recognitionState === 'membership_denied' && (
-                            <Box sx={{ animation: `${slideDown} 0.4s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <WarningAmberIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: COLORS.warning, mb: 0.5 }} />
-                                <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} sx={{ color: COLORS.warning, letterSpacing: '0.02em', textShadow: `0 0 20px ${alpha(COLORS.warning, 0.35)}` }}>
-                                    {t.kiosk.membershipIssue}
-                                </Typography>
-                                <Typography variant={isMobile ? "h6" : "h5"} fontWeight={600} sx={{ color: alpha(COLORS.text, 0.9), mt: 0.5 }}>
-                                    {recognizedName}
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 0.5 }}>
-                                    {humanizeDenialReason(denialReason, t)}
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: alpha(COLORS.text, 0.4), mt: 0.25 }}>
-                                    {t.kiosk.pleaseVisitReception}
-                                </Typography>
-                            </Box>
-                        )}
-                        {recognitionState === 'unknown_denied' && (
-                            <Box sx={{ animation: `${slideDown} 0.4s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <HelpOutlineIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: COLORS.danger, mb: 0.5 }} />
-                                <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} sx={{ color: COLORS.danger, letterSpacing: '0.02em', textShadow: `0 0 20px ${alpha(COLORS.danger, 0.3)}` }}>
-                                    {t.kiosk.unknownTitle}
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 0.75, maxWidth: 320 }}>
-                                    {t.kiosk.unknownSubtitle}
                                 </Typography>
                             </Box>
                         )}
@@ -1006,6 +1104,161 @@ export const Kiosk: React.FC = () => {
                     <SettingsIcon />
                 </IconButton>
             </Box>
+
+            {/* ---- FULL-SCREEN RESULT SPLASH ----
+                The outcome is the one thing a member needs to read from across
+                the lobby, so it takes the whole screen rather than sitting in a
+                panel above the camera frame. */}
+            {isSplashState(recognitionState) && (
+                <SplashOverlay
+                    $state={recognitionState}
+                    data-testid="result-splash"
+                    data-state={recognitionState}
+                >
+                    <Box sx={{ animation: `${iconPop} 0.5s ease-out`, mb: { xs: 2, sm: 3 } }}>
+                        {recognitionState === 'granted' && (
+                            <CheckCircleIcon
+                                sx={{
+                                    fontSize: { xs: 80, sm: 120 },
+                                    color: COLORS.success,
+                                    filter: `drop-shadow(0 0 30px ${alpha(COLORS.success, 0.6)})`,
+                                }}
+                            />
+                        )}
+                        {recognitionState === 'granted_expiring' && (
+                            <WarningAmberIcon
+                                sx={{
+                                    fontSize: { xs: 80, sm: 120 },
+                                    color: COLORS.warning,
+                                    filter: `drop-shadow(0 0 30px ${alpha(COLORS.warning, 0.6)})`,
+                                }}
+                            />
+                        )}
+                        {recognitionState === 'membership_denied' && (
+                            <WarningAmberIcon
+                                sx={{
+                                    fontSize: { xs: 80, sm: 120 },
+                                    color: COLORS.danger,
+                                    filter: `drop-shadow(0 0 30px ${alpha(COLORS.danger, 0.6)})`,
+                                }}
+                            />
+                        )}
+                        {recognitionState === 'unknown_denied' && (
+                            <HelpOutlineIcon
+                                sx={{
+                                    fontSize: { xs: 80, sm: 120 },
+                                    color: COLORS.danger,
+                                    filter: `drop-shadow(0 0 30px ${alpha(COLORS.danger, 0.6)})`,
+                                }}
+                            />
+                        )}
+                    </Box>
+
+                    <Typography
+                        variant={isMobile ? 'h4' : 'h2'}
+                        fontWeight={900}
+                        sx={{
+                            letterSpacing: '0.04em',
+                            color: SPLASH_ACCENT[recognitionState],
+                            textShadow: `0 0 40px ${alpha(SPLASH_ACCENT[recognitionState], 0.5)}`,
+                            mb: 1,
+                        }}
+                    >
+                        {t.kiosk[SPLASH_TITLE_KEY[recognitionState]]}
+                    </Typography>
+
+                    {/* An unrecognized face has no name to show — and any name
+                        attached to that result may be a stale cache hit, so it
+                        must never be displayed. */}
+                    {recognitionState !== 'unknown_denied' && !!recognizedName && (
+                        <Typography
+                            variant={isMobile ? 'h5' : 'h3'}
+                            fontWeight={700}
+                            sx={{
+                                animation: `${slideDown} 0.4s ease-out`,
+                                color: alpha(COLORS.text, 0.95),
+                                mb: 2,
+                                maxWidth: '80vw',
+                                lineHeight: 1.2,
+                            }}
+                        >
+                            {recognizedName}
+                        </Typography>
+                    )}
+
+                    {recognitionState === 'granted' && (
+                        <>
+                            {membershipExpiry && (
+                                <Typography
+                                    variant={isMobile ? 'body1' : 'h6'}
+                                    sx={{ color: alpha(COLORS.success, 0.9), fontWeight: 400 }}
+                                >
+                                    {t.kiosk.membershipValidUntil}: {formatExpiryDate(membershipExpiry)}
+                                </Typography>
+                            )}
+                            <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 1 }}>
+                                {t.kiosk.doorOpening}
+                            </Typography>
+                        </>
+                    )}
+
+                    {recognitionState === 'granted_expiring' && (
+                        <>
+                            <Typography
+                                variant={isMobile ? 'body1' : 'h6'}
+                                sx={{ color: COLORS.warning, fontWeight: 600, mb: 0.5 }}
+                            >
+                                {t.kiosk.membershipExpiringSoon}: {daysRemaining}{' '}
+                                {daysRemaining === 1 ? t.kiosk.dayUnit : t.kiosk.daysUnit}
+                            </Typography>
+                            {membershipExpiry && (
+                                <Typography
+                                    variant={isMobile ? 'body2' : 'body1'}
+                                    sx={{ color: alpha(COLORS.warning, 0.75), fontWeight: 400 }}
+                                >
+                                    {t.kiosk.expiresOn}: {formatExpiryDate(membershipExpiry)}
+                                </Typography>
+                            )}
+                            <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 1 }}>
+                                {t.kiosk.pleaseVisitReception}
+                            </Typography>
+                        </>
+                    )}
+
+                    {recognitionState === 'membership_denied' && (
+                        <>
+                            <Typography
+                                variant={isMobile ? 'body1' : 'h6'}
+                                sx={{ color: alpha(COLORS.text, 0.75), fontWeight: 400 }}
+                            >
+                                {humanizeDenialReason(denialReason, t)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 1 }}>
+                                {t.kiosk.pleaseVisitReception}
+                            </Typography>
+                        </>
+                    )}
+
+                    {recognitionState === 'unknown_denied' && (
+                        <Typography
+                            variant={isMobile ? 'body1' : 'h6'}
+                            sx={{ color: alpha(COLORS.text, 0.7), fontWeight: 400, maxWidth: 420 }}
+                        >
+                            {t.kiosk.unknownSubtitle}
+                        </Typography>
+                    )}
+
+                    <Box sx={{ position: 'absolute', bottom: { xs: 24, sm: 40 }, opacity: 0.3 }}>
+                        <Typography
+                            variant="body2"
+                            fontWeight={700}
+                            sx={{ color: alpha(COLORS.text, 0.5), letterSpacing: '0.1em' }}
+                        >
+                            POWERHOUSE GYM
+                        </Typography>
+                    </Box>
+                </SplashOverlay>
+            )}
         </Box>
     );
 };
