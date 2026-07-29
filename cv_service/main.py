@@ -138,6 +138,7 @@ class CVService:
         
         # Frames from WebSocket-connected browser cameras (for MJPEG re-stream)
         self._ws_frames: Dict[str, 'np.ndarray'] = {}
+        self._camera_sync_lock = asyncio.Lock()
         
         # Configure logging
         logger.remove()
@@ -206,28 +207,47 @@ class CVService:
         except Exception as e:
             logger.warning(f"Redis cleanup failed: {e}")
     
-    async def _auto_start_cameras(self):
-        """Auto-start all enabled cameras from backend."""
+    async def _auto_start_cameras(self, requested_camera_id: Optional[str] = None):
+        """Reconcile running processors with enabled backend camera config."""
+        async with self._camera_sync_lock:
+            await self._reconcile_cameras(requested_camera_id)
+
+    async def _reconcile_cameras(self, requested_camera_id: Optional[str] = None):
         cameras = await self.api_client.get_cameras()
-        
+        configured = {cam["id"]: cam for cam in cameras if cam.get("rtsp_url")}
+
+        if requested_camera_id:
+            configured = {
+                camera_id: cam
+                for camera_id, cam in configured.items()
+                if camera_id == requested_camera_id
+            }
+        else:
+            for camera_id in set(self.processors) - set(configured):
+                self.stop_camera(camera_id)
+
         started = 0
-        for cam in cameras:
-            rtsp_url = cam.get("rtsp_url")
-            if not rtsp_url:
-                logger.warning(f"Camera {cam['name']} has no RTSP URL — skipping")
+        for camera_id, cam in configured.items():
+            rtsp_url = cam["rtsp_url"]
+            fps = cam.get("fps", 5)
+            processor = self.processors.get(camera_id)
+            if processor and processor.rtsp_url == rtsp_url and processor.fps == fps:
                 continue
-            
+
             try:
                 await self.start_camera(
-                    camera_id=cam["id"],
+                    camera_id=camera_id,
                     rtsp_url=rtsp_url,
-                    fps=cam.get("fps", 5)
+                    fps=fps,
                 )
                 started += 1
             except Exception as e:
                 logger.error(f"Failed to start camera {cam['name']}: {e}")
-        
-        logger.info(f"Auto-started {started}/{len(cameras)} cameras")
+
+        logger.info(
+            f"Reconciled cameras: started/restarted {started}, "
+            f"configured {len(configured)}"
+        )
     
     async def _periodic_refresh(self):
         """Periodically refresh templates and cameras."""
@@ -236,6 +256,7 @@ class CVService:
             try:
                 logger.info("Periodic refresh: reloading templates...")
                 await self._load_templates()
+                await self._auto_start_cameras()
             except Exception as e:
                 logger.error(f"Periodic refresh failed: {e}")
     
@@ -399,10 +420,12 @@ async def stop_camera_endpoint(request: StopCameraRequest, _: None = Depends(ver
     return {"status": "stopped", "camera_id": request.camera_id}
 
 @app.get("/stream/{camera_id}")
-def video_feed(camera_id: str, _: str = Depends(verify_api_key)):
+async def video_feed(camera_id: str, _: str = Depends(verify_api_key)):
     """MJPEG Video Feed — works for both RTSP and WebSocket-sourced cameras."""
     if camera_id not in service.processors and camera_id not in service._ws_frames:
-        raise HTTPException(status_code=404, detail="Camera not running")
+        await service._auto_start_cameras(camera_id)
+        if camera_id not in service.processors:
+            raise HTTPException(status_code=404, detail="Camera not configured or enabled")
     
     return StreamingResponse(
         generate_mjpeg(camera_id),
@@ -667,5 +690,3 @@ if __name__ == "__main__":
         uvicorn.run(app, host="0.0.0.0", port=8001)
     except KeyboardInterrupt:
         pass
-
-
