@@ -163,6 +163,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -223,6 +224,16 @@ describe('Kiosk unattended startup', () => {
 });
 
 describe('Kiosk result splash', () => {
+  it('keeps the camera hero and idle status visible before recognition', async () => {
+    renderKiosk();
+    await awaitAutoStartedCamera();
+
+    expect(screen.getByTestId('camera-hero')).toBeVisible();
+    expect(screen.getByTestId('status-dock')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(t.kiosk.readyTitle);
+    expect(screen.getByRole('status')).toHaveTextContent(t.kiosk.faceCamera);
+  });
+
   it('shows a full-screen welcome splash naming the member on a grant', async () => {
     renderKiosk();
     const ws = await awaitAutoStartedCamera();
@@ -235,6 +246,7 @@ describe('Kiosk result splash', () => {
     expect(splash).toHaveTextContent('Jane Doe');
     // No expiring-soon warning when the membership has plenty of runway.
     expect(splash).not.toHaveTextContent(t.kiosk.membershipExpiringSoon);
+    expect(screen.queryByTestId('status-dock')).not.toBeInTheDocument();
   });
 
   it('warns with the remaining-day count when the membership is about to lapse', async () => {
@@ -314,6 +326,29 @@ describe('Kiosk result splash', () => {
     expect(splash).toHaveTextContent('Known Member');
     expect(splash).toHaveTextContent(t.kiosk.reasonExpiredMembership);
   });
+
+  it.each([
+    ['granted', { access_granted: true, days_remaining: 40 }],
+    ['granted_expiring', { access_granted: true, days_remaining: 0 }],
+    ['membership_denied', { access_granted: false, denial_reason: 'expired_membership', days_remaining: null }],
+    ['unknown_denied', { access_granted: false, denial_reason: 'unknown_face', days_remaining: null }],
+  ])('returns the %s terminal state to idle within three seconds', async (state, overrides) => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+    vi.useFakeTimers();
+
+    sendMessage(ws, recognitionMessage(overrides));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(screen.getByTestId('result-splash')).toHaveAttribute('data-state', state);
+
+    // Continuous duplicate frames must not move the fixed reset deadline.
+    sendMessage(ws, recognitionMessage(overrides));
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+
+    expect(screen.queryByTestId('result-splash')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(t.kiosk.readyTitle);
+    vi.useRealTimers();
+  });
 });
 
 describe('Kiosk recognition state machine (USB mode)', () => {
@@ -325,9 +360,21 @@ describe('Kiosk recognition state machine (USB mode)', () => {
     // server-side RTSP stream.
     renderKiosk(cameraId, '&mode=remote');
 
-    const stream = await screen.findByAltText('Live Camera Feed');
+    const stream = await screen.findByAltText(t.kiosk.liveCameraAlt);
     expect(stream).toHaveAttribute('src', `/cv/stream/${cameraId}`);
     expect(cvServiceApi.getStreamUrl).toHaveBeenCalledWith(cameraId);
+  });
+
+  it('shows one dominant camera error and reports the system unavailable', async () => {
+    renderKiosk('cam-1', '&mode=remote');
+
+    const stream = await screen.findByAltText(t.kiosk.liveCameraAlt);
+    fireEvent.error(stream);
+
+    expect(screen.getAllByText(t.kiosk.cameraReconnecting)).toHaveLength(1);
+    expect(screen.getByRole('button', { name: t.kiosk.retry })).toBeInTheDocument();
+    expect(screen.getByTestId('system-status')).toHaveTextContent(t.kiosk.systemUnavailable);
+    expect(screen.queryByTestId('status-dock')).not.toBeInTheDocument();
   });
 
   it('reveals the granted result even when the same person keeps sending frames faster than the verifying beat', async () => {
@@ -336,7 +383,7 @@ describe('Kiosk recognition state machine (USB mode)', () => {
 
     // First frame for this person: enters the 500ms "verifying" beat.
     sendMessage(ws, recognitionMessage({ member_id: 'member-1', access_granted: true }));
-    await screen.findByText(t.kiosk.verifying);
+    await screen.findByText(t.kiosk.verifyingTitle);
 
     // A second frame for the SAME person/outcome arrives ~200ms later — well
     // before the 500ms verifying timer would fire. This mirrors the CV
