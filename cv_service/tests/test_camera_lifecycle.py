@@ -26,7 +26,7 @@ async def test_requested_configured_camera_is_started_before_streaming(monkeypat
     response = await video_feed(camera_id, None)
 
     fake_service._auto_start_cameras.assert_awaited_once_with(camera_id)
-    assert response.media_type == "multipart/x-mixed-replace"
+    assert response.media_type == "multipart/x-mixed-replace; boundary=frame"
 
 
 @pytest.mark.asyncio
