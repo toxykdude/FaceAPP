@@ -243,6 +243,11 @@ const iconPop = keyframes`
   100% { transform: scale(1); opacity: 1; }
 `;
 
+const resetCountdown = keyframes`
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+`;
+
 // ---------------------------------------------------------------------------
 // Styled Components
 // ---------------------------------------------------------------------------
@@ -288,9 +293,10 @@ const SplashOverlay = styled('div')<{ $state: SplashState }>(({ $state }) => {
         justifyContent: 'center',
         textAlign: 'center',
         padding: 24,
-        background: `radial-gradient(ellipse at center, ${alpha(accent, 0.28)} 0%, ${alpha(COLORS.background, 0.97)} 70%)`,
-        backdropFilter: 'blur(12px)',
+        background: `radial-gradient(ellipse at center, ${alpha(accent, 0.24)} 0%, ${alpha(COLORS.background, 0.88)} 72%)`,
+        backdropFilter: 'blur(7px)',
         animation: `${splashIn} 0.35s ease-out`,
+        '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
     };
 });
 
@@ -299,15 +305,30 @@ const CameraContainer = styled('div')<{
 }>(({ $state }) => ({
     position: 'relative',
     width: '100%',
-    maxWidth: 460,
-    aspectRatio: '4 / 5',
-    borderRadius: 28,
+    maxWidth: 1180,
+    height: 'min(66dvh, calc(100vw * 0.5625))',
+    minHeight: 320,
+    aspectRatio: '16 / 9',
+    borderRadius: 32,
     overflow: 'hidden',
     backgroundColor: '#000',
-    border: '2px solid',
+    border: '1px solid',
     borderColor: STATE_BORDER_COLOR[$state],
     transition: 'border-color 0.4s ease, box-shadow 0.4s ease',
     animation: STATE_ANIMATION[$state],
+    boxShadow: `0 28px 80px ${alpha('#000', 0.58)}, inset 0 0 0 1px ${alpha(COLORS.text, 0.05)}`,
+    '@media (orientation: portrait)': {
+        width: 'min(92vw, 820px)',
+        height: 'min(66dvh, calc(92vw * 1.2))',
+        minHeight: 0,
+        aspectRatio: '5 / 6',
+    },
+    '@media (max-height: 800px) and (orientation: landscape)': {
+        height: 'min(64dvh, calc(100vw * 0.5625))',
+        maxWidth: 'min(1180px, 78vw)',
+        minHeight: 300,
+    },
+    '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' },
 }));
 
 // Purely decorative face-guide overlay. Not tied to real face coordinates —
@@ -418,8 +439,8 @@ export const Kiosk: React.FC = () => {
     // Identifies the recognition event currently being displayed (verifying
     // or revealed), so repeated per-frame WS messages for the same person
     // (the CV service re-sends "recognition" on every processed frame, up to
-    // 5/s, for as long as they stand in front of the camera) refresh the
-    // auto-dismiss timer instead of restarting the verifying animation.
+    // 5/s, for as long as they stand in front of the camera) cannot restart
+    // either the reveal or fixed auto-dismiss deadline.
     const activeResultKeyRef = useRef<string | null>(null);
 
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -507,15 +528,10 @@ export const Kiosk: React.FC = () => {
         // (5fps capture) and the 500ms verifying timer below would never win
         // the race to actually fire.
         if (activeResultKeyRef.current === resultKey) {
-            if (!verifyTimerRef.current) {
-                // The result has already been revealed (granted/denied) — keep
-                // refreshing the auto-dismiss timer as long as this same
-                // person/outcome keeps sending frames.
-                if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-                resetTimerRef.current = setTimeout(resetRecognition, RESULT_RESET_DELAY_MS);
-            }
             // Still verifying (verifyTimerRef is still pending): let it keep
-            // counting down uninterrupted. This effect intentionally does NOT
+            // counting down uninterrupted. Once revealed, the fixed reset
+            // deadline also remains untouched so a person standing still can
+            // never block the queue. This effect intentionally does NOT
             // return a cleanup function that clears verifyTimerRef, because
             // that cleanup would otherwise re-run (and cancel the pending
             // reveal) on every duplicate frame — which is exactly what used
@@ -713,10 +729,10 @@ export const Kiosk: React.FC = () => {
         // expires) must never disclose identity — mirror the same gating
         // already applied to the border color above.
         const label = granted
-            ? `ACCESS GRANTED - ${latestRecognition.member_name} (${Math.round(latestRecognition.confidence * 100)}%)`
+            ? `${t.kiosk.accessGrantedLabel} - ${latestRecognition.member_name} (${Math.round(latestRecognition.confidence * 100)}%)`
             : classifyDenial(latestRecognition.denial_reason) === 'unknown'
-                ? `ACCESS DENIED - Unknown (${Math.round(latestRecognition.confidence * 100)}%)`
-                : `ACCESS DENIED - ${latestRecognition.member_name || 'Unknown'} (${Math.round(latestRecognition.confidence * 100)}%)`;
+                ? `${t.kiosk.accessDeniedLabel} - ${t.kiosk.unknownPerson} (${Math.round(latestRecognition.confidence * 100)}%)`
+                : `${t.kiosk.accessDeniedLabel} - ${latestRecognition.member_name || t.kiosk.unknownPerson} (${Math.round(latestRecognition.confidence * 100)}%)`;
 
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -730,7 +746,7 @@ export const Kiosk: React.FC = () => {
 
         ctx.fillStyle = '#ffffff';
         ctx.fillText(label, x + 8, labelY);
-    }, [latestRecognition, usbMode]);
+    }, [latestRecognition, t, usbMode]);
 
     const handleUsbToggle = useCallback(() => {
         if (usbMode) {
@@ -784,6 +800,20 @@ export const Kiosk: React.FC = () => {
     const displayEvents = usbMode ? localEvents : remoteEvents;
     const recentCheckins = displayEvents.slice(0, 3);
     const showGuide = recognitionState === 'idle' || recognitionState === 'verifying';
+    const cameraUnavailable = !!selectedCameraId && (streamError || (usbMode && (connectionStatus === 'error' || connectionStatus === 'disconnected')));
+    const cameraReady = selectedCameraId && (!usbMode || connectionStatus === 'connected') && !streamError;
+    const statusTitle = recognitionState === 'verifying'
+        ? t.kiosk.verifyingTitle
+        : cameraReady
+            ? t.kiosk.readyTitle
+            : connectionStatus === 'connecting'
+                ? t.kiosk.preparingCamera
+                : t.kiosk.cameraReconnecting;
+    const statusDetail = recognitionState === 'verifying'
+        ? t.kiosk.verifyingDetail
+        : cameraReady
+            ? t.kiosk.faceCamera
+            : t.kiosk.cameraReconnectingDetail;
 
     // -----------------------------------------------------------------------
     // Render
@@ -797,10 +827,13 @@ export const Kiosk: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                background: `linear-gradient(180deg, ${COLORS.background} 0%, ${COLORS.surface} 100%)`,
+                background: `radial-gradient(circle at 50% 35%, ${alpha(COLORS.primary, 0.11)} 0%, transparent 42%), radial-gradient(circle at 85% 80%, ${alpha(COLORS.accent, 0.05)} 0%, transparent 32%), ${COLORS.background}`,
                 color: COLORS.text,
                 position: 'relative',
                 overflow: 'hidden',
+                '@media (prefers-reduced-motion: reduce)': {
+                    '&, & *': { animation: 'none !important', transition: 'none !important' },
+                },
             }}
         >
             {/* ---- TOP BAR ---- */}
@@ -813,8 +846,8 @@ export const Kiosk: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    px: 4,
-                    py: 2.5,
+                    px: { xs: 2, md: 4 },
+                    py: { xs: 1.5, md: 2.5 },
                     zIndex: 10,
                 }}
             >
@@ -842,17 +875,17 @@ export const Kiosk: React.FC = () => {
                     </Typography>
                 </Box>
 
-                <Typography
-                    variant="h4"
-                    fontWeight={300}
-                    sx={{
-                        color: alpha(COLORS.text, 0.6),
-                        fontVariantNumeric: 'tabular-nums',
-                        letterSpacing: '0.02em',
-                    }}
-                >
-                    {format(currentTime, 'h:mm a')}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1.5, md: 3 } }}>
+                    <Box data-testid="system-status" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 99, bgcolor: alpha(COLORS.surface, 0.78), border: `1px solid ${alpha(cameraUnavailable ? COLORS.danger : cameraReady ? COLORS.success : COLORS.warning, 0.45)}`, backdropFilter: 'blur(12px)' }}>
+                        <StatusDotSmall $color={cameraUnavailable ? 'red' : cameraReady ? 'green' : 'yellow'} />
+                        <Typography fontWeight={800} sx={{ color: cameraUnavailable ? COLORS.danger : COLORS.text, fontSize: { xs: '0.78rem', sm: '0.88rem', lg: '0.95rem' }, letterSpacing: '0.04em' }}>
+                            {cameraUnavailable ? t.kiosk.systemUnavailable : cameraReady ? t.kiosk.systemReady : t.kiosk.systemPreparing}
+                        </Typography>
+                    </Box>
+                    <Typography fontWeight={500} sx={{ display: { xs: 'none', sm: 'block' }, color: alpha(COLORS.text, 0.74), fontSize: { sm: '1.55rem', lg: '1.75rem' }, fontVariantNumeric: 'tabular-nums' }}>
+                        {format(currentTime, 'h:mm a')}
+                    </Typography>
+                </Box>
             </Box>
 
             {/* ---- MAIN CONTENT ---- */}
@@ -864,38 +897,13 @@ export const Kiosk: React.FC = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     width: '100%',
-                    px: 3,
-                    pt: 8,
-                    pb: 6,
+                    px: { xs: 1.5, md: 3 },
+                    pt: { xs: 8, md: 9 },
+                    pb: { xs: 2, md: 3 },
                 }}
             >
-                {/* Verifying beat. The final outcome is announced by the
-                    full-screen splash at the bottom of this component. */}
-                <Fade in={recognitionState === 'verifying'} timeout={400}>
-                    <Box
-                        sx={{
-                            textAlign: 'center',
-                            mb: 2.5,
-                            minHeight: { xs: 50, sm: 70 },
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
-                    >
-                        {recognitionState === 'verifying' && (
-                            <Box sx={{ animation: `${fadeIn} 0.25s ease-out`, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                <CircularProgress size={isMobile ? 26 : 32} thickness={4} sx={{ color: COLORS.accent }} />
-                                <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} sx={{ color: COLORS.accent, letterSpacing: '0.02em' }}>
-                                    {t.kiosk.verifying}
-                                </Typography>
-                            </Box>
-                        )}
-                    </Box>
-                </Fade>
-
                 {/* Camera Feed */}
-                <CameraContainer $state={recognitionState}>
+                <CameraContainer $state={recognitionState} data-testid="camera-hero">
                     {selectedCameraId ? (
                         usbMode ? (
                             <>
@@ -922,7 +930,7 @@ export const Kiosk: React.FC = () => {
                             <>
                             <img
                                 src={cvServiceApi.getStreamUrl(selectedCameraId)}
-                                alt="Live Camera Feed"
+                                alt={t.kiosk.liveCameraAlt}
                                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                                 onError={() => setStreamError(true)}
                             />
@@ -977,13 +985,40 @@ export const Kiosk: React.FC = () => {
                     )}
                 </CameraContainer>
 
-                <Fade in={recognitionState === 'idle' && !!selectedCameraId}>
-                    <Box sx={{ mt: 2.5, textAlign: 'center', animation: `${fadeIn} 0.6s ease-out` }}>
-                        <Typography variant="body1" sx={{ color: alpha(COLORS.text, 0.35), fontWeight: 400 }}>
-                            {t.kiosk.faceCamera}
+                {!cameraUnavailable && !isSplashState(recognitionState) && <Box
+                    data-testid="status-dock"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    sx={{
+                        width: { xs: 'calc(100% - 32px)', sm: 'min(760px, 76vw)' },
+                        minHeight: { xs: 92, sm: 108 },
+                        mt: { xs: -2.5, sm: -3.5 },
+                        zIndex: 4,
+                        px: { xs: 2.5, sm: 4 },
+                        py: { xs: 1.5, sm: 2 },
+                        borderRadius: { xs: 3, sm: 4 },
+                        textAlign: 'center',
+                        bgcolor: alpha(COLORS.surface, 0.9),
+                        border: `1px solid ${alpha(recognitionState === 'verifying' ? COLORS.accent : COLORS.text, 0.16)}`,
+                        boxShadow: `0 18px 50px ${alpha('#000', 0.48)}`,
+                        backdropFilter: 'blur(18px)',
+                    }}
+                >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
+                        {recognitionState === 'verifying' ? (
+                            <CircularProgress size={24} thickness={4} sx={{ color: COLORS.accent }} />
+                        ) : (
+                            <Box sx={{ width: 11, height: 11, borderRadius: '50%', bgcolor: cameraReady ? COLORS.success : COLORS.warning, boxShadow: `0 0 18px ${alpha(cameraReady ? COLORS.success : COLORS.warning, 0.7)}` }} />
+                        )}
+                        <Typography component="h1" sx={{ color: recognitionState === 'verifying' ? COLORS.accent : COLORS.text, fontWeight: 800, fontSize: { xs: '1.35rem', sm: '1.8rem', lg: '2.1rem' }, lineHeight: 1.1 }}>
+                            {statusTitle}
                         </Typography>
                     </Box>
-                </Fade>
+                    <Typography sx={{ mt: 0.75, color: COLORS.secondaryText, fontSize: { xs: '0.9rem', sm: '1.05rem' } }}>
+                        {statusDetail}
+                    </Typography>
+                </Box>}
             </Box>
 
             {/* ---- BOTTOM BAR ---- */}
@@ -1006,7 +1041,7 @@ export const Kiosk: React.FC = () => {
                     // mirror the same gating already applied to the bbox overlay label
                     // (which also masks with the literal "Unknown", not a translated string).
                     const displayName = denied && classifyDenial(event.denial_reason) === 'unknown'
-                        ? 'Unknown'
+                        ? t.kiosk.unknownPerson
                         : event.member_name;
                     return (
                         <Chip
@@ -1098,6 +1133,7 @@ export const Kiosk: React.FC = () => {
                 </Fade>
 
                 <IconButton
+                    aria-label={t.kiosk.settings}
                     onClick={() => setSettingsOpen((prev) => !prev)}
                     sx={{ bgcolor: alpha(COLORS.text, 0.05), border: '1px solid', borderColor: alpha(COLORS.text, 0.12), color: COLORS.secondaryText, minWidth: 44, minHeight: 44, '&:hover': { bgcolor: alpha(COLORS.text, 0.1), color: COLORS.text } }}
                 >
@@ -1114,6 +1150,9 @@ export const Kiosk: React.FC = () => {
                     $state={recognitionState}
                     data-testid="result-splash"
                     data-state={recognitionState}
+                    role="status"
+                    aria-live="assertive"
+                    aria-atomic="true"
                 >
                     <Box sx={{ animation: `${iconPop} 0.5s ease-out`, mb: { xs: 2, sm: 3 } }}>
                         {recognitionState === 'granted' && (
@@ -1247,6 +1286,15 @@ export const Kiosk: React.FC = () => {
                             {t.kiosk.unknownSubtitle}
                         </Typography>
                     )}
+
+                    <Box sx={{ width: { xs: 220, sm: 320 }, mt: { xs: 3, sm: 4 } }}>
+                        <Typography variant="caption" sx={{ color: alpha(COLORS.text, 0.68), letterSpacing: '0.04em' }}>
+                            {t.kiosk.returningToReady}
+                        </Typography>
+                        <Box sx={{ height: 3, mt: 1, overflow: 'hidden', borderRadius: 99, bgcolor: alpha(COLORS.text, 0.14) }}>
+                            <Box sx={{ width: '100%', height: '100%', transformOrigin: 'left', bgcolor: SPLASH_ACCENT[recognitionState], animation: `${resetCountdown} ${RESULT_RESET_DELAY_MS}ms linear forwards` }} />
+                        </Box>
+                    </Box>
 
                     <Box sx={{ position: 'absolute', bottom: { xs: 24, sm: 40 }, opacity: 0.3 }}>
                         <Typography
