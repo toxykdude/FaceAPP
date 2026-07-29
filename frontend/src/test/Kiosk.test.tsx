@@ -27,7 +27,7 @@ vi.mock('@/api/events', () => ({
 
 vi.mock('@/api/cvService', () => ({
   cvServiceApi: {
-    getStreamUrl: vi.fn(() => '/cv/stream/cam-1'),
+    getStreamUrl: vi.fn((cameraId: string) => `/cv/stream/${cameraId}`),
     getWebSocketUrl: vi.fn(() => 'ws://test/cv/ws/camera/cam-1'),
   },
 }));
@@ -90,12 +90,12 @@ function recognitionMessage(overrides: Partial<{
   });
 }
 
-function renderKiosk() {
+function renderKiosk(cameraId = 'cam-1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
-        <MemoryRouter initialEntries={['/kiosk?cameraId=cam-1']}>
+        <MemoryRouter initialEntries={[`/kiosk?cameraId=${cameraId}`]}>
           <Kiosk />
         </MemoryRouter>
       </LanguageProvider>
@@ -157,6 +157,17 @@ afterEach(() => {
 });
 
 describe('Kiosk recognition state machine (USB mode)', () => {
+  it('loads UUID camera streams through the same-origin CV proxy path', async () => {
+    const cameraId = 'ad0bcb04-14eb-4f78-80fa-59374b768b8c';
+    vi.mocked(camerasApi.getCameras).mockResolvedValue([{ id: cameraId, name: 'Entrance' }] as any);
+
+    renderKiosk(cameraId);
+
+    const stream = await screen.findByAltText('Live Camera Feed');
+    expect(stream).toHaveAttribute('src', `/cv/stream/${cameraId}`);
+    expect(cvServiceApi.getStreamUrl).toHaveBeenCalledWith(cameraId);
+  });
+
   it('reveals the granted result even when the same person keeps sending frames faster than the verifying beat', async () => {
     renderKiosk();
     const ws = await enableUsbMode();
