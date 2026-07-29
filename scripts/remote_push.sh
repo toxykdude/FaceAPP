@@ -82,10 +82,11 @@ push_rsync() {
 # ---------------------------------------------------------------------------
 push_smb() {
     local rc
+    local -a args
     local share="${SMB_SHARE:-${BACKUP_REMOTE_TARGET:-}}"
     local user="${SMB_USER:-}"
     local pass="${SMB_PASS:-}"
-    local sub="${SMB_PATH:-backups}"
+    local sub="${SMB_PATH:-}"
 
     if [ -z "$share" ] || [ -z "$user" ]; then
         _log "WARNING: smb remote selected but SMB_SHARE/SMB_USER not set; skipping remote push"
@@ -102,11 +103,16 @@ push_smb() {
         return 1
     fi
 
-    # pass is interpolated into the -U argument only; it is NEVER echoed. We
-    # redirect smbclient output to the log so any server banners do not reach
-    # the console; smbclient does not echo the password itself.
-    smbclient "$share" -U "${user}%${pass}" -m SMB3 \
-        -D "$sub" -c "lcd ${BACKUP_DIR}; prompt OFF; recurse ON; mput *" \
+    args=(-m SMB3 -U "$user")
+    if [ -n "$sub" ]; then
+        args+=(-D "$sub")
+    fi
+    args+=("$share" -c "lcd ${BACKUP_DIR}; prompt OFF; recurse ON; mput *")
+
+    # smbclient reads PASSWD from its environment. Keeping it out of -U avoids
+    # exposing the password in the process argv. An empty SMB_PATH targets the
+    # share root; -D is only valid when the configured subdirectory exists.
+    PASSWD="$pass" smbclient "${args[@]}" \
         >> "$LOG_FILE" 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then
