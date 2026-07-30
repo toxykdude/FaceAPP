@@ -70,6 +70,23 @@ _NT_STATUS_REASONS = {
 }
 _NT_STATUS_RE = re.compile(r"NT_STATUS_[A-Z0-9_]+")
 
+# Controlled vocabulary for SSH/SFTP probe failures, same contract as
+# _NT_STATUS_REASONS: a known OpenSSH failure phrase in the probe log maps to an
+# operator-actionable reason. Needed because the base warning line names only the
+# host, which sanitization scrubs to *** — leaving the operator with nothing to
+# act on. Ordered: the first match wins, so specific phrases precede generic ones.
+_SSH_REASONS = (
+    (
+        "host key verification failed",
+        "remote host key is not trusted - add it to the backup user's known_hosts",
+    ),
+    ("permission denied", "authentication failed - check username and password"),
+    ("connection refused", "connection refused - SFTP service not listening"),
+    ("no route to host", "host unreachable"),
+    ("connection timed out", "connection timed out"),
+    ("name or service not known", "hostname could not be resolved"),
+)
+
 # remote_push.sh lives at <repo>/scripts/remote_push.sh; this module is at
 # <repo>/backend/services/backup_config.py.
 REMOTE_PUSH_SH = Path(__file__).resolve().parents[2] / "scripts" / "remote_push.sh"
@@ -468,13 +485,27 @@ def _nt_status_reason(log_text: str) -> str:
     return ""
 
 
+def _ssh_reason(log_text: str) -> str:
+    """Map a known OpenSSH/SFTP failure phrase to a controlled reason phrase.
+
+    Only the mapped phrase is surfaced — never the matched log line, which may
+    carry a remote banner or the host name.
+    """
+    haystack = (log_text or "").lower()
+    for needle, reason in _SSH_REASONS:
+        if needle in haystack:
+            return reason
+    return ""
+
+
 def _sanitize_message(raw: str, rc: int, cfg: dict, log_text: str = "") -> str:
     """Scrub host/user/path/share/password and NT_STATUS_* tokens; <=200 chars.
 
-    On a failed probe, a known NT_STATUS_* code found in the full probe log
-    appends a controlled reason phrase to the base line. The composed message
-    then passes through the scrubbers below, which mask every raw NT_STATUS_*
-    token — only the mapped reason phrase is surfaced, never the raw code.
+    On a failed probe, a known NT_STATUS_* code (SMB) or OpenSSH failure phrase
+    (SFTP) found in the full probe log appends a controlled reason phrase to the
+    base line. The composed message then passes through the scrubbers below,
+    which mask every raw NT_STATUS_* token — only the mapped reason phrase is
+    surfaced, never the raw code or the matched remote text.
     """
     if rc == 0:
         base = "connection succeeded"
@@ -484,7 +515,7 @@ def _sanitize_message(raw: str, rc: int, cfg: dict, log_text: str = "") -> str:
         base = raw or "remote push failed"
 
     if rc not in (0, PROBE_TIMEOUT_RC):
-        reason = _nt_status_reason(log_text)
+        reason = _nt_status_reason(log_text) or _ssh_reason(log_text)
         if reason:
             base = f"{base}: {reason}" if base else reason
 

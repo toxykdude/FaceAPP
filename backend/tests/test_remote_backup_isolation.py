@@ -461,6 +461,47 @@ class TestRemotePasswordsNeverLogged:
         assert not old_artifact.exists()
 
 
+class TestSftpArgvOrder:
+    """``sftp`` stops parsing options at the first non-option argument, so the
+    ``user@host`` destination MUST come last. With ``-b <batch>`` placed after
+    it, sftp rejects the whole invocation with a usage error and the transport
+    can never work — a failure the mocked sshpass hides, because the mock
+    records argv without ever exec'ing the real sftp.
+    """
+
+    def test_batch_flag_precedes_the_destination(self, make_env):
+        cfg = make_env(transport="sftp")
+        env = cfg["env"]
+        env["SFTP_HOST"] = "remote.invalid"
+        env["SFTP_PORT"] = "2222"
+        env["SFTP_USER"] = "sftpuser"
+        env["SFTP_PATH"] = "/bkp"
+        env["SSHPASS"] = "SSHP-SECRET-TOKEN"
+
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SH)], env=env, capture_output=True, text=True
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        argv = (cfg["marker_dir"] / "sshpass.argv").read_text().split("\n")
+        argv = [tok for tok in argv if tok != ""]
+
+        destination = "sftpuser@remote.invalid"
+        assert destination in argv, f"sftp destination missing from argv: {argv}"
+        assert "-b" in argv, f"sftp batch flag missing from argv: {argv}"
+
+        # Every option (and its value) must precede the destination.
+        assert argv.index("-b") < argv.index(
+            destination
+        ), f"-b must precede the destination or sftp exits with a usage error: {argv}"
+        assert argv.index("-P") < argv.index(
+            destination
+        ), f"-P must precede the destination: {argv}"
+        assert (
+            argv[-1] == destination
+        ), f"destination must be the final sftp argument: {argv}"
+
+
 class TestBackupDatabaseUrlOverride:
     """backup.sh MUST run pg_dump against BACKUP_DATABASE_URL when it is set
     (dedicated backup role, e.g. BYPASSRLS on an RLS-enforced database),
