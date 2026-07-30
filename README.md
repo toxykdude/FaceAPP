@@ -140,10 +140,16 @@ tarball, a config tarball, SHA-256 checksums, and a manifest under `BACKUP_DIR`
 ### Configure it (two paths)
 
 **Primary — admin UI (recommended):** Settings → **Backup** tab (admin only).
-Choose a transport, fill the conditional fields, hit **Test** (a sanitized
-1-byte probe), and Save. The password is encrypted at rest and materialized to
+Choose a transport, fill the conditional fields, **Save**, then hit **Test** (a
+sanitized 1-byte probe). The password is encrypted at rest and materialized to
 a root-only file (`/etc/faceapp/backup-remote.env`, 0600) that `backup.sh`
 sources **after** `.env` — so UI-managed values always win.
+
+**Save before Test — the order matters.** The probe runs against the *stored*
+configuration, never the form: `POST /system/backup-config/test` sends no body.
+The UI enforces this by disabling **Test** while the form has unsaved edits (or
+while the stored transport is `none`) and saying which applies, so the button
+can never silently probe something other than what you are looking at.
 
 **Advanced / fallback — `.env`:** edit `.env` directly (full reference in
 `.env.example`). Used for headless installs or when the managed file is
@@ -152,8 +158,8 @@ absent. Delete `/etc/faceapp/backup-remote.env` to fall back to `.env`.
 | Transport | Tool | Notes |
 |-----------|------|-------|
 | `none` | — | Local backup only (default) |
-| `rsync` | `rsync` over SSH | Preferred. SSH key or `RSYNC_PASSWORD` |
-| `sftp` | `sshpass -e sftp -b` | Requires the `sshpass` package |
+| `rsync` | `rsync` over SSH | Preferred. SSH key or `RSYNC_PASSWORD`. Needs a known host key |
+| `sftp` | `sshpass -e sftp -b` | Requires `sshpass`. Needs a known host key |
 | `ftp` | `curl --netrc-file` (0600) | ⚠️ **Cleartext** — prefer SFTP/rsync |
 | `smb` | `smbclient` (SMB3) | Requires the `samba-client` package |
 | `nfs` | `cp` into pre-mounted dir | Mount via `/etc/fstab` first |
@@ -161,6 +167,32 @@ absent. Delete `/etc/faceapp/backup-remote.env` to fall back to `.env`.
 Remote replication is **warn-only**: a failed/unreachable target logs one
 sanitized line; the local backup and retention still succeed. No password ever
 appears in logs.
+
+#### Host prerequisites (do this before the first Test)
+
+`install.sh` installs `samba-client` and `sshpass`, but a host provisioned
+before those lines existed — or by copying the tree instead of running the
+installer — will be missing them. **Test** then fails warn-only with an install
+hint. On Debian/Ubuntu the real package behind `samba-client` is `smbclient`,
+which provides it:
+
+```bash
+apt-get install -y sshpass smbclient      # sftp + smb transports
+# 'nfs-common' only if you also want to mount an NFS share via /etc/fstab
+```
+
+**SSH-based transports need the remote host key up front.** `sftp`/`rsync` run
+non-interactively, so an unknown host key fails with `Host key verification
+failed` — the probe reports *"remote host key is not trusted"*. Trust the target
+once, as the user the backend runs as (root on the LXC deployments):
+
+```bash
+ssh-keyscan -H <nas-host> >> /root/.ssh/known_hosts
+```
+
+Strict host-key checking is deliberately **not** disabled: these transfers carry
+full database dumps, so an unverified host key is treated as a failure, never
+auto-accepted.
 
 ### Row-Level Security: use a dedicated backup role
 

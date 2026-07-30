@@ -155,7 +155,11 @@ put -r *
 bye
 EOF
 
-    sshpass -e sftp -P "$port" "${user}@${host}" -b "$batch" >> "$LOG_FILE" 2>&1
+    # sftp stops parsing options at the first non-option argument, so every
+    # flag MUST precede the user@host destination and the destination MUST be
+    # last. Putting -b after it makes sftp exit with a usage error instead of
+    # connecting.
+    sshpass -e sftp -P "$port" -b "$batch" "${user}@${host}" >> "$LOG_FILE" 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then
         rm -f "$batch"

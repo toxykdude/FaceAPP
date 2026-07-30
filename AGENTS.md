@@ -228,6 +228,14 @@ CI-placeholder env vars (see the workflow file). Locally, run
     both on fresh installs; on an existing LXC run
     `apt-get install samba-client sshpass`. Without them, remote replication
     degrades to the documented warn-only skip (local backup still succeeds).
+    **Production LXC 114 was missing BOTH** until 2026-07-30 — it was
+    provisioned by copying the tree rather than running `install.sh`, so the
+    dependency lines never executed. Installed there now (`sshpass 1.09`,
+    `smbclient 4.19.5`; client only, no `smbd`/`nmbd` daemon). On Debian/Ubuntu
+    the concrete package is `smbclient`, which *provides* the virtual
+    `samba-client` — verified as the only provider, so either name resolves.
+    After provisioning a host, verify rather than assume:
+    `for t in rsync sftp sshpass smbclient curl; do command -v $t; done`.
 16. **The release gate needs independent release evidence, not only a pre-PR
     receipt.** Before crossing the release/deploy boundary, prepare all five
     artifacts required by `gentle-ai review validate --gate release` and pass
@@ -239,6 +247,32 @@ CI-placeholder env vars (see the workflow file). Locally, run
     or authorize a documented exception for that deployment. Never invent an
     artifact or report PASS; a pre-PR receipt alone is insufficient. The
     executable sequence is in [RESUME.md](./RESUME.md#pr-to-dev-release-boundary).
+17. **`sftp` argv order is load-bearing, and the test mocks hide it.** `sftp`
+    stops parsing options at the first non-option argument, so every flag MUST
+    precede the `user@host` destination and the destination MUST come last.
+    `remote_push.sh` shipped `sshpass -e sftp -P "$port" "$user@$host" -b
+    "$batch"` — the trailing `-b` made `sftp` exit with a *usage error*, so the
+    SFTP transport never connected once. It went unnoticed because the mocked
+    `sshpass` in `test_remote_backup_isolation.py` records argv and returns
+    without ever exec'ing a real `sftp`. Fixed 2026-07-30 and pinned by
+    `TestSftpArgvOrder`. When you touch any transport's argv, assert the ORDER,
+    not just that secrets stay out of it.
+18. **SSH transports fail closed on unknown host keys.** `sftp`/`rsync` run
+    non-interactively, so a target whose key is not in the backup user's
+    `known_hosts` fails with `Host key verification failed`. This is
+    intentional — `StrictHostKeyChecking` is NOT relaxed, because these
+    transfers carry full database dumps. Trust the target once with
+    `ssh-keyscan -H <host> >> /root/.ssh/known_hosts` as the user the backend
+    runs as. The probe maps this to the controlled reason *"remote host key is
+    not trusted"* (`_SSH_REASONS` in `backend/services/backup_config.py`).
+19. **The connection probe tests the SAVED config, never the form.**
+    `POST /system/backup-config/test` takes no body: `run_probe` reads the
+    `backup_remote` settings row and 400s (`nothing to probe for transport
+    'none'`) when nothing valid is stored. The Backup tab therefore disables
+    **Test** while the form is dirty. Its saved baseline is adopted from the
+    PUT *response*, not the submitted form — the backend normalizes values (smb
+    share → `//server/share`, default ports), so baselining the request leaves
+    the form permanently dirty and **Test** unclickable forever.
 
 ## Where to look next
 

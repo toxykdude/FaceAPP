@@ -7,19 +7,19 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-29 (PR #19 deployed and runtime-verified on DEVFaceApp) |
-| **Current HEAD** | `bb6a859` — Merge PR #19 `fix/kiosk-camera-domain-portability` |
-| **Commits on main** | 131 |
-| **PRs merged to date** | 19 (#1–#19; all CI-gated since #3) |
-| **CI workflow** | `.github/workflows/ci.yml` — PR #19 passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-07-30 (SHA `873e51b` deployed and runtime-verified on production LXC 114) |
+| **Current HEAD** | `873e51b` — Merge PR #28 `feat/kiosk-premium-ui` |
+| **Commits on main** | 141 |
+| **PRs merged to date** | 23 merged PR records through #28 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — PR #28 passed backend, frontend, and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `bb6a859f7cd6daf637adadad4009df9f3161c72d` (main).
+`git rev-parse HEAD` → `873e51b54450cd13143f9deaa41e8f9d43522e8a` (main).
 Remote is clean and in sync.
 
 ## Active branches
 
 ```
-* main                                        # bb6a859 (PR #19 merge) — synced with origin
+* main                                        # 873e51b (PR #28 merge) — synced with origin
 ```
 
 Merged-and-deletable local branches (remotes already gone or pending cleanup):
@@ -37,6 +37,11 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 
 | PR | Merge SHA | Title |
 |----|-----------|-------|
+| #28 | `873e51b` | feat(kiosk): redesign premium camera-first terminal |
+| #26 | `0481a21` | feat(kiosk): automate camera and show access feedback |
+| #25 | `6d745a3` | fix(cv): keep websocket recognition stream alive |
+| #23 | `989c38c` | fix(backup): target SMB share root when path is empty |
+| #21 | `cef2f23` | docs(ops): document safe release workflow |
 | #19 | `bb6a859` | fix(kiosk): reconcile configured camera streams |
 | #15 | `ae95e02` | fix(backup): honor BACKUP_DATABASE_URL for pg_dump |
 | #14 | `62b7617` | Merge `feat/remote-backup-config-ui` tracker → main |
@@ -51,11 +56,12 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 | #2 | `2213bee` | fix(kiosk): stuck-verifying, camera-restart freeze, denial masking + retry overlay, start race, name leak |
 | #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
-## What's live on the dev LXC (`ssh faceapp` / DEVFaceApp)
+## Last recorded DEV state (`ssh faceapp` / DEVFaceApp)
 
-- **PR #19 deployed**: exact SHA
-  `bb6a859f7cd6daf637adadad4009df9f3161c72d`; rollback snapshot at
-  `/opt/deploy-rollbacks/bb6a859-20260729T091230Z`.
+- **Latest recorded DEV deployment**: PR #28 at exact SHA
+  `873e51b54450cd13143f9deaa41e8f9d43522e8a`; rollback snapshot at
+  `/opt/deploy-rollbacks/873e51b5445-20260729T225619Z`. The earlier PR #19
+  rollback remains `/opt/deploy-rollbacks/bb6a859-20260729T091230Z`.
 - **Runtime checks passed**: frontend 200, backend health 200, authenticated CV
   health 200, and required services active.
 - **Camera proxy verified on the DEV LXC**: Nginx has `/cv/stream/` and
@@ -75,7 +81,7 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
   real backup `db_backup_20260728_163851.dump` (9.3M, 14/14 tables) in
   `/var/backups/powerhouse`. Remote transport still `none` — user will point it
   at a NAS from the UI.
-- **RLS workaround in production use**: dedicated `powerhouse_backup` role
+- **DEV RLS workaround**: dedicated `powerhouse_backup` role
   (`BYPASSRLS` + `pg_read_all_data`), credentials in `/etc/faceapp/backup-db.env`
   (0600), consumed via `BACKUP_DATABASE_URL` by both `backup.sh` and
   `/api/system/db-export` (PR #15).
@@ -85,28 +91,49 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 - **Deploy layout**: canonical git clone at `/opt/faceapp` (pull→build→rsync),
   flat app copy at `/opt/powerhouse-membership` (no `.git`; Nginx serves its
   `frontend/dist`). Backup volume expanded to 30G by the user.
-- **Production LXC untouched** — this wave of changes is live on DEV only;
-  prod update awaits explicit user approval.
+- **Production LXC 114 deployed**: exact SHA
+  `873e51b54450cd13143f9deaa41e8f9d43522e8a` is live from canonical clone
+  `/opt/faceapp` to runtime copy `/opt/powerhouse-membership`. Runtime
+  verification passed for frontend and kiosk HTTP, backend basic/DB/full health,
+  authenticated CV health, Nginx, PostgreSQL, Redis, and tracked-tree checksum
+  parity. Rollback is `/opt/deploy-rollbacks/preprod-20260730T014157Z`; verified
+  14-table-data-entry DB dump is
+  `/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T014157Z.dump`.
+- **Approval state**: the native release gate returned
+  `delivery-derivation/unavailable`; the maintainer explicitly authorized an
+  exception scoped only to this candidate and LXC 114. This was not a gate PASS.
+- **Production backup warning**: LXC 114 has no installed
+  `powerhouse-backup.service` or `powerhouse-backup.timer`. The pre-deploy DB
+  dump above is valid, but recurring production backups require explicit unit
+  and backup-role/config provisioning before the timer can be enabled safely.
 
 ## Test counts (post-merge, main)
 
 | Suite | Result | Command |
 |-------|--------|---------|
-| Backend | **144 passed** | `cd backend && set -a && . ./.env && set +a && python init_db.py && pytest tests/` |
-| Frontend | **49 passed** | `cd frontend && npm run test` |
+| Backend | **150 passed** | `cd backend && set -a && . ./.env && set +a && python init_db.py && pytest tests/` |
+| Frontend | **73 passed** | `cd frontend && npm run test` |
 | cv_service | 12 passed | `cd cv_service && pytest tests/` |
 
 ⚠️ Backend `conftest.py` does NOT load `backend/.env` — export it into the
 shell first or auth tests 401.
 
+⚠️ Backend deps do NOT install on Python 3.13 (Debian 13 default): `numpy`
+1.26.3, `psycopg2-binary` 2.9.9, and `bcrypt` 3.2.0 all predate it and fail to
+build. Production LXC 114 runs 3.12, and CI pins its own interpreter. To run the
+backend suite on a 3.13 workstation, relax exactly those three pins in a local
+throwaway venv — do NOT edit `requirements.txt` (see priority 4, lockfile).
+
 ## Open work
 
-1. **User configures NAS replication via the UI** (Settings → Backup tab).
-   All transports are shipped and tested; remote is currently `none`.
+1. **DEV NAS replication** — configure it via Settings → Backup. DEV's remote
+   transport is currently `none`; production has no backup timer installed.
+   Transport tooling is no longer a blocker on production (see below).
 2. **Optional follow-ups from the archived cycles**: W1 — the
    managed-override runtime test gap accepted in `remote-backup-config-ui`
    (see its archive report); a cosmetic locale item in the same cycle.
-3. **Production LXC update** — build+deploy awaits explicit user approval.
+3. **Production backup provisioning** — install/configure the shipped backup
+   units with a full-database backup role, then enable and verify the timer.
 4. **Tracker-branches cleanup** — delete the merged local/remote branches
    listed above after `git branch --merged main` confirms them.
 
@@ -157,7 +184,7 @@ ignored):
 
 ## CI status
 
-`.github/workflows/ci.yml` was **green for PR #19 before merge to `bb6a859`**.
+.github/workflows/ci.yml was **green for PR #28 before merge to `873e51b`**.
 Three jobs, triggered
 only on PRs/pushes targeting `main` (feature-branch pushes and inter-feature
 PRs run no checks — verified during the #7–#15 chain).
@@ -189,19 +216,48 @@ Expected running services in a healthy prod deployment:
 | Redis | 6379 | Local socket |
 | Nginx | 80/443 | TLS termination, rate limits, `/api/cv/` ACL |
 | APScheduler email reports | (in backend) | Fires every 2h |
-| `powerhouse-backup.timer` | — | Every 30 min → `scripts/backup.sh` |
+| `powerhouse-backup.timer` | — | Shipped in source but not installed on production LXC 114 |
 
-Systemd units created by `install.sh`: `powerhouse-backend`, `powerhouse-cv`
-(referenced in [SECURITY.md §9](./SECURITY.md)); the backup timer's units ship
-in `scripts/systemd/`. Health checks: `GET /api/health` (basic),
+### Remote-backup transport tooling (production LXC 114)
+
+Installed 2026-07-30 — LXC 114 was provisioned by copying the tree, so
+`install.sh`'s dependency lines never ran and both packages were absent:
+
+| Transport | Tool | Status on 114 |
+|-----------|------|---------------|
+| `rsync` | `rsync` | present |
+| `sftp` | `sshpass` + `sftp` | **`sshpass 1.09` installed** |
+| `ftp` | `curl` (not `lftp`/`ftp`) | present |
+| `smb` | `smbclient` | **`smbclient 4.19.5` installed** |
+| `nfs` | none — `cp` into a pre-mounted dir | n/a |
+
+Client packages only: no `smbd`/`nmbd` unit was installed or enabled, so no new
+listening service. Verified end-to-end on 114 in a sandboxed probe: SMB now
+reaches the network (`NT_STATUS_IO_TIMEOUT` against an unreachable host, mapped
+to "connection timed out") instead of skipping warn-only, and SFTP attempts a
+real connection instead of exiting on a usage error.
+
+**Still outstanding before a NAS target will succeed:** the remote host key must
+be trusted for SSH-based transports —
+`ssh-keyscan -H <nas-host> >> /root/.ssh/known_hosts` on 114.
+
+Actual production units are `facegym-backend` and `facegym-cv`; the backup
+timer units ship in `scripts/systemd/` but are not installed on LXC 114. Health
+checks: `GET /api/health` (basic),
 `/api/health/db` (internal), `/cv/health`.
 
 ## Upcoming priorities
 
-1. **Point the remote backup at the NAS from Settings → Backup tab** (user
-   task — UI is shipped; no code needed).
-2. **Production LXC update** when approved (rebuild + rsync per
-   `docs/deployed-build-diagnosis.md`; canonical clone → flat app copy).
+1. **Point the remote backup at the NAS from Settings → Backup tab.** The UI is
+   shipped and, as of 2026-07-30, actually usable: **Save first, then Test** —
+   the probe reads the stored config, not the form. Two real defects were found
+   and fixed while verifying this (the Backup tab silently swallowed every error
+   response; SFTP had never worked because of a bad `sftp` argv order), so the
+   earlier note that "no code was needed" was wrong. Production still needs its
+   backup role/config and timer provisioned, plus the NAS host key trusted for
+   SSH-based transports.
+2. **Production backup provisioning** — configure a full-database backup role,
+   install the shipped units, then enable and verify the timer.
 3. **Tracker-branches cleanup** (see Active branches).
 4. **Adopt a lockfile** (`uv lock` or `pip freeze > requirements.lock`) — the
    silent drift between local venv and `requirements.txt` caused 3 PR iterations

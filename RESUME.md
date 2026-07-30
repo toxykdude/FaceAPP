@@ -3,11 +3,42 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## Current delivery handoff (2026-07-29)
+## Production deployment handoff (2026-07-30)
 
-PR #19 is deployed on DEVFaceApp at exact SHA
-`bb6a859f7cd6daf637adadad4009df9f3161c72d`. Roll back from
-`/opt/deploy-rollbacks/bb6a859-20260729T091230Z` if needed.
+Production LXC 114 is running exact SHA
+`873e51b54450cd13143f9deaa41e8f9d43522e8a`. The canonical clone is
+`/opt/faceapp`; the Nginx/runtime copy is `/opt/powerhouse-membership`.
+Verification passed for checksum parity, frontend and kiosk HTTP 200, backend
+basic/DB/full health 200, authenticated CV health 200, active application and
+data services, valid Nginx configuration, and zero fresh error-level journal
+lines.
+
+The native release gate returned `delivery-derivation/unavailable`, not PASS.
+Deployment proceeded under the maintainer's explicit exception scoped only to
+this candidate and production LXC 114. The later independent verification found
+two missing tracked OpenSpec files; restoring those files and the later,
+separately authorized tracked non-secret `.env.example` produced 258/258 tracked
+paths with zero content/mode drift.
+
+Rollback code/frontend/runtime files from
+`/opt/deploy-rollbacks/preprod-20260730T014157Z`. The pre-deploy database dump
+`/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T014157Z.dump`
+was verified with `pg_restore -l` and contains 14 table-data entries. No Alembic
+migration was required; production was already at `f0786144f6c0` head.
+
+Direct SSH uses local alias `faceapp-prod-114` and dedicated key
+`/root/.ssh/faceapp-prod-lxc114_ed25519`. Production does not currently have the
+shipped `powerhouse-backup.service` or `.timer` installed. Provision a safe
+full-database backup role/config before installing and enabling those units;
+do not point the timer at an RLS-restricted runtime role.
+
+## Historical DEV handoff (2026-07-29)
+
+The latest recorded DEVFaceApp deployment is PR #28 at exact SHA
+`873e51b54450cd13143f9deaa41e8f9d43522e8a`, with rollback
+`/opt/deploy-rollbacks/873e51b5445-20260729T225619Z`. The following PR #19
+notes are retained as an earlier verified DEV milestone; its rollback is
+`/opt/deploy-rollbacks/bb6a859-20260729T091230Z`.
 
 Verification passed: frontend 200, backend health 200, authenticated CV health
 200, and required services active. DEV Nginx exposes `/cv/stream/` and
@@ -19,6 +50,44 @@ Remaining checks: the outer Nginx Proxy Manager could not be inspected, and the
 kiosk still needs manual browser confirmation. The frontend build completed on
 Node 18 with an npm engine warning; upgrade the DEV build runtime before that
 warning becomes a hard toolchain requirement.
+
+## Remote-backup session (2026-07-30)
+
+Goal was narrow — "Test connection does nothing" — and it uncovered three
+separate defects plus a provisioning gap. Sequence, because the order is the
+lesson:
+
+1. **The UI swallowed every error.** `SettingsBackupTab.tsx` gave both
+   mutations an `onSuccess` and no `onError`, so a rejected request left
+   `testResult` null and the button looked dead. The console 400 was the only
+   evidence.
+2. **The 400 was correct.** `POST /system/backup-config/test` sends no body and
+   probes the **stored** config; nothing had been saved, so the transport was
+   `none` → `nothing to probe`. Fixed by disabling **Test** while the form is
+   dirty or the stored transport is unprobeable, and stating which. The saved
+   baseline is adopted from the PUT **response** (the backend normalizes smb
+   shares and default ports) — baselining the request would strand the form as
+   permanently dirty. That trap is pinned by a regression test.
+3. **Production had neither `sshpass` nor `smbclient`.** LXC 114 was
+   provisioned by copying the tree, so `install.sh` never ran its dependency
+   lines. Installed (client packages only, no samba daemon).
+4. **SFTP had never worked, on any host.** `remote_push.sh` passed
+   `-b "$batch"` *after* the `user@host` destination; `sftp` stops parsing
+   options at the first non-option argument, so it exited with a usage error
+   every time. The mocked `sshpass` in the test suite records argv without
+   exec'ing a real `sftp`, which is exactly why it stayed invisible. Fixed and
+   pinned by `TestSftpArgvOrder`.
+5. **Added a controlled SSH reason vocabulary** (`_SSH_REASONS`) mirroring the
+   existing `NT_STATUS_*` map, because the sanitized message scrubs the host and
+   left "Host key verification failed" as an unactionable bare warning.
+
+Verified: backend 150 passed (black/flake8/mypy clean), frontend 73 passed,
+`bash -n` clean, and sandboxed SMB + SFTP probes run against real tooling on
+LXC 114 without touching deployed backups.
+
+Deliberately NOT done: `StrictHostKeyChecking` was not relaxed. These transfers
+carry full database dumps, so an untrusted host key stays a failure — the
+operator trusts the NAS once via `ssh-keyscan`.
 
 ## Last session summary
 
@@ -88,17 +157,21 @@ under `openspec/changes/archive/2026-07-28-*`; accepted specs in
 ## Immediate next actions
 
 1. **User configures the NAS target** — Settings → Backup tab → pick transport
-   → fill fields → Test → Save. No code change needed; remote is currently
-   `none`.
+   → fill fields → **Save**, then **Test** (that order: the probe reads the
+   stored config, and Test stays disabled until the form is saved). For `sftp`
+   or `rsync`, trust the NAS host key on the target host first:
+   `ssh-keyscan -H <nas-host> >> /root/.ssh/known_hosts`. Remote is currently
+   `none`; production still needs its backup role/config and timer provisioned.
+   **The frontend fix needs a rebuild+deploy to be visible** — the running
+   bundle on 114 predates it.
 2. **Tracker-branches cleanup** — delete merged local/remote branches
    (`feat/remote-backup-config-ui`, `feature/admin-data-tools`,
    `fix/backup-database-url` and, if `git branch --merged main` agrees, the
    old local-only `feature/pr2-membership-expiration-access`,
    `fix/kiosk-recognition-state-regressions`, `feature/tracker`).
-3. **Production LXC update** — build+deploy awaits explicit user approval.
-   Flow: `git pull` in `/opt/faceapp` → `npm ci && npm run build` → rsync to
-   `/opt/powerhouse-membership` excluding `.env*` (NOT `biometric*`) → restart
-   services. Follow `docs/deployed-build-diagnosis.md`.
+3. **Production backup provisioning** — the code is deployed, but production
+   has no installed `powerhouse-backup.service` or `.timer`. Configure a
+   full-database backup role before enabling the timer.
 4. **Adopt a dependency lockfile** — `uv lock` or `pip freeze >
    requirements.lock`; venv-vs-requirements drift caused most of the PR #4/#5
    pain.
@@ -108,10 +181,9 @@ under `openspec/changes/archive/2026-07-28-*`; accepted specs in
 
 ## Open threads
 
-- **NAS replication is intentionally NOT configured yet** — the user holds the
-  NAS credentials and will fill them via the Backup tab. Until then each timer
-  run logs "Remote replication disabled (BACKUP_REMOTE_TYPE=none)" — expected,
-  not an error.
+- **DEV NAS replication is intentionally NOT configured yet** — DEV's active
+  timer logs "Remote replication disabled (BACKUP_REMOTE_TYPE=none)". Production
+  has no backup timer installed, so this statement does not apply there.
 - **`remote-backup-config-ui` accepted W1** — the managed-override runtime-test
   gap and one cosmetic locale item were accepted as low-severity at archive;
   see `openspec/changes/archive/2026-07-28-remote-backup-config-ui/archive-report.md`.
@@ -260,8 +332,8 @@ mistake a pre-PR receipt or unavailable result for release approval.
   accepted requirements land in [`openspec/specs/`](./openspec/specs/).
 - **Security decisions**: [SECURITY.md](./SECURITY.md) is the authoritative
   security contract; updates there are the security decision log.
-- **Commit history**: `git log --oneline` — Conventional Commits, 131 commits
-  on main, 19 PRs merged (`#1`–`#19`).
+- **Commit history**: `git log --oneline` — Conventional Commits, 141 commits
+  on main, 23 merged PR records through #28 (PR numbers contain gaps).
 
 ## Rollback / safety
 
@@ -275,9 +347,10 @@ under a specific new failure — NOT to "fix" small dumps (the fix is the
 reverse: keep PR #15 and ensure `BACKUP_DATABASE_URL` is set).
 
 **Roll back the backup platform (PRs #10/#14):** reverting removes the Backup
-tab, backup-config service, and remote transports, but the systemd timer and
-scripts on the LXC keep running from the deployed copy — stop
-`powerhouse-backup.timer` first if you truly want backups off:
+tab, backup-config service, and remote transports. In environments where the
+systemd timer is installed (currently DEV), scripts keep running from the
+deployed copy, so stop `powerhouse-backup.timer` first. Production LXC 114 has
+no installed backup timer:
 ```bash
 sudo systemctl stop powerhouse-backup.timer
 sudo systemctl disable powerhouse-backup.timer

@@ -19,7 +19,7 @@ import {
     Save as SaveIcon,
     NetworkCheck as NetworkCheckIcon,
 } from '@mui/icons-material';
-import { settingsApi, BackupConfigInput, BackupTestResult } from '@/api/settings';
+import { settingsApi, BackupConfig, BackupConfigInput, BackupTestResult } from '@/api/settings';
 import { useLanguage } from '@/i18n/LanguageContext';
 
 const TRANSPORTS = ['none', 'rsync', 'sftp', 'ftp', 'smb', 'nfs'] as const;
@@ -54,11 +54,54 @@ const emptyForm = (): BackupConfigInput => ({
     password: '',
 });
 
+/** Transports the backend probe can actually exercise (PROBEABLE_TYPES). */
+const PROBEABLE: ReadonlySet<string> = new Set(['rsync', 'sftp', 'ftp', 'smb', 'nfs']);
+
+/**
+ * Project the masked server config onto the form shape. The password is always
+ * blank: it is write-only, and "" is the keep-current sentinel.
+ */
+const formFromConfig = (cfg: BackupConfig): BackupConfigInput => ({
+    type: cfg.type,
+    host: cfg.host ?? '',
+    port: cfg.port ?? null,
+    share: cfg.share ?? '',
+    path: cfg.path ?? '',
+    username: cfg.username ?? '',
+    password: '',
+});
+
+/**
+ * True when the form no longer matches the last known saved config. A non-empty
+ * password always counts as a change, since a typed secret is not yet stored.
+ */
+const isDirtyAgainst = (form: BackupConfigInput, saved: BackupConfigInput | null): boolean => {
+    if (!saved) return false;
+    return (
+        form.type !== saved.type ||
+        (form.host ?? '') !== (saved.host ?? '') ||
+        (form.port ?? null) !== (saved.port ?? null) ||
+        (form.share ?? '') !== (saved.share ?? '') ||
+        (form.path ?? '') !== (saved.path ?? '') ||
+        (form.username ?? '') !== (saved.username ?? '') ||
+        !!form.password
+    );
+};
+
+const detailOf = (err: any, fallback: string): string =>
+    err?.response?.data?.detail || err?.message || fallback;
+
 export const SettingsBackupTab: React.FC = () => {
     const { t } = useLanguage();
+    const ts = t.settings;
     const [form, setForm] = useState<BackupConfigInput>(emptyForm());
+    // Last config known to be persisted server-side. The probe targets THIS,
+    // never the form, so it also drives whether Test is reachable.
+    const [saved, setSaved] = useState<BackupConfigInput | null>(null);
     const [hasPassword, setHasPassword] = useState(false);
     const [testResult, setTestResult] = useState<BackupTestResult | null>(null);
+    const [testError, setTestError] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [savedMessage, setSavedMessage] = useState(false);
 
     const { data, isLoading } = useQuery({
@@ -66,36 +109,47 @@ export const SettingsBackupTab: React.FC = () => {
         queryFn: settingsApi.getBackupConfig,
     });
 
+    /** Adopt a server response as both the form contents and the saved baseline. */
+    const adoptConfig = (cfg: BackupConfig) => {
+        setForm(formFromConfig(cfg));
+        setSaved(formFromConfig(cfg));
+        setHasPassword(!!cfg.has_password);
+        setTestResult(null);
+        setTestError(null);
+        setSaveError(null);
+    };
+
     useEffect(() => {
         if (data) {
-            setForm({
-                type: data.type,
-                host: data.host ?? '',
-                port: data.port ?? null,
-                share: data.share ?? '',
-                path: data.path ?? '',
-                username: data.username ?? '',
-                // Write-only: never prefill the password. The keep-current
-                // sentinel ("") preserves the stored secret on save.
-                password: '',
-            });
-            setHasPassword(!!data.has_password);
-            setTestResult(null);
+            adoptConfig(data);
         }
     }, [data]);
 
     const saveMutation = useMutation({
         mutationFn: (payload: BackupConfigInput) => settingsApi.putBackupConfig(payload),
+        // The response carries the backend's normalized values (e.g. an smb
+        // share rewritten to //server/share, a defaulted port). Adopting it as
+        // the new baseline is what keeps the form from reading as dirty forever.
         onSuccess: (cfg) => {
-            setHasPassword(!!cfg.has_password);
-            setForm((f) => ({ ...f, password: '' }));
+            adoptConfig(cfg);
             setSavedMessage(true);
         },
+        onError: (err: any) => setSaveError(detailOf(err, ts.backupSaveError)),
     });
 
     const testMutation = useMutation({
         mutationFn: () => settingsApi.testBackupConfig(),
-        onSuccess: (result) => setTestResult(result),
+        onSuccess: (result) => {
+            setTestResult(result);
+            setTestError(null);
+        },
+        // A rejected probe (400 for an unprobeable or malformed stored config,
+        // 500, network failure) must be visible; swallowing it made the button
+        // look dead.
+        onError: (err: any) => {
+            setTestResult(null);
+            setTestError(detailOf(err, ts.backupTestError));
+        },
     });
 
     const onTransportChange = (next: Transport) => {
@@ -112,6 +166,7 @@ export const SettingsBackupTab: React.FC = () => {
             password: v.password ? f.password : '',
         }));
         setTestResult(null);
+        setTestError(null);
     };
 
     const setField = (key: keyof BackupConfigInput, value: string | number | null) => {
@@ -120,7 +175,17 @@ export const SettingsBackupTab: React.FC = () => {
 
     const transport = form.type as Transport;
     const visible = VISIBLE[transport];
-    const ts = t.settings;
+
+    // Test probes the SAVED config, so it stays out of reach while the form has
+    // unsaved edits or the stored transport has nothing to probe. The hint says
+    // which of the two it is.
+    const isDirty = isDirtyAgainst(form, saved);
+    const savedIsProbeable = PROBEABLE.has(saved?.type ?? 'none');
+    const testBlockedReason = !savedIsProbeable
+        ? ts.backupTestNoTransport
+        : isDirty
+            ? ts.backupTestSaveFirst
+            : null;
 
     if (isLoading) {
         return (
@@ -256,12 +321,35 @@ export const SettingsBackupTab: React.FC = () => {
                 <Button
                     variant="outlined"
                     startIcon={<NetworkCheckIcon />}
-                    disabled={testMutation.isPending}
+                    disabled={testMutation.isPending || testBlockedReason !== null}
                     onClick={() => testMutation.mutate()}
                 >
                     {testMutation.isPending ? ts.backupTesting : ts.backupTest}
                 </Button>
             </Box>
+
+            {testBlockedReason && (
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mt: 1 }}
+                    data-testid="backup-test-blocked"
+                >
+                    {testBlockedReason}
+                </Typography>
+            )}
+
+            {saveError && (
+                <Alert severity="error" sx={{ mt: 2 }} data-testid="backup-save-error">
+                    {ts.backupSaveError}: {saveError}
+                </Alert>
+            )}
+
+            {testError && (
+                <Alert severity="error" sx={{ mt: 2 }} data-testid="backup-test-error">
+                    {ts.backupTestError}: {testError}
+                </Alert>
+            )}
 
             {testResult && (
                 <Alert severity={testResult.ok ? 'success' : 'error'} sx={{ mt: 2 }} data-testid="backup-test-result">

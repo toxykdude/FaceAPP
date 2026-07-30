@@ -180,6 +180,49 @@ class TestProbeOutcome:
         assert "authentication failed" in body["message"]
         assert "NT_STATUS_LOGON_FAILURE" not in body["message"]
 
+    def test_probe_ssh_host_key_failure_surfaces_controlled_reason(
+        self, auth_client, env_path
+    ):
+        """The most common first-time SFTP failure is an untrusted remote host
+        key. Scrubbing the host leaves the bare warning unactionable, so a known
+        SSH failure phrase maps to a controlled reason — same contract as the
+        NT_STATUS_* vocabulary: no banner or raw remote text is surfaced.
+        """
+        _seed_sftp(auth_client, env_path)
+        with patch(
+            "services.backup_config.subprocess.run",
+            side_effect=_make_fake(
+                returncode=1,
+                line="Host key verification failed.",
+            ),
+        ):
+            resp = auth_client.post(TEST_URL)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert "known_hosts" in body["message"]
+        # Nothing from the remote banner or the config leaks.
+        assert "probe.invalid" not in body["message"]
+        assert len(body["message"]) <= 200
+
+    def test_probe_ssh_auth_failure_surfaces_controlled_reason(
+        self, auth_client, env_path
+    ):
+        _seed_sftp(auth_client, env_path)
+        with patch(
+            "services.backup_config.subprocess.run",
+            side_effect=_make_fake(
+                returncode=1,
+                line="probeuser@probe.invalid: Permission denied (publickey,password).",
+            ),
+        ):
+            resp = auth_client.post(TEST_URL)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert "authentication failed" in body["message"]
+        assert "probeuser" not in body["message"]
+
     def test_secret_travels_via_env_not_argv(self, auth_client, env_path):
         _seed_sftp(auth_client, env_path)
         with patch(
