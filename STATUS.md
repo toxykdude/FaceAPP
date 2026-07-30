@@ -7,7 +7,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-30 (PR #29 merged to `main`; SHA `873e51b` is what remains deployed on production LXC 114) |
+| **Last updated** | 2026-07-30 (PR #29+#30 merged and SHA `946c605` deployed + runtime-verified on production LXC 114) |
 | **Current HEAD** | `465c9a6` — Merge PR #29 `fix/backup-remote-test-connection` |
 | **Commits on main** | 145 |
 | **PRs merged to date** | 24 merged PR records through #29 (numbers contain gaps) |
@@ -16,11 +16,15 @@
 `git rev-parse HEAD` → `465c9a68e397b87f46e2b1b5972ad4c1bb2bf168` (main).
 Remote is clean and in sync.
 
-⚠️ **`main` is ahead of production.** LXC 114 still runs `873e51b`, so the PR #29
-backup fixes (Backup-tab error surfacing, Test gating, `sftp` argv order) are
-merged but NOT live. A rebuild+deploy is required before the Backup tab behaves
-as documented. The `sshpass`/`smbclient` packages WERE installed directly on 114
-and are live independently of the deploy.
+✅ **Production is in sync with `main`.** LXC 114 was deployed to `946c605` on
+2026-07-30 and runtime-verified (see below). The `sshpass`/`smbclient` packages
+were installed directly on the host earlier the same day.
+
+⚠️ **DEV was NOT deployed.** The `ssh faceapp` alias no longer resolves — it is
+absent from `~/.ssh/config`, `known_hosts` is hashed, and neither the docs nor
+LXC 114 record the DEV address. The DEV LXC therefore still runs whatever it had
+at PR #28. Restore the alias (or record the address here) before the next DEV
+deploy.
 
 ## Active branches
 
@@ -98,17 +102,32 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 - **Deploy layout**: canonical git clone at `/opt/faceapp` (pull→build→rsync),
   flat app copy at `/opt/powerhouse-membership` (no `.git`; Nginx serves its
   `frontend/dist`). Backup volume expanded to 30G by the user.
-- **Production LXC 114 deployed**: exact SHA
-  `873e51b54450cd13143f9deaa41e8f9d43522e8a` is live from canonical clone
-  `/opt/faceapp` to runtime copy `/opt/powerhouse-membership`. Runtime
-  verification passed for frontend and kiosk HTTP, backend basic/DB/full health,
-  authenticated CV health, Nginx, PostgreSQL, Redis, and tracked-tree checksum
-  parity. Rollback is `/opt/deploy-rollbacks/preprod-20260730T014157Z`; verified
+- **Production LXC 114 deployed (current)**: exact SHA
+  `946c605cf0ca1dcd2ec4b123a8043993a12345a5` (PRs #29+#30), deployed
+  2026-07-30. `.deployed-sha` in the runtime copy records it. Verified: backend
+  `/api/health` 200, `/api/health/db` 200, authenticated CV `/health` 200,
+  frontend HTTP 200 (nginx listens on **port 80 only** — an `https://`
+  healthcheck returns `000` and is a test error, not an outage), all of
+  `facegym-backend`/`facegym-cv`/`nginx`/`postgresql`/`redis-server` active,
+  `nginx -t` valid, and zero error-level journal lines after restart. The served
+  `index.html` references the new `index-CrN45nRN.js`, which contains the PR #29
+  strings — checked deliberately, because the last incident here was a stale
+  bundle. Alembic was already at head `f0786144f6c0`; PR #29 adds no migration.
+  Rollback (tracked tree + `dist`, venv/node_modules excluded) is
+  `/opt/deploy-rollbacks/873e51b-20260730T181056Z`; verified
   14-table-data-entry DB dump is
+  `/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T181056Z.dump`.
+- **Previous production SHA**: `873e51b54450cd13143f9deaa41e8f9d43522e8a`,
+  rollback `/opt/deploy-rollbacks/preprod-20260730T014157Z`, DB dump
   `/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T014157Z.dump`.
-- **Approval state**: the native release gate returned
-  `delivery-derivation/unavailable`; the maintainer explicitly authorized an
-  exception scoped only to this candidate and LXC 114. This was not a gate PASS.
+- **Approval state (both deploys)**: NOT a gate PASS. For `946c605` the native
+  gate returned `result: invalidated`, `allowed: false`,
+  `action: explicit-maintainer-action`, denial `receipt-discovery/receipt_unrelated`
+  ("terminal review receipts exist only for unrelated targets" — the code was
+  already merged, so no receipt governs the deployed candidate). The maintainer
+  explicitly authorized deployment after being shown the gate requirement; the
+  exception is scoped only to this candidate and LXC 114. The earlier `873e51b`
+  deploy proceeded the same way on a `delivery-derivation/unavailable` result.
 - **Production backup warning**: LXC 114 has no installed
   `powerhouse-backup.service` or `powerhouse-backup.timer`. The pre-deploy DB
   dump above is valid, but recurring production backups require explicit unit
