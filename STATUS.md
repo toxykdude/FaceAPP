@@ -20,11 +20,19 @@ Remote is clean and in sync.
 2026-07-30 and runtime-verified (see below). The `sshpass`/`smbclient` packages
 were installed directly on the host earlier the same day.
 
-⚠️ **DEV was NOT deployed.** The `ssh faceapp` alias no longer resolves — it is
-absent from `~/.ssh/config`, `known_hosts` is hashed, and neither the docs nor
-LXC 114 record the DEV address. The DEV LXC therefore still runs whatever it had
-at PR #28. Restore the alias (or record the address here) before the next DEV
-deploy.
+✅ **DEV is in sync with `main` too.** DEVFaceApp was deployed to `8651568` on
+2026-07-30 and runtime-verified.
+
+📌 **Host addresses** (the `ssh faceapp` alias had gone missing from
+`~/.ssh/config`; recorded here so it can be rebuilt):
+
+| Env | Host | IP | SSH alias | Key |
+|-----|------|----|-----------|-----|
+| Production | `FaceAPP` (LXC 114) | `10.162.36.16` | `faceapp-prod-114` | `~/.ssh/faceapp-prod-lxc114_ed25519` |
+| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.105` | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
+
+`known_hosts` uses `HashKnownHosts`, so hostnames cannot be read back out of it
+— this table is the only record.
 
 ## Active branches
 
@@ -67,9 +75,25 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 | #2 | `2213bee` | fix(kiosk): stuck-verifying, camera-restart freeze, denial masking + retry overlay, start race, name leak |
 | #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
-## Last recorded DEV state (`ssh faceapp` / DEVFaceApp)
+## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.105`)
 
-- **Latest recorded DEV deployment**: PR #28 at exact SHA
+- **Latest DEV deployment (current)**: exact SHA
+  `8651568cbf6c3999c9b22e9343f66f13bd12acaa` (PRs #29–#31), deployed
+  2026-07-30. Verified: `/api/health` 200, `/api/health/db` 200, authenticated
+  CV `/health` 200, frontend 200, all five services active, `nginx -t` valid,
+  zero error-level journal lines, and the served `index.html` referencing
+  `index-CrN45nRN.js` with the PR #29 strings present. Alembic already at head
+  `f0786144f6c0`. Rollback `/opt/deploy-rollbacks/873e51b-20260730T182450Z`;
+  verified 14-table-data-entry dump
+  `/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T182450Z.dump`.
+  `.deployed-sha` did not exist on DEV before this deploy — it does now.
+- **DEV already had `sshpass` + `smbclient`** — unlike production. Transport
+  tooling was never DEV's blocker; the Backup tab's dead Test button was the
+  swallowed-error bug plus the save-before-test contract (PR #29).
+- **DEV carries a 3.7G `backend.bak-20260728-162127/`** in the runtime copy on
+  top of the two venvs, so the deploy `--delete` excludes matter even more here
+  (see [AGENTS.md](./AGENTS.md) trap 14).
+- **Previous DEV deployment**: PR #28 at exact SHA
   `873e51b54450cd13143f9deaa41e8f9d43522e8a`; rollback snapshot at
   `/opt/deploy-rollbacks/873e51b5445-20260729T225619Z`. The earlier PR #19
   rollback remains `/opt/deploy-rollbacks/bb6a859-20260729T091230Z`.
