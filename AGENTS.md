@@ -223,6 +223,17 @@ CI-placeholder env vars (see the workflow file). Locally, run
     `.env*` (prod secrets live on the target) but MUST NOT exclude
     `biometric*` — biometric reference data under the repo tree must deploy.
     Inverting either half corrupts the deployment.
+    **`--delete` MUST also exclude `venv/` and `node_modules/`.** The runtime
+    copy is ~7.2G — `backend/venv` 3.7G, `cv_service/venv` 3.3G,
+    `frontend/node_modules` 263M — none of which exist in the 271M canonical
+    clone. A bare `rsync -a --delete /opt/faceapp/ /opt/powerhouse-membership/`
+    (as this runbook used to print) deletes both venvs and takes production
+    down, plus `.deployed-sha` and the legacy `backup-20260422-020220/`. Deploy
+    in two passes: scoped `--delete` for `frontend/dist/` only (stale hashed
+    assets must go), then a plain non-deleting sync for everything else. Also
+    note rsync prints `*deleting` with `-i`, so a `grep '^deleting'` dry-run
+    check reports zero deletions even when it is about to delete — grep
+    `deleting` unanchored.
 15. **SMB/SFTP transports need extra packages.** `smb` requires `smbclient`
     (package `samba-client`), `sftp` requires `sshpass`. `install.sh` provides
     both on fresh installs; on an existing LXC run

@@ -3,9 +3,39 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## Production deployment handoff (2026-07-30)
+## Production deployment handoff (2026-07-30, latest)
 
 Production LXC 114 is running exact SHA
+`946c605cf0ca1dcd2ec4b123a8043993a12345a5` (PRs #29+#30 — the remote-backup
+fixes). Deployed from canonical clone `/opt/faceapp` to runtime copy
+`/opt/powerhouse-membership`, marker `.deployed-sha` updated.
+
+Verified: backend `/api/health` and `/api/health/db` 200, authenticated CV
+`/health` 200, frontend HTTP 200, all services active, `nginx -t` valid, zero
+error-level journal lines after restart, and the served `index.html` referencing
+the new `index-CrN45nRN.js` **with the PR #29 strings actually present in it**.
+Alembic was already at head `f0786144f6c0`; PR #29 adds no migration.
+
+Rollback: `/opt/deploy-rollbacks/873e51b-20260730T181056Z` (tracked tree +
+`dist`; venv/node_modules excluded deliberately — a full copy would have
+exceeded the 4.5G free space). Pre-deploy dump:
+`/var/backups/powerhouse-deploy/membership_db_predeploy_20260730T181056Z.dump`,
+verified with `pg_restore -l` at 14 table-data entries. Note `pg_restore -l`
+must run as root — `/var/backups/powerhouse-deploy` is `0700 root:root`, so the
+`postgres` user cannot traverse it and reports a misleading permission error.
+
+The native release gate returned `invalidated` / `allowed: false` /
+`action: explicit-maintainer-action` (denial `receipt_unrelated`: the code was
+already merged, so no terminal receipt governs the deployed candidate). NOT a
+PASS. The maintainer authorized deployment explicitly after being shown the gate
+requirement; the exception is scoped to this candidate and LXC 114 only.
+
+**DEV was not deployed** — the `ssh faceapp` alias no longer resolves and the
+address is recorded nowhere. See STATUS.md.
+
+## Previous production deployment (2026-07-30, `873e51b`)
+
+Production LXC 114 was running exact SHA
 `873e51b54450cd13143f9deaa41e8f9d43522e8a`. The canonical clone is
 `/opt/faceapp`; the Nginx/runtime copy is `/opt/powerhouse-membership`.
 Verification passed for checksum parity, frontend and kiosk HTTP 200, backend
@@ -277,12 +307,30 @@ gh pr create --title "<type>: <subject>" --body-file <file>
 gh pr checks <PR> --watch                            # wait for CI
 gh pr merge <PR> --merge                             # merge-commit style
 
-# --- Deploy to dev LXC (canonical clone -> flat app copy) ---
-ssh faceapp
-cd /opt/faceapp && git pull
+# --- Deploy (canonical clone -> flat app copy) ---
+# prod: ssh faceapp-prod-114   |   dev: alias 'faceapp' currently does NOT resolve
+cd /opt/faceapp && git fetch --all && git merge --ff-only origin/main   # clone is detached HEAD
 cd frontend && npm ci && npm run build
-rsync -a --delete --exclude='.env*' /opt/faceapp/ /opt/powerhouse-membership/
-sudo systemctl restart facegym-backend facegym-cv
+grep -o 'assets/index-[A-Za-z0-9_-]*\.js' dist/index.html               # note the new hash
+
+# NEVER run a bare `rsync -a --delete /opt/faceapp/ /opt/powerhouse-membership/`.
+# The runtime copy is ~7.2G of backend/venv (3.7G), cv_service/venv (3.3G) and
+# frontend/node_modules (263M) that do NOT exist in the 271M canonical clone, so
+# --delete without these excludes DESTROYS both venvs and takes production down.
+# It would also delete `.deployed-sha` and the legacy `backup-20260422-020220/`.
+# Deploy in two passes: scoped --delete for dist only, plain sync for the rest.
+rsync -a --delete /opt/faceapp/frontend/dist/ /opt/powerhouse-membership/frontend/dist/
+rsync -a --exclude='.env*' --exclude='venv/' --exclude='node_modules/' \
+      --exclude='__pycache__/' --exclude='.git/' --exclude='frontend/dist/' \
+      /opt/faceapp/ /opt/powerhouse-membership/
+# Always dry-run with -i first: rsync prints '*deleting' (not 'deleting'), so a
+# `grep '^deleting'` reports zero deletions even when it is about to delete.
+
+git -C /opt/faceapp rev-parse HEAD > /opt/powerhouse-membership/.deployed-sha
+nginx -t && systemctl restart facegym-backend facegym-cv
+# Verify on port 80 — nginx has no TLS listener, so https:// returns 000.
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/health
 
 # --- SDD / CodeGraph ---
 codegraph status                            # check local code index
