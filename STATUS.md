@@ -7,14 +7,20 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-30 (SHA `873e51b` deployed and runtime-verified on production LXC 114) |
-| **Current HEAD** | `873e51b` — Merge PR #28 `feat/kiosk-premium-ui` |
-| **Commits on main** | 141 |
-| **PRs merged to date** | 23 merged PR records through #28 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — PR #28 passed backend, frontend, and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-07-30 (PR #29 merged to `main`; SHA `873e51b` is what remains deployed on production LXC 114) |
+| **Current HEAD** | `465c9a6` — Merge PR #29 `fix/backup-remote-test-connection` |
+| **Commits on main** | 145 |
+| **PRs merged to date** | 24 merged PR records through #29 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — PR #29 passed backend, frontend, and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `873e51b54450cd13143f9deaa41e8f9d43522e8a` (main).
+`git rev-parse HEAD` → `465c9a68e397b87f46e2b1b5972ad4c1bb2bf168` (main).
 Remote is clean and in sync.
+
+⚠️ **`main` is ahead of production.** LXC 114 still runs `873e51b`, so the PR #29
+backup fixes (Backup-tab error surfacing, Test gating, `sftp` argv order) are
+merged but NOT live. A rebuild+deploy is required before the Backup tab behaves
+as documented. The `sshpass`/`smbclient` packages WERE installed directly on 114
+and are live independently of the deploy.
 
 ## Active branches
 
@@ -37,6 +43,7 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 
 | PR | Merge SHA | Title |
 |----|-----------|-------|
+| #29 | `465c9a6` | fix(backup): make remote backup Test connection actually work |
 | #28 | `873e51b` | feat(kiosk): redesign premium camera-first terminal |
 | #26 | `0481a21` | feat(kiosk): automate camera and show access feedback |
 | #25 | `6d745a3` | fix(cv): keep websocket recognition stream alive |
