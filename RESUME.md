@@ -30,8 +30,17 @@ already merged, so no terminal receipt governs the deployed candidate). NOT a
 PASS. The maintainer authorized deployment explicitly after being shown the gate
 requirement; the exception is scoped to this candidate and LXC 114 only.
 
-**DEV was not deployed** — the `ssh faceapp` alias no longer resolves and the
-address is recorded nowhere. See STATUS.md.
+**DEV (DEVFaceApp, `10.162.36.105`, LXC 124) is also on `8651568`**, deployed
+the same way and verified identically (health 200s, authenticated CV 200,
+services active, zero error-level journal lines, new bundle served with the PR
+#29 strings in it). Rollback `/opt/deploy-rollbacks/873e51b-20260730T182450Z`,
+dump `.../membership_db_predeploy_20260730T182450Z.dump` (14 table-data
+entries). DEV already had `sshpass`/`smbclient`, so its Backup-tab failure was
+purely the PR #29 bugs, not missing tooling.
+
+The `ssh faceapp` alias had vanished from `~/.ssh/config` and its address was
+recorded nowhere; both hosts are now in the STATUS.md host table and the alias
+is restored locally.
 
 ## Previous production deployment (2026-07-30, `873e51b`)
 
