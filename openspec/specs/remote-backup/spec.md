@@ -44,7 +44,7 @@ The backup script SHALL read remote credentials only from environment configurat
 
 ### Requirement: SFTP Replication
 
-The system SHALL support SFTP batch replication using `sshpass -e sftp -b`, with `SSHPASS` supplied only through the environment and never process arguments.
+The system SHALL support SFTP batch replication using `sshpass -e sftp -b`, with `SSHPASS` supplied only through the environment and never process arguments. Because `sftp` stops parsing options at the first non-option argument, every option MUST precede the `user@host` destination and the destination MUST be the final argument.
 
 #### Scenario: SFTP password is unavailable
 
@@ -52,6 +52,20 @@ The system SHALL support SFTP batch replication using `sshpass -e sftp -b`, with
 - WHEN remote replication runs
 - THEN it reports a warning without exposing credentials
 - AND the overall backup exits successfully with its local copy preserved
+
+#### Scenario: SFTP invocation is assembled
+
+- GIVEN SFTP replication is invoked with a batch file and a port
+- WHEN the `sftp` argv is built
+- THEN `-b` and `-P` both precede the `user@host` destination
+- AND the destination is the last argument, so `sftp` connects instead of exiting with a usage error
+
+#### Scenario: Remote host key is not trusted
+
+- GIVEN an SSH-based transport targets a host absent from the backup user's `known_hosts`
+- WHEN remote replication runs
+- THEN host-key verification fails and the failure is reported warn-only
+- AND strict host-key checking is NOT relaxed to accept the unverified key
 
 ### Requirement: FTP Replication
 

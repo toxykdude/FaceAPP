@@ -71,6 +71,19 @@ The system MUST provide audited, admin-only `POST /system/backup-config/test`, p
 - WHEN the test deadline is reached
 - THEN the operation is terminated and returns `ok:false` with a sanitized timeout message
 
+#### Scenario: Failure has a recognized cause
+
+- GIVEN the probe log contains a known SMB `NT_STATUS_*` code or a known OpenSSH failure phrase
+- WHEN the sanitized message is composed
+- THEN a controlled reason phrase from the fixed vocabulary is appended
+- AND the raw protocol code, remote banner, and matched log text are never surfaced
+
+#### Scenario: Nothing valid is stored
+
+- GIVEN the stored transport is `none` or fails per-transport validation
+- WHEN an administrator tests it
+- THEN the endpoint returns 400 and runs no probe
+
 ### Requirement: Admin Backup User Interface
 
 The frontend MUST provide administrators a localized English/Spanish Backup tab with transport selection, conditional fields, a write-only keep-current password placeholder, save and test actions, and the Export Database block moved from System. Selecting FTP MUST show a cleartext warning.
@@ -87,3 +100,23 @@ The frontend MUST provide administrators a localized English/Spanish Backup tab 
 - GIVEN a non-administrator opens Settings
 - WHEN tabs are rendered
 - THEN the Backup tab and its controls are not shown
+
+#### Scenario: Test is attempted against unsaved edits
+
+- GIVEN the probe targets the stored configuration and the form has unsaved edits, or the stored transport is `none`
+- WHEN the Backup tab is rendered
+- THEN the test action is disabled and states which condition applies
+- AND a typed password counts as an unsaved edit
+
+#### Scenario: Save response normalizes submitted values
+
+- GIVEN a save whose response differs from the submitted form because the backend normalized it
+- WHEN the saved baseline is updated
+- THEN the response values become both the form contents and the baseline
+- AND the test action becomes available again
+
+#### Scenario: Save or test request is rejected
+
+- GIVEN the backend rejects a save or test request
+- WHEN the response arrives
+- THEN the returned error detail is displayed to the administrator rather than discarded
