@@ -72,6 +72,12 @@ const FTP_WARN = /texto plano|cleartext/i;
 const KEEP = /mantener la actual|keep current/i;
 const SAVE_BTN = /guardar respaldo|save backup/i;
 const TEST_BTN = /probar conexi(?:ó|o)n|test connection/i;
+const SAVE_FIRST = /antes de probar|before testing/i;
+const NO_TRANSPORT = /seleccionar un transporte|select a transport/i;
+
+const SFTP_CONFIG = {
+    type: 'sftp', host: 'h.example', port: 22, share: '', path: '/back', username: 'u', has_password: true,
+};
 
 async function openBackupTab(user: ReturnType<typeof userEvent.setup>) {
     await user.click(await screen.findByRole('tab', { name: BACKUP_TAB }));
@@ -207,6 +213,7 @@ describe('Settings — Backup tab (remote backup config)', () => {
     });
 
     it('admin: Test button calls testBackupConfig and renders the sanitized {ok,message} result', async () => {
+        mocks.getConfig.mockResolvedValue(SFTP_CONFIG);
         mocks.testConfig.mockResolvedValueOnce({ ok: false, message: 'connection refused' });
         const user = userEvent.setup();
         renderSettings();
@@ -216,5 +223,101 @@ describe('Settings — Backup tab (remote backup config)', () => {
 
         await waitFor(() => expect(mocks.testConfig).toHaveBeenCalledTimes(1));
         expect(await screen.findByText(/connection refused/i)).toBeInTheDocument();
+    });
+
+    // The probe runs against the SAVED config, never the form. These tests pin
+    // the read-only contract: Test is reachable only when the stored config is
+    // probeable, and every rejection is surfaced instead of silently swallowed.
+    it('admin: Test is disabled with a "select a transport" hint when the saved transport is none', async () => {
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        expect(await screen.findByRole('button', { name: TEST_BTN })).toBeDisabled();
+        expect(screen.getByText(NO_TRANSPORT)).toBeInTheDocument();
+        expect(mocks.testConfig).not.toHaveBeenCalled();
+    });
+
+    it('admin: editing a field disables Test with a "save first" hint (probe targets the saved config)', async () => {
+        mocks.getConfig.mockResolvedValue(SFTP_CONFIG);
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        // Clean load of a probeable config: Test is available.
+        expect(await screen.findByRole('button', { name: TEST_BTN })).toBeEnabled();
+        expect(screen.queryByText(SAVE_FIRST)).toBeNull();
+
+        await user.type(screen.getByRole('textbox', { name: HOST }), '2');
+
+        expect(screen.getByRole('button', { name: TEST_BTN })).toBeDisabled();
+        expect(screen.getByText(SAVE_FIRST)).toBeInTheDocument();
+    });
+
+    it('admin: typing a password marks the form dirty and disables Test', async () => {
+        mocks.getConfig.mockResolvedValue(SFTP_CONFIG);
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        expect(await screen.findByRole('button', { name: TEST_BTN })).toBeEnabled();
+
+        await user.type(screen.getByLabelText(PASSWORD), 'newsecret');
+
+        expect(screen.getByRole('button', { name: TEST_BTN })).toBeDisabled();
+    });
+
+    it('admin: a rejected test surfaces the backend detail instead of failing silently', async () => {
+        mocks.getConfig.mockResolvedValue(SFTP_CONFIG);
+        mocks.testConfig.mockRejectedValueOnce({
+            response: { status: 400, data: { detail: 'sftp requires host, username, and password' } },
+        });
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        await user.click(await screen.findByRole('button', { name: TEST_BTN }));
+
+        expect(await screen.findByText(/sftp requires host, username, and password/i)).toBeInTheDocument();
+    });
+
+    it('admin: a rejected save surfaces the backend detail', async () => {
+        mocks.getConfig.mockResolvedValue(SFTP_CONFIG);
+        mocks.putConfig.mockRejectedValueOnce({
+            response: { status: 400, data: { detail: 'smb share must include server and share name' } },
+        });
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        await user.click(await screen.findByRole('button', { name: SAVE_BTN }));
+
+        expect(await screen.findByText(/smb share must include server and share name/i)).toBeInTheDocument();
+    });
+
+    it('admin: Test is re-enabled after a save whose response normalizes the submitted values', async () => {
+        // The backend rewrites an smb share to //server/share. The saved
+        // baseline must adopt the normalized response, otherwise the form stays
+        // permanently dirty and Test could never be clicked again.
+        mocks.getConfig.mockResolvedValue({
+            type: 'smb', host: '', port: null, share: '//srv/share', path: 'backups', username: 'u', has_password: true,
+        });
+        mocks.putConfig.mockResolvedValueOnce({
+            type: 'smb', host: '', port: null, share: '//srv/other', path: 'backups', username: 'u', has_password: true,
+        });
+        const user = userEvent.setup();
+        renderSettings();
+        await openBackupTab(user);
+
+        const share = await screen.findByRole('textbox', { name: SHARE });
+        await user.clear(share);
+        await user.type(share, 'srv/other');
+        expect(screen.getByRole('button', { name: TEST_BTN })).toBeDisabled();
+
+        await user.click(screen.getByRole('button', { name: SAVE_BTN }));
+
+        await waitFor(() => expect(mocks.putConfig).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(screen.getByRole('button', { name: TEST_BTN })).toBeEnabled());
+        expect((screen.getByRole('textbox', { name: SHARE }) as HTMLInputElement).value).toBe('//srv/other');
     });
 });
