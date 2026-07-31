@@ -6,6 +6,7 @@ Protected by a shared secret (X-Internal-Secret header) for defense-in-depth,
 in addition to network-level isolation (ports 8000/8001 firewalled from external access).
 """
 
+import hmac
 import json
 import numpy as np
 from sqlalchemy import func
@@ -36,13 +37,18 @@ async def verify_internal_secret(
     """
     Verify shared secret for internal service-to-service communication.
 
-    Both the backend and CV service share INTERNAL_API_SECRET.
-    Requests without the correct header are rejected.
-    When the secret is empty (development), all requests are allowed.
+    Both the backend and CV service share INTERNAL_API_SECRET. Requests without
+    a matching header are rejected with 401.
+
+    FAIL CLOSED (S1): when INTERNAL_API_SECRET is not configured, every request
+    is rejected with 503 (service misconfiguration) instead of silently allowed.
+    Comparison uses hmac.compare_digest to be timing-safe.
     """
     if not settings.INTERNAL_API_SECRET:
-        return None  # Development mode: no secret configured
-    if x_internal_secret != settings.INTERNAL_API_SECRET:
+        raise HTTPException(
+            status_code=503, detail="INTERNAL_API_SECRET not configured"
+        )
+    if not hmac.compare_digest(x_internal_secret or "", settings.INTERNAL_API_SECRET):
         raise HTTPException(
             status_code=401, detail="Invalid internal service credentials"
         )
