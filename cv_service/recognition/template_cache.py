@@ -136,7 +136,30 @@ class TemplateCache:
         key = self._make_key(member_id)
         self.redis_client.delete(key)
         logger.debug(f"Removed template for member {member_id}")
-    
+
+    REVOKED_SET_KEY = "cv:revoked"
+    REVOKED_MARKER_TTL = 60
+
+    def revoke_member(self, member_id: str):
+        """Mark a member as revoked for a bounded 60-second window.
+
+        The marker set is the generation check for the reload/invalidate
+        race: a template reload that read the backend snapshot BEFORE a
+        member delete committed will still see this marker when it stores
+        AFTER the invalidate removed the member, and skip it. No lock is
+        needed — the marker outlives the delete → invalidate window, and it
+        expires so normal future reloads are unaffected. The set TTL is
+        refreshed on each add.
+        """
+        self.redis_client.sadd(self.REVOKED_SET_KEY, member_id)
+        self.redis_client.expire(self.REVOKED_SET_KEY, self.REVOKED_MARKER_TTL)
+
+    def is_revoked(self, member_id: str) -> bool:
+        """True while the member carries an active revocation marker."""
+        return bool(
+            self.redis_client.sismember(self.REVOKED_SET_KEY, member_id)
+        )
+
     def clear_all_templates(self):
         """Clear all member templates from current and old versions."""
         # Clear all versions (0..current)

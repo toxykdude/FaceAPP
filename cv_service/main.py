@@ -204,6 +204,15 @@ class CVService:
         for t in templates:
             import numpy as np
 
+            # Skip members revoked during the reload window (see
+            # TemplateCache.revoke_member): the snapshot may predate a
+            # delete that already committed on the backend.
+            if cache.is_revoked(t["member_id"]):
+                logger.debug(
+                    f"Skipping revoked member {t['member_id']} during reload"
+                )
+                continue
+
             embedding = np.array(t["embedding"])
             member_data = {
                 "name": t["name"],
@@ -763,6 +772,10 @@ async def invalidate_member(member_id: str, _: None = Depends(verify_api_key)):
 
     cache = TemplateCache()
     cache.remove_template(member_id)
+    # Bounded 60s revocation marker: a concurrent reload that read the
+    # backend snapshot before this invalidation will skip the member (see
+    # TemplateCache.revoke_member — the marker IS the generation check).
+    cache.revoke_member(member_id)
     logger.info(f"Invalidated template for member {member_id}")
     return {"status": "ok", "member_id": member_id}
 
