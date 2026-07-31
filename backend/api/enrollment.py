@@ -23,6 +23,7 @@ from models.user import User
 from models.camera import Camera
 from core.config import settings
 from core.encryption import encrypt_template, decrypt_string
+from core.audit import log_action
 from schemas.member import BiometricEnrollmentResponse
 from pydantic import BaseModel
 
@@ -325,6 +326,13 @@ async def enroll_member_face(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
+    # Ley 1581: biometric data is sensitive — require explicit prior consent.
+    if not member.consent_given_at:
+        raise HTTPException(
+            status_code=403,
+            detail="Biometric consent required before enrollment",
+        )
+
     # Remove existing enrollment (re-enrollment)
     existing = (
         db.query(BiometricTemplate)
@@ -368,6 +376,18 @@ async def enroll_member_face(
         )
         db.add(biometric)
         member.facial_data_enrolled = True
+        # Audit (atomic with the template write — log_action flushes, commit
+        # below persists both, so enrollment never completes without a durable
+        # audit row).
+        log_action(
+            db,
+            action="biometric_enroll",
+            resource_type="biometric_template",
+            resource_id=str(member_id),
+            user_id=str(current_user.id),
+            username=current_user.username,
+            details={"member_id": str(member_id), "method": "upload"},
+        )
         db.commit()
         db.refresh(biometric)
 
@@ -417,6 +437,16 @@ async def delete_enrollment(
 
     db.delete(template)
     member.facial_data_enrolled = False
+    # Audit (atomic with the deletion — same transaction).
+    log_action(
+        db,
+        action="biometric_delete",
+        resource_type="biometric_template",
+        resource_id=str(member_id),
+        user_id=str(current_user.id),
+        username=current_user.username,
+        details={"member_id": str(member_id)},
+    )
     db.commit()
 
     await notify_cv_reload()
@@ -530,6 +560,13 @@ async def enroll_member_camera(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
+    # Ley 1581: biometric data is sensitive — require explicit prior consent.
+    if not member.consent_given_at:
+        raise HTTPException(
+            status_code=403,
+            detail="Biometric consent required before enrollment",
+        )
+
     existing = (
         db.query(BiometricTemplate)
         .filter(BiometricTemplate.member_id == member_id)
@@ -589,6 +626,16 @@ async def enroll_member_camera(
         )
         db.add(biometric)
         member.facial_data_enrolled = True
+        # Audit (atomic with the template write — see enroll_member_face).
+        log_action(
+            db,
+            action="biometric_enroll",
+            resource_type="biometric_template",
+            resource_id=str(member_id),
+            user_id=str(current_user.id),
+            username=current_user.username,
+            details={"member_id": str(member_id), "method": "camera"},
+        )
         db.commit()
         db.refresh(biometric)
 
