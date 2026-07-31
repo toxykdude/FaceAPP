@@ -13,6 +13,7 @@ import csv
 import io
 
 from api.deps import get_db, require_page
+from core.csv_safety import sanitize_csv_cell
 from models.user import User
 from models.member import Member
 from models.membership import Membership
@@ -357,7 +358,9 @@ def export_sales_report(
         yield buf.getvalue()
         for tx in transactions:
             row_buf = io.StringIO()
-            csv.writer(row_buf).writerow(_row(tx))
+            csv.writer(row_buf).writerow(
+                [sanitize_csv_cell(c) for c in _row(tx)]
+            )
             yield row_buf.getvalue()
 
     filename = f"sales_report_{range_label}.csv"

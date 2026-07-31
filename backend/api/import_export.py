@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_page
+from core.csv_safety import sanitize_csv_cell
 from models.user import User
 from models.member import Member
 from core.audit import log_action
@@ -121,12 +122,12 @@ def export_members(
     for m in members:
         writer.writerow(
             [
-                m.first_name,
-                m.last_name,
-                m.email or "",
-                m.phone or "",
-                m.status,
-                m.facial_data_enrolled,
+                sanitize_csv_cell(m.first_name),
+                sanitize_csv_cell(m.last_name),
+                sanitize_csv_cell(m.email or ""),
+                sanitize_csv_cell(m.phone or ""),
+                sanitize_csv_cell(m.status),
+                sanitize_csv_cell(m.facial_data_enrolled),
                 m.created_at.isoformat() if m.created_at else "",
             ]
         )
