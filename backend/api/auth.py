@@ -70,18 +70,9 @@ def login(request: Request, credentials: LoginRequest, db: Session = Depends(get
     # Clear failed attempts on successful login
     clear_failed_attempts(credentials.username)
 
-    # Update last login
+    # Update last login + audit it atomically (log_action flushes; the commit
+    # below persists both, so a login is durably audit-logged).
     user.last_login = datetime.now(timezone.utc)
-    db.commit()
-
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": str(user.id), "ver": user.token_version or 0},
-        expires_delta=access_token_expires,
-    )
-
-    # Audit log
     from core.audit import log_action
 
     log_action(
@@ -90,6 +81,14 @@ def login(request: Request, credentials: LoginRequest, db: Session = Depends(get
         resource_type="session",
         user_id=str(user.id),
         username=user.username,
+    )
+    db.commit()
+
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": str(user.id), "ver": user.token_version or 0},
+        expires_delta=access_token_expires,
     )
 
     # Serialize user manually

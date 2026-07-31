@@ -192,10 +192,9 @@ def create_member(
     )
 
     db.add(db_member)
-    db.commit()
-    db.refresh(db_member)
-
-    # Audit log
+    db.flush()  # populate db_member.id for the audit row
+    # Audit (atomic with the member write — log_action flushes; the commit
+    # below persists both, so a create never completes without a durable audit).
     from core.audit import log_action
 
     log_action(
@@ -207,6 +206,8 @@ def create_member(
         username=current_user.username,
         details={"name": f"{db_member.first_name} {db_member.last_name}"},
     )
+    db.commit()
+    db.refresh(db_member)
 
     return db_member
 
@@ -369,10 +370,8 @@ async def update_member(
 
     member.updated_at = datetime.now(timezone.utc)
 
-    db.commit()
-    db.refresh(member)
-
-    # Audit log
+    # Audit (atomic with the update — log_action flushes; the commit below
+    # persists both, so an update never completes without a durable audit).
     from core.audit import log_action
 
     log_action(
@@ -384,6 +383,8 @@ async def update_member(
         username=current_user.username,
         details={"updated_fields": list(update_data.keys())},
     )
+    db.commit()
+    db.refresh(member)
 
     # Invalidate CV cache if member status changed
     if "status" in update_data:
@@ -412,9 +413,8 @@ async def delete_member(
 
     # Delete member (biometric template will be deleted via CASCADE)
     db.delete(member)
-    db.commit()
-
-    # Audit log
+    # Audit (atomic with the deletion — log_action flushes; the commit below
+    # persists both, so a delete never completes without a durable audit).
     from core.audit import log_action
 
     log_action(
@@ -425,6 +425,7 @@ async def delete_member(
         user_id=str(current_user.id),
         username=current_user.username,
     )
+    db.commit()
 
     await notify_cv_invalidation(str(member_id))
 
