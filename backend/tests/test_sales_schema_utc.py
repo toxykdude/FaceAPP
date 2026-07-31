@@ -10,7 +10,9 @@ serializers and the live ``GET /api/sales`` payload to explicit UTC.
 import json
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
+from models.sale import PaymentMethod
 from schemas.sale import SalesTransactionResponse
 
 
@@ -20,8 +22,8 @@ def _make_tx(
     return SalesTransactionResponse(
         id=uuid.uuid4(),
         member_id=uuid.uuid4(),
-        amount="1234.56",
-        payment_method="cash",
+        amount=Decimal("1234.56"),
+        payment_method=PaymentMethod.CASH,
         invoice_number=f"INV-UTC-{uuid.uuid4().hex[:6]}",
         transaction_date=transaction_date,
         created_at=created_at,
