@@ -177,6 +177,8 @@ def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db))
 
     # Update password
     user.password_hash = get_password_hash(request.new_password)
+    # Invalidate all previously-issued JWTs for this user (S6, CWE-613).
+    user.token_version = (user.token_version or 0) + 1
 
     # Mark token as used
     reset_token.used = "true"

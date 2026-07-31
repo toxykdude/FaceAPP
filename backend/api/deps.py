@@ -92,6 +92,16 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
         )
 
+    # Session revocation (S6): reject tokens whose version predates the user's
+    # current token_version (bumped on password change/reset). A JWT without a
+    # "ver" claim (pre-S6) is treated as version 0, so existing tokens survive.
+    if int(payload.get("ver", 0)) != int(user.token_version or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 

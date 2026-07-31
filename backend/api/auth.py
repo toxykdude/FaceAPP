@@ -77,7 +77,8 @@ def login(request: Request, credentials: LoginRequest, db: Session = Depends(get
     # Create access token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id)}, expires_delta=access_token_expires
+        data={"sub": str(user.id), "ver": user.token_version or 0},
+        expires_delta=access_token_expires,
     )
 
     # Audit log
