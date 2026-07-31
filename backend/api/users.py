@@ -72,7 +72,7 @@ def create_user(
         password_hash=get_password_hash(user_data.password),
         role=user_data.role,
         is_active=user_data.is_active if user_data.is_active is not None else True,
-        permissions=user_data.permissions or {"pages": ["all"]},
+        permissions=user_data.permissions or {"pages": []},
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
