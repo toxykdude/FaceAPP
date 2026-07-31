@@ -90,6 +90,34 @@ def test_unauthenticated_gets_401(client):
     assert resp.status_code == 401
 
 
+def test_send_report_now_per_user_counter_429(client, db_session):
+    """WS-9 (CWE-770): manual report sends are capped at 2/hour per user via
+    the Redis `report-send:{user_id}` counter — the 3rd call must 429.
+
+    Not a slowapi test: the limiter uses in-memory storage that accumulates
+    across the suite, so we assert the per-user Redis counter instead.
+    """
+    import redis
+
+    from core.config import settings
+
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    user = _make_staff(db_session, pages=["reports"])
+    key = f"report-send:{str(user.id)}"
+    r.delete(key)
+    try:
+        c = _authed_client(client, user)
+        resp1 = c.post("/api/reports-email/send-now")
+        assert resp1.status_code == 200, resp1.text
+        resp2 = c.post("/api/reports-email/send-now")
+        assert resp2.status_code == 200, resp2.text
+        resp3 = c.post("/api/reports-email/send-now")
+        assert resp3.status_code == 429, resp3.text
+        assert "Report already sent recently" in resp3.json()["detail"]
+    finally:
+        r.delete(key)
+
+
 # ---- deny-by-default permissions (CWE-269) ----
 
 

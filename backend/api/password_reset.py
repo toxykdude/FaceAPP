@@ -4,7 +4,7 @@ Password reset endpoints (forgot password flow).
 
 import secrets
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from core.security import get_password_hash
 from core.email import email_service
 from core.config import settings
 from core.audit import log_action
+from core.rate_limiter import limiter
 from schemas.sync import MessageResponse
 
 router = APIRouter(prefix="/auth", tags=["Password Reset"])
@@ -30,14 +31,20 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/hour")
+def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
     """
     Request a password reset link via email.
 
     Always returns success to prevent email enumeration.
+    Rate limited: 3 requests/hour per IP (WS-9, CWE-307).
     """
     # Find user by email
-    user = db.query(User).filter(User.email == request.email).first()
+    user = db.query(User).filter(User.email == body.email).first()
 
     if not user:
         # Don't reveal that email doesn't exist

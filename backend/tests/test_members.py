@@ -58,6 +58,35 @@ class TestMemberCreate:
         assert response.status_code == 422
 
 
+class TestMemberPhoneUniqueness:
+    """WS-9: member phone must be unique (pre-check mirrors the email check)."""
+
+    def test_create_member_duplicate_phone_400(self, client, auth_headers):
+        """Second create with an already-registered phone -> 400 (pre-check)."""
+        phone = "555-4444"
+        base = {
+            "first_name": "Dup",
+            "last_name": "Phone",
+            "phone": phone,
+            "consent_given": True,
+        }
+
+        resp1 = client.post(
+            "/api/members",
+            headers=auth_headers,
+            json={**base, "email": f"dup1.{uuid.uuid4().hex[:8]}@test.com"},
+        )
+        assert resp1.status_code == 201, resp1.text
+
+        resp2 = client.post(
+            "/api/members",
+            headers=auth_headers,
+            json={**base, "email": f"dup2.{uuid.uuid4().hex[:8]}@test.com"},
+        )
+        assert resp2.status_code == 400, resp2.text
+        assert resp2.json()["detail"] == "Phone already registered"
+
+
 class TestMemberGetUpdateDelete:
     """Test member get, update, delete."""
 

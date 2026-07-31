@@ -7,11 +7,12 @@ import random
 import logging
 import redis
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db
 from core.config import settings
+from core.rate_limiter import limiter
 from core.security import create_access_token
 from models.member import Member
 from models.membership import Membership
@@ -149,8 +150,10 @@ async def _send_whatsapp_pin(phone: str, pin: str) -> None:
 
 
 @router.post("/member-login")
+@limiter.limit("10/minute")
 async def member_login(
-    request: MemberLoginRequest,
+    request: Request,
+    body: MemberLoginRequest,
     db: Session = Depends(get_db),
 ):
     """
@@ -158,24 +161,36 @@ async def member_login(
 
     Validates phone number, generates 6-digit PIN, stores in Redis, sends via WhatsApp.
     """
-    normalized_phone = _normalize_phone(request.phone)
+    normalized_phone = _normalize_phone(body.phone)
 
+    # Look up the member (unknown phones run the exact same flow below,
+    # minus the WhatsApp send — see the send comment for why).
     member = _resolve_member(db, normalized_phone)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No encontramos un miembro con ese número de celular. Contacta al gimnasio.",
-        )
 
     # Check lockout before sending new PIN
     _check_lockout(normalized_phone)
+
+    # Check 60s cooldown
+    cooldown_key = f"member-pin-cooldown:{normalized_phone}"
+    if r.exists(cooldown_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Espera 60 segundos antes de solicitar otro código",
+        )
 
     # Generate and store PIN
     pin = _generate_pin()
     r.setex(f"member-pin:{normalized_phone}", PIN_TTL, pin)
 
-    # Send via WhatsApp (don't block on failure)
-    await _send_whatsapp_pin(normalized_phone, pin)
+    # Set cooldown
+    r.setex(cooldown_key, PIN_COOLDOWN, "1")
+
+    # Send via WhatsApp (don't block on failure). Unknown phones get the SAME
+    # 200 response but no message is sent: sending WhatsApp messages to
+    # arbitrary attacker-supplied numbers is its own abuse vector, and the
+    # identical response shape prevents phone-number enumeration.
+    if member:
+        await _send_whatsapp_pin(normalized_phone, pin)
 
     return {"message": "PIN enviado a tu WhatsApp", "expires_in": PIN_TTL}
 
@@ -204,12 +219,15 @@ async def member_verify(
             detail="Código incorrecto o expirado",
         )
 
-    # PIN is valid — look up member
+    # PIN is valid — look up member. A valid PIN that resolves to no member
+    # must be indistinguishable from a wrong PIN (WS-9, CWE-203): in practice
+    # the PIN was never sent to unknown phones, but the response shape must
+    # not differ from the wrong-PIN case.
     member = _resolve_member(db, normalized_phone)
     if not member:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Código incorrecto o expirado",
         )
 
     # Delete PIN from Redis (single use)
@@ -235,8 +253,10 @@ async def member_verify(
 
 
 @router.post("/member-resend")
+@limiter.limit("10/minute")
 async def member_resend(
-    request: MemberLoginRequest,
+    request: Request,
+    body: MemberLoginRequest,
     db: Session = Depends(get_db),
 ):
     """
@@ -244,7 +264,7 @@ async def member_resend(
 
     Same flow as member-login but enforces a cooldown to prevent abuse.
     """
-    normalized_phone = _normalize_phone(request.phone)
+    normalized_phone = _normalize_phone(body.phone)
 
     # Check cooldown
     cooldown_key = f"member-pin-cooldown:{normalized_phone}"
@@ -254,13 +274,9 @@ async def member_resend(
             detail="Espera 60 segundos antes de solicitar otro código",
         )
 
-    # Look up member by phone
+    # Look up member by phone (unknown phones run the same flow, minus the
+    # WhatsApp send — see member_login for the enumeration/abuse rationale)
     member = _resolve_member(db, normalized_phone)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No encontramos un miembro con ese número de celular. Contacta al gimnasio.",
-        )
 
     # Generate and store PIN
     pin = _generate_pin()
@@ -269,7 +285,8 @@ async def member_resend(
     # Set cooldown
     r.setex(cooldown_key, PIN_COOLDOWN, "1")
 
-    # Send via WhatsApp (don't block on failure)
-    await _send_whatsapp_pin(normalized_phone, pin)
+    # Send via WhatsApp (don't block on failure) — only for known members
+    if member:
+        await _send_whatsapp_pin(normalized_phone, pin)
 
     return {"message": "PIN enviado a tu WhatsApp", "expires_in": PIN_TTL}
