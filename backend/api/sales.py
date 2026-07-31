@@ -358,9 +358,7 @@ def export_sales_report(
         yield buf.getvalue()
         for tx in transactions:
             row_buf = io.StringIO()
-            csv.writer(row_buf).writerow(
-                [sanitize_csv_cell(c) for c in _row(tx)]
-            )
+            csv.writer(row_buf).writerow([sanitize_csv_cell(c) for c in _row(tx)])
             yield row_buf.getvalue()
 
     filename = f"sales_report_{range_label}.csv"
