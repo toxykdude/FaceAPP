@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, require_staff
+from api.deps import get_db, require_page
 from models.user import User
 from models.member import Member
 from core.audit import log_action
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/members", tags=["Import/Export"])
 async def import_members(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("reports")),
 ):
     """
     Import members from CSV file.
@@ -84,7 +84,7 @@ def export_members(
     search: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("reports")),
 ):
     """
     Export members to CSV file.

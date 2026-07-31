@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-from api.deps import get_db, require_staff
+from api.deps import get_db, require_page
 from models.user import User
 from models.membership import MembershipPlan
 from schemas.membership_plan import (
@@ -26,7 +26,7 @@ def list_membership_plans(
     limit: int = Query(100, ge=1, le=1000),
     active_only: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     List membership plans.
@@ -48,7 +48,7 @@ def list_membership_plans(
 def create_membership_plan(
     plan: MembershipPlanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Create a new membership plan.
@@ -73,7 +73,7 @@ def create_membership_plan(
 def get_membership_plan(
     plan_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Get membership plan by ID.
@@ -89,7 +89,7 @@ def update_membership_plan(
     plan_id: str,
     plan_update: MembershipPlanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Update membership plan.
@@ -112,7 +112,7 @@ def update_membership_plan(
 def delete_membership_plan(
     plan_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Delete membership plan. If the plan has linked memberships, soft-delete (deactivate) instead.
