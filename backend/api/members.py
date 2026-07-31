@@ -5,6 +5,7 @@ Members API endpoints.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -180,6 +181,16 @@ def create_member(
                 detail="Email already registered",
             )
 
+    # Check if phone already exists (mirror of the email check; enforced by
+    # the DB partial unique index as belt-and-suspenders below)
+    if member.phone:
+        existing = db.query(Member).filter(Member.phone == member.phone).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone already registered",
+            )
+
     # Create member
     db_member = Member(
         first_name=member.first_name,
@@ -191,22 +202,32 @@ def create_member(
         consent_given_at=datetime.now(timezone.utc) if member.consent_given else None,
     )
 
-    db.add(db_member)
-    db.flush()  # populate db_member.id for the audit row
-    # Audit (atomic with the member write — log_action flushes; the commit
-    # below persists both, so a create never completes without a durable audit).
-    from core.audit import log_action
+    try:
+        db.add(db_member)
+        db.flush()  # populate db_member.id for the audit row
+        # Audit (atomic with the member write — log_action flushes; the commit
+        # below persists both, so a create never completes without a durable audit).
+        from core.audit import log_action
 
-    log_action(
-        db,
-        action="create",
-        resource_type="member",
-        resource_id=str(db_member.id),
-        user_id=str(current_user.id),
-        username=current_user.username,
-        details={"name": f"{db_member.first_name} {db_member.last_name}"},
-    )
-    db.commit()
+        log_action(
+            db,
+            action="create",
+            resource_type="member",
+            resource_id=str(db_member.id),
+            user_id=str(current_user.id),
+            username=current_user.username,
+            details={"name": f"{db_member.first_name} {db_member.last_name}"},
+        )
+        db.commit()
+    except IntegrityError:
+        # Belt-and-suspenders for the DB unique index on phone: a concurrent
+        # create (or any other unique-constraint race) must surface as the
+        # same 400, never as a 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phone already registered",
+        )
     db.refresh(db_member)
 
     return db_member

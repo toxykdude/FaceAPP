@@ -23,6 +23,13 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+# Dummy bcrypt hash (WS-9, CWE-208/307): a real bcrypt hash of a fixed string,
+# so verify_password() against it actually runs bcrypt. Login for unknown
+# usernames compares against this so the unknown-username timing matches the
+# bcrypt path of known users (username enumeration via response timing).
+DUMMY_PASSWORD_HASH = get_password_hash("dummy-password")
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token.

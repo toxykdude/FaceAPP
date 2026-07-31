@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_user
-from core.security import verify_password, create_access_token
+from core.security import verify_password, create_access_token, DUMMY_PASSWORD_HASH
 from core.config import settings
 from core.auth_attempts import (
     is_locked_out,
@@ -46,6 +46,10 @@ def login(request: Request, credentials: LoginRequest, db: Session = Depends(get
 
     if not user:
         record_failed_attempt(credentials.username)
+        # Run a real bcrypt comparison against the dummy hash so the
+        # unknown-username path takes the same time as the known-user path
+        # (WS-9, CWE-208 — timing-based username enumeration).
+        verify_password(credentials.password, DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",

@@ -4,8 +4,9 @@ Sends a summary every 2 hours with sales, new members, and recognized expired me
 """
 
 import logging
+import redis
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct
 from decimal import Decimal
@@ -16,11 +17,15 @@ from models.member import Member
 from models.membership import Membership
 from models.sale import SalesTransaction
 from models.event import AccessEvent
+from core.config import settings
 from core.email import email_service
+from core.rate_limiter import limiter
 from schemas.sync import MessageResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports-email", tags=["Reports Email"])
+
+r = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
 def generate_report_html(
@@ -283,11 +288,29 @@ def send_scheduled_report(db_session_factory):
 
 
 @router.post("/send-now", response_model=MessageResponse)
+@limiter.limit("10/hour")
 def send_report_now(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("reports")),
 ):
-    """Manually trigger the email report."""
+    """Manually trigger the email report.
+
+    Throttled per IP (10/hour) and per user (2/hour — WS-9, CWE-770):
+    a Redis sliding counter per user id rejects a third manual send within
+    the hour.
+    """
+    # Per-user counter: allow at most 2 manual sends per hour (WS-9).
+    counter_key = f"report-send:{str(current_user.id)}"
+    count = r.incr(counter_key)
+    if count == 1:
+        r.expire(counter_key, 3600)
+    if count > 2:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Report already sent recently. Try again in an hour.",
+        )
+
     from core.database import SessionLocal
 
     send_scheduled_report(SessionLocal)

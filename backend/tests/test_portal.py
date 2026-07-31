@@ -17,11 +17,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import redis as redis_lib
 import api.portal as portal_module
 from api.deps import get_db, get_portal_session
+from core.config import settings as app_settings
 from core.security import create_access_token
 from models.membership import MembershipPlan, Membership
 from models.sale import SalesTransaction
+
+portal_redis = redis_lib.from_url(app_settings.REDIS_URL, decode_responses=True)
+
+PIN_STATE_KEYS = (
+    "member-pin",
+    "member-pin-cooldown",
+    "member-failed",
+    "member-lockout",
+)
 
 
 @pytest.fixture
@@ -208,3 +219,64 @@ class TestPortalWebhookRenewInvalidation:
         )
         assert resp.status_code == 401
         mock_notify.assert_not_awaited()
+
+
+def _fresh_phone():
+    """Return a unique 10-digit Colombian-style phone number."""
+    return "3" + str(uuid.uuid4().int)[:9]
+
+
+@pytest.fixture
+def pin_phone():
+    """Fresh phone with no leftover member-PIN Redis state (cleaned at start
+    AND end so tests never leak cooldown/lockout state into each other)."""
+    phone = _fresh_phone()
+    for suffix in PIN_STATE_KEYS:
+        portal_redis.delete(f"{suffix}:{phone}")
+    yield phone
+    for suffix in PIN_STATE_KEYS:
+        portal_redis.delete(f"{suffix}:{phone}")
+
+
+class TestMemberPinLoginHardening:
+    """WS-9 (CWE-203/307): the member PIN login flow must not enumerate
+    registered phones and must throttle PIN requests."""
+
+    def test_member_login_unknown_phone_returns_generic_200(self, client, pin_phone):
+        """Unknown phone gets the SAME 200 body as a known phone (no 404)."""
+        resp = client.post("/api/auth/member-login", json={"phone": pin_phone})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "message": "PIN enviado a tu WhatsApp",
+            "expires_in": 300,
+        }
+
+    def test_member_login_second_call_within_cooldown_429(self, client, pin_phone):
+        """member-login now enforces the 60s cooldown (was resend-only)."""
+        resp1 = client.post("/api/auth/member-login", json={"phone": pin_phone})
+        assert resp1.status_code == 200, resp1.text
+        resp2 = client.post("/api/auth/member-login", json={"phone": pin_phone})
+        assert resp2.status_code == 429, resp2.text
+        assert "Espera 60 segundos" in resp2.json()["detail"]
+
+    def test_member_resend_unknown_phone_returns_generic_200(self, client, pin_phone):
+        """Resend for an unknown phone also returns the generic 200 body."""
+        resp = client.post("/api/auth/member-resend", json={"phone": pin_phone})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "message": "PIN enviado a tu WhatsApp",
+            "expires_in": 300,
+        }
+
+    def test_member_verify_valid_pin_with_no_member_returns_401(
+        self, client, pin_phone
+    ):
+        """A valid PIN that resolves to no member must look exactly like a
+        wrong PIN (401, same detail) — not a 404."""
+        portal_redis.setex(f"member-pin:{pin_phone}", 300, "123456")
+        resp = client.post(
+            "/api/auth/member-verify",
+            json={"phone": pin_phone, "pin": "123456"},
+        )
+        assert resp.status_code == 401, resp.text
+        assert resp.json()["detail"] == "Código incorrecto o expirado"
