@@ -2,11 +2,12 @@
 AES-256 encryption utilities for biometric data.
 """
 
+import base64
+import binascii
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
-import base64
 
 from core.config import settings
 
@@ -14,20 +15,45 @@ from core.config import settings
 def get_encryption_key() -> bytes:
     """
     Get the encryption key from settings.
-    Key should be 32 bytes for AES-256.
+
+    The key MUST decode to exactly 32 bytes (AES-256). Three forms are
+    accepted: 44-char base64 with padding, 64-char hex, or raw text of
+    exactly 32 bytes. Anything else raises ValueError instead of silently
+    padding/truncating to a weak key.
     """
     key = settings.ENCRYPTION_KEY
 
-    # If key is base64 encoded, decode it
+    # Base64: 44 chars with padding, must decode to exactly 32 bytes.
     if len(key) == 44 and key.endswith("="):
-        return base64.b64decode(key)
+        try:
+            decoded = base64.b64decode(key, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError(f"ENCRYPTION_KEY is not valid base64: {exc}") from exc
+        if len(decoded) != 32:
+            raise ValueError(
+                f"ENCRYPTION_KEY must decode to 32 bytes (got {len(decoded)})"
+            )
+        return decoded
 
-    # If key is hex encoded, decode it
+    # Hex: 64 hex characters, must decode to exactly 32 bytes.
     if len(key) == 64:
-        return bytes.fromhex(key)
+        try:
+            decoded = bytes.fromhex(key)
+        except ValueError as exc:
+            raise ValueError(
+                f"ENCRYPTION_KEY must be 64 hex characters (got invalid hex: {exc})"
+            ) from exc
+        if len(decoded) != 32:
+            raise ValueError(
+                f"ENCRYPTION_KEY must decode to 32 bytes (got {len(decoded)})"
+            )
+        return decoded
 
-    # Otherwise, use as-is (should be 32 bytes)
-    return key.encode("utf-8")[:32].ljust(32, b"\0")
+    # Raw: exactly 32 bytes.
+    decoded = key.encode("utf-8")
+    if len(decoded) != 32:
+        raise ValueError(f"ENCRYPTION_KEY must decode to 32 bytes (got {len(decoded)})")
+    return decoded
 
 
 def encrypt_biometric_data(data: bytes) -> bytes:
