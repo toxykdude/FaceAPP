@@ -21,11 +21,10 @@ export interface Membership {
 
 export interface MembershipCreate {
     member_id: string;
-    plan_id?: string;
+    plan_id: string;
     type: string;
     start_date: string;
     end_date: string;
-    price: number;
 }
 
 export const membershipsApi = {

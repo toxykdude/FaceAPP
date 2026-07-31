@@ -18,7 +18,6 @@ import {
     MenuItem,
     Autocomplete,
     CircularProgress,
-    InputAdornment
 } from '@mui/material';
 import { membershipsApi, MembershipCreate } from '@/api/memberships';
 import { membersApi } from '@/api/members';
@@ -28,11 +27,10 @@ import { useLanguage } from '@/i18n/LanguageContext';
 
 const membershipSchema = z.object({
     member_id: z.string().min(1, 'Member is required'),
-    plan_id: z.string().optional(),
+    plan_id: z.string().min(1, 'Plan is required'),
     type: z.string().min(1, 'Membership name is required'),
     start_date: z.string().min(1, 'Start date is required'),
     end_date: z.string().min(1, 'End date is required'),
-    price: z.number().min(0, 'Price must be positive'),
 });
 
 type MembershipFormData = z.infer<typeof membershipSchema>;
@@ -67,19 +65,18 @@ export const MembershipForm: React.FC = () => {
             type: '',
             start_date: format(new Date(), 'yyyy-MM-dd'),
             end_date: format(addMonths(new Date(), 1), 'yyyy-MM-dd'),
-            price: 0,
         },
     });
 
     const watchPlanId = watch('plan_id');
     const watchStartDate = watch('start_date');
+    const selectedPlan = plans.find(p => p.id === watchPlanId);
 
     useEffect(() => {
         if (!watchPlanId) return;
         const plan = plans.find(p => p.id === watchPlanId);
         if (plan) {
             setValue('type', plan.name);
-            setValue('price', Number(plan.price));
             const start = watchStartDate ? new Date(watchStartDate + 'T12:00:00') : new Date();
             let end = start;
             if (plan.duration_months) end = addMonths(end, plan.duration_months);
@@ -99,11 +96,10 @@ export const MembershipForm: React.FC = () => {
     const onSubmit = (data: MembershipFormData) => {
         const submitData: MembershipCreate = {
             member_id: data.member_id,
-            plan_id: data.plan_id || undefined,
+            plan_id: data.plan_id,
             type: data.type,
             start_date: data.start_date,
-            end_date: data.end_date,
-            price: data.price
+            end_date: data.end_date
         };
         createMutation.mutate(submitData);
     };
@@ -161,7 +157,6 @@ export const MembershipForm: React.FC = () => {
                                             error={!!errors.plan_id}
                                             helperText={errors.plan_id?.message}
                                         >
-                                            <MenuItem value=""><em>Custom</em></MenuItem>
                                             {plans.map((p) => (
                                                 <MenuItem key={p.id} value={p.id}>
                                                     {p.name} - ${p.price}
@@ -224,24 +219,13 @@ export const MembershipForm: React.FC = () => {
                                 />
                             </Grid>
 
-                            <Grid item xs={12} sm={6}>
-                                <Controller
-                                    name="price"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <TextField
-                                            {...field}
-                                            fullWidth
-                                            label={t.memberships.price}
-                                            type="number"
-                                            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                                            onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                                            error={!!errors.price}
-                                            helperText={errors.price?.message}
-                                        />
-                                    )}
-                                />
-                            </Grid>
+                            {selectedPlan && (
+                                <Grid item xs={12} sm={6}>
+                                    <Typography variant="body1" color="textSecondary">
+                                        {t.memberships.price}: ${Number(selectedPlan.price).toFixed(2)}
+                                    </Typography>
+                                </Grid>
+                            )}
 
                             <Grid item xs={12}>
                                 <Box display="flex" gap={2}>
