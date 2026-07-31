@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from api.deps import get_db, require_staff
 from services.cv_notify import notify_cv_invalidation
 from core.audit import log_action
+from core.encryption import encrypt_string
 from models.user import User, UserRole
 from models.member import Member
 from models.membership import Membership, MembershipPlan
@@ -296,6 +297,14 @@ async def sync_push(
                         )
                         continue
 
+                # cameras: encrypt the RTSP URL at rest, consistent with the
+                # direct camera API (cleartext-sensitive-data.camera-insert,
+                # CWE-312). The cv_service reads via /cv/cameras which decrypts.
+                if table_name == "cameras" and filtered_data.get("rtsp_url"):
+                    filtered_data["rtsp_url"] = encrypt_string(
+                        filtered_data["rtsp_url"]
+                    )
+
                 new_record = model(**filtered_data)
                 db.add(new_record)
                 db.commit()
@@ -364,6 +373,10 @@ async def sync_push(
                 }
 
                 for key, value in filtered_data.items():
+                    # cameras: encrypt a new RTSP URL on update, consistent with
+                    # the direct camera API (cleartext-sensitive-data.camera-update).
+                    if table_name == "cameras" and key == "rtsp_url" and value:
+                        value = encrypt_string(value)
                     setattr(existing, key, value)
 
                 if hasattr(existing, "updated_at"):
