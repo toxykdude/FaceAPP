@@ -225,9 +225,7 @@ def validate(value: dict) -> dict:
     for field in ("host", "port", "share", "path", "username"):
         val = cfg.get(field)
         if isinstance(val, str) and _CONTROL_RE.search(val):
-            raise BackupConfigError(
-                f"{field} must not contain control characters"
-            )
+            raise BackupConfigError(f"{field} must not contain control characters")
 
     # Username is passed verbatim into ssh/sftp/ftp/rsync/smb argv; restrict to
     # a safe charset so it cannot be parsed as an OpenSSH option such as
