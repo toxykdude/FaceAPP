@@ -18,19 +18,43 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from validation.access_validator import AccessValidator
 
+# The validator resolves the business timezone from the backend; every fake
+# reports this zone so day/time windows and dates are deterministic.
+TEST_TZ = "America/Bogota"
+TEST_ZONE = ZoneInfo(TEST_TZ)
+
+
+class _FakeResponse:
+    def __init__(self, data):
+        self._data = data
+        self.status_code = 200
+
+    def json(self):
+        return self._data
+
+    def raise_for_status(self):
+        return None
+
 
 class _FakeApiClient:
     """Stands in for BackendAPIClient — no network calls."""
 
-    def __init__(self, member, membership):
+    def __init__(self, member, membership, timezone=TEST_TZ):
         self._member = member
         self._membership = membership
+        self.base_url = "http://backend/api"
+        self.client = SimpleNamespace(
+            get=AsyncMock(return_value=_FakeResponse({"app_timezone": timezone}))
+        )
 
     async def get_member(self, member_id):
         return self._member
@@ -46,7 +70,9 @@ class _FakeApiClient:
 
 
 def _membership(start_offset_days, end_offset_days, status="active", **overrides):
-    today = date.today()
+    # Offsets are relative to the business timezone's today so boundary
+    # assertions stay deterministic regardless of the host clock.
+    today = datetime.now(TEST_ZONE).date()
     membership = {
         "id": "membership-1",
         "type": "monthly",
@@ -191,3 +217,211 @@ class TestAccessValidatorDaysRemaining:
         assert granted is True
         assert reason is None
         assert days_remaining is None
+
+
+class TestAccessValidatorTimezoneAwareRules:
+    """Day/time restrictions must run on the business timezone, never the
+    host clock (WS-7b)."""
+
+    @pytest.mark.asyncio
+    async def test_day_restriction_denies_other_day(self):
+        current_day = datetime.now(TEST_ZONE).strftime("%A").lower()
+        other_day = "monday" if current_day != "monday" else "tuesday"
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"allowed_days": [other_day]},
+            ),
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_day_restriction"
+
+    @pytest.mark.asyncio
+    async def test_day_restriction_allows_current_day(self):
+        current_day = datetime.now(TEST_ZONE).strftime("%A").lower()
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"allowed_days": [current_day]},
+            ),
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+
+    @pytest.mark.asyncio
+    async def test_time_window_denies_outside_window(self):
+        now = datetime.now(TEST_ZONE)
+        future_start = (now + timedelta(hours=1)).strftime("%H:%M:%S")
+        future_end = (now + timedelta(hours=2)).strftime("%H:%M:%S")
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={
+                    "time_windows": [
+                        {"start_time": future_start, "end_time": future_end}
+                    ]
+                },
+            ),
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_time_restriction"
+
+    @pytest.mark.asyncio
+    async def test_time_window_grants_inside_window(self):
+        now = datetime.now(TEST_ZONE)
+        start = (now - timedelta(minutes=5)).strftime("%H:%M:%S")
+        end = (now + timedelta(minutes=5)).strftime("%H:%M:%S")
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={
+                    "time_windows": [
+                        {"start_time": start, "end_time": end}
+                    ]
+                },
+            ),
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+
+    @pytest.mark.asyncio
+    async def test_timezone_fetch_failure_denies_day_restriction(self):
+        """Never grant on a day/time restriction when the business timezone
+        cannot be resolved — fail closed (WS-7b)."""
+        current_day = datetime.now(TEST_ZONE).strftime("%A").lower()
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"allowed_days": [current_day]},
+            ),
+        )
+        validator._get_app_timezone = AsyncMock(return_value=None)
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_day_restriction"
+
+
+class TestAccessValidatorLocationFailClosed:
+    """Location restrictions compare like-for-like on the camera's
+    location_id, and any unresolvable camera location DENIES (WS-7b)."""
+
+    @pytest.mark.asyncio
+    async def test_location_mismatch_denies(self):
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"location_ids": ["loc-1"]},
+            ),
+        )
+        validator._get_camera = AsyncMock(
+            return_value={"id": "cam-1", "location": "Lobby", "location_id": "loc-2"}
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_location_restriction"
+
+    @pytest.mark.asyncio
+    async def test_location_label_cannot_match_ids(self):
+        """The legacy label-vs-id comparison must NOT grant: a camera whose
+        location_id is missing is denied even when its label string would
+        'match' an ID-looking value."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"location_ids": ["Lobby"]},
+            ),
+        )
+        validator._get_camera = AsyncMock(
+            return_value={"id": "cam-1", "location": "Lobby", "location_id": None}
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_location_restriction"
+
+    @pytest.mark.asyncio
+    async def test_unknown_camera_denies(self):
+        """camera_data None (camera missing/disabled) must DENY, never skip
+        the restriction."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"location_ids": ["loc-1"]},
+            ),
+        )
+        validator._get_camera = AsyncMock(return_value=None)
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "access_location_restriction"
+
+    @pytest.mark.asyncio
+    async def test_location_match_grants(self):
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=10,
+                access_rules={"location_ids": ["loc-1"]},
+            ),
+        )
+        validator._get_camera = AsyncMock(
+            return_value={"id": "cam-1", "location": "Lobby", "location_id": "loc-1"}
+        )
+
+        granted, reason, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None

@@ -16,10 +16,13 @@ from datetime import date, timedelta, datetime, timezone
 import pytest
 
 from core.config import settings
+from core.database import get_redis
 from core.encryption import encrypt_template
 from models.biometric import BiometricTemplate
 from models.membership import Membership, MembershipStatus
 from models.member import Member
+from models.setting import Setting
+from services.timezone import CACHE_KEY, DEFAULT_TZ
 
 
 @pytest.fixture
@@ -219,3 +222,71 @@ class TestAccessWindowUnchanged:
         data = resp.json()
         assert data["has_active"] is True
         assert data["membership"]["id"] == str(m.id)
+
+
+class TestCvSettingsEndpoint:
+    """GET /api/cv/settings feeds the CV access validator the business
+    timezone (WS-7b) — it must read the configured setting via the same
+    cached service the reports use, and stay internal-only."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_tz_cache(self):
+        r = get_redis()
+        r.delete(CACHE_KEY)
+        yield
+        r.delete(CACHE_KEY)
+
+    def _seed_timezone(self, db_session, value):
+        existing = db_session.query(Setting).filter(Setting.key == "timezone").first()
+        if existing:
+            existing.value = value
+        else:
+            db_session.add(Setting(key="timezone", value=value, category="system"))
+        db_session.flush()
+
+    def test_returns_configured_timezone(self, client, db_session, internal_headers):
+        self._seed_timezone(db_session, "America/Santiago")
+
+        resp = client.get("/api/cv/settings", headers=internal_headers)
+        assert resp.status_code == 200
+        assert resp.json() == {"app_timezone": "America/Santiago"}
+
+    def test_returns_default_when_unset(self, client, db_session, internal_headers):
+        db_session.query(Setting).filter(Setting.key == "timezone").delete()
+        db_session.flush()
+
+        resp = client.get("/api/cv/settings", headers=internal_headers)
+        assert resp.status_code == 200
+        assert resp.json() == {"app_timezone": DEFAULT_TZ}
+
+    def test_requires_internal_secret(self, client, internal_headers):
+        # internal_headers pins a non-empty INTERNAL_API_SECRET; omitting the
+        # header itself must fail with 401 regardless of the ambient .env.
+        resp = client.get("/api/cv/settings")
+        assert resp.status_code == 401
+
+
+class TestCamerasEndpointLocationId:
+    """/api/cv/cameras must expose the camera's location_id so the CV
+    validator can evaluate location rules like-for-like (WS-7b)."""
+
+    def test_cameras_include_location_id(self, client, sample_camera, internal_headers):
+        resp = client.get("/api/cv/cameras", headers=internal_headers)
+        assert resp.status_code == 200
+        camera = next(
+            c for c in resp.json()["cameras"] if c["id"] == str(sample_camera.id)
+        )
+        assert "location_id" in camera
+        assert camera["location_id"] is None
+
+    def test_cameras_report_configured_location_id(
+        self, client, db_session, sample_camera, internal_headers
+    ):
+        sample_camera.location_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+        db_session.flush()
+
+        resp = client.get("/api/cv/cameras", headers=internal_headers)
+        camera = next(
+            c for c in resp.json()["cameras"] if c["id"] == str(sample_camera.id)
+        )
+        assert camera["location_id"] == "11111111-1111-1111-1111-111111111111"

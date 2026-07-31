@@ -21,6 +21,7 @@ from models.membership import Membership, MembershipStatus
 from models.camera import Camera
 from core.encryption import decrypt_template, decrypt_string
 from core.config import settings
+from services.timezone import get_app_tz
 from schemas.cv import (
     TemplateSyncResponse,
     MembershipCheckResponse,
@@ -222,6 +223,20 @@ def get_member_internal(
     }
 
 
+@router.get("/settings")
+def get_cv_settings(
+    db: Session = Depends(get_db), _: str = Depends(verify_internal_secret)
+):
+    """
+    Internal settings the CV service needs for access validation.
+
+    Currently exposes the configured business timezone (services/timezone.py,
+    Redis-cached, write-invalidated), so the CV service evaluates day/time
+    access restrictions in the business timezone instead of the host clock.
+    """
+    return {"app_timezone": str(get_app_tz(db).key)}
+
+
 @router.get("/cameras", response_model=CameraListResponse)
 def get_enabled_cameras(
     db: Session = Depends(get_db), _: str = Depends(verify_internal_secret)
@@ -247,6 +262,7 @@ def get_enabled_cameras(
                 "rtsp_url": rtsp_url,
                 "fps": cam.fps or 5,
                 "location": cam.location,
+                "location_id": str(cam.location_id) if cam.location_id else None,
                 "confidence_threshold": cam.confidence_threshold or 0.85,
             }
         )

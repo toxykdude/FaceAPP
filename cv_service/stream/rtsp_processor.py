@@ -6,15 +6,35 @@ import urllib.request
 import numpy as np
 import time
 from typing import Optional, Callable, Dict, Any
+from urllib.parse import urlparse, urlunparse
 from loguru import logger
 from threading import Thread, Event, Lock
 
 from detection.face_detector import FaceDetector
 from detection.quality_assessor import FaceQualityAssessor
-from detection.liveness_detector import liveness_detector
+from detection.liveness_detector import LivenessDetector
 from recognition.face_recognizer import FaceRecognizer
 from recognition.template_matcher import TemplateMatcher
 from config import settings
+
+
+def sanitize_rtsp_url(url: str) -> str:
+    """Strip userinfo (``user:pass@``) from a stream URL.
+
+    ``rtsp://user:secret@host/stream`` becomes ``rtsp://host/stream`` so
+    credentials never land in health payloads, logs, or error messages.
+    """
+    if not url:
+        return url
+    parsed = urlparse(url)
+    if parsed.username is None and parsed.password is None:
+        return url
+    netloc = parsed.hostname or ""
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
 
 
 class RTSPStreamProcessor:
@@ -39,7 +59,9 @@ class RTSPStreamProcessor:
         self.quality_assessor = FaceQualityAssessor()
         self.recognizer = FaceRecognizer()
         self.matcher = TemplateMatcher()
-        self.liveness = liveness_detector
+        # Per-processor liveness detector: EAR/blink state must never be
+        # shared across camera streams or restarts.
+        self.liveness = LivenessDetector()
         
         # Stream state
         self.capture: Optional[cv2.VideoCapture] = None
@@ -77,6 +99,9 @@ class RTSPStreamProcessor:
         self.on_recognition = on_recognition
         self.is_running = True
         self.stop_event.clear()
+        
+        # Liveness blink state must never carry across stream (re)starts.
+        self.liveness.reset()
         
         # Start processing thread
         self.thread = Thread(target=self._process_stream, daemon=True)
@@ -135,16 +160,20 @@ class RTSPStreamProcessor:
                 # HTTP snapshot URL — poll mode
                 self._is_http_snapshot = True
                 self.connected = True
-                logger.info(f"Camera {self.camera_id} using HTTP snapshot polling: {self.rtsp_url[:50]}...")
+                logger.info(
+                    f"Camera {self.camera_id} using HTTP snapshot polling: "
+                    f"{sanitize_rtsp_url(self.rtsp_url)[:50]}..."
+                )
                 return True
             else:
                 self.capture = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
             self.capture.set(cv2.CAP_PROP_BUFFERSIZE, settings.FRAME_BUFFER_SIZE)
             
             if not self.capture.isOpened():
-                logger.error(f"Failed to open stream: {self.rtsp_url}")
+                logger.error(f"Failed to open stream: {sanitize_rtsp_url(self.rtsp_url)}")
                 self.connected = False
-                self.last_error = f"Failed to open stream: {self.rtsp_url}"
+                # Never store the raw URL (may embed credentials) in health state.
+                self.last_error = "Failed to open stream"
                 return False
             
             logger.info(f"Connected to stream: {self.camera_id}")
@@ -152,9 +181,12 @@ class RTSPStreamProcessor:
             return True
         
         except Exception as e:
-            logger.error(f"Error connecting to stream: {e}")
+            # Exceptions from the video backend can embed the full URL —
+            # scrub it before the message can reach logs or health state.
+            scrubbed = str(e).replace(self.rtsp_url, sanitize_rtsp_url(self.rtsp_url))
+            logger.error(f"Error connecting to stream: {scrubbed}")
             self.connected = False
-            self.last_error = str(e)
+            self.last_error = scrubbed
             return False
     
     def _process_stream(self):
@@ -285,7 +317,8 @@ class RTSPStreamProcessor:
                 )
         
         except Exception as e:
-            logger.error(f"Error processing frame: {e}")
+            scrubbed = str(e).replace(self.rtsp_url, sanitize_rtsp_url(self.rtsp_url))
+            logger.error(f"Error processing frame: {scrubbed}")
 
 
     def _read_http_snapshot(self):
@@ -298,7 +331,8 @@ class RTSPStreamProcessor:
                 return True, frame
             return False, None
         except Exception as e:
-            self.last_error = f"HTTP snapshot error: {e}"
+            scrubbed = str(e).replace(self.rtsp_url, sanitize_rtsp_url(self.rtsp_url))
+            self.last_error = f"HTTP snapshot error: {scrubbed}"
             return False, None
 
     def get_health(self) -> Dict[str, Any]:

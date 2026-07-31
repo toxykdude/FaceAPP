@@ -1,20 +1,40 @@
 """
 Redis cache manager for member templates.
 """
-import redis
+import base64
 import json
 import numpy as np
+import redis
 from typing import Optional, Dict, List
 from loguru import logger
 
 from config import settings
+from core.encryption import decrypt_biometric_data, encrypt_biometric_data
 
 
 class TemplateCache:
-    """Redis cache for member face templates."""
-    
+    """Redis cache for member face templates.
+
+    Templates are biometric data (Colombia Ley 1581/2012, GDPR Art. 9), so
+    when ENCRYPTION_KEY is configured the entire serialized record is
+    encrypted with AES-256-GCM before it reaches Redis and decrypted on
+    read. Without a key the cache falls back to cleartext for development,
+    but refuses to start when REQUIRE_PROD_SECRETS is enabled.
+    """
+
     def __init__(self):
         """Initialize Redis connection."""
+        if not settings.ENCRYPTION_KEY:
+            if settings.REQUIRE_PROD_SECRETS:
+                raise RuntimeError(
+                    "ENCRYPTION_KEY not configured and REQUIRE_PROD_SECRETS is "
+                    "enabled — refusing to cache biometric templates in cleartext"
+                )
+            logger.warning(
+                "ENCRYPTION_KEY not configured — member templates are cached in "
+                "CLEARTEXT in Redis (development only). Set ENCRYPTION_KEY in "
+                "production."
+            )
         self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=False)
         self.ttl = settings.CACHE_TTL
 
@@ -47,6 +67,63 @@ class TemplateCache:
                 break
         return keys
     
+    def _serialize(self, data: dict) -> str:
+        """Serialize a template record, encrypting it when a key is set.
+
+        The whole record (embedding + metadata) is encrypted with
+        AES-256-GCM and base64-encoded inside a JSON envelope, so no
+        biometric bytes ever sit in cleartext in Redis.
+        """
+        if settings.ENCRYPTION_KEY:
+            encrypted = encrypt_biometric_data(
+                json.dumps(data).encode("utf-8")
+            )
+            return json.dumps(
+                {
+                    "encrypted": True,
+                    "payload": base64.b64encode(encrypted).decode("ascii"),
+                }
+            )
+        return json.dumps(data)
+
+    def _deserialize(self, raw) -> Optional[Dict]:
+        """Parse a cached record, decrypting it when the envelope requires.
+
+        Legacy plaintext records written before ENCRYPTION_KEY was enabled
+        are still served (with a loud warning) so recognition keeps working
+        during rollout — they are replaced on the next template reload.
+
+        Returns None when the record cannot be parsed or decrypted.
+        """
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.error("Template cache entry is not valid JSON — ignoring")
+            return None
+
+        if isinstance(parsed, dict) and parsed.get("encrypted") is True:
+            if not settings.ENCRYPTION_KEY:
+                logger.error(
+                    "Template cache entry is encrypted but ENCRYPTION_KEY is not "
+                    "configured — cannot read it"
+                )
+                return None
+            try:
+                blob = base64.b64decode(parsed["payload"])
+                decrypted = decrypt_biometric_data(blob)
+                return json.loads(decrypted.decode("utf-8"))
+            except Exception as e:
+                logger.error(f"Failed to decrypt template cache entry: {e}")
+                return None
+
+        if settings.ENCRYPTION_KEY:
+            logger.warning(
+                "Read legacy cleartext template cache entry — written before "
+                "ENCRYPTION_KEY was enabled; it will be re-encrypted on the "
+                "next template reload"
+            )
+        return parsed
+
     def store_template(self, member_id: str, template: np.ndarray, member_data: dict):
         """
         Store member template in cache.
@@ -68,11 +145,11 @@ class TemplateCache:
             "membership_end_date": member_data.get("membership_end_date")
         }
         
-        # Store in Redis
+        # Store in Redis (encrypted at rest when ENCRYPTION_KEY is set)
         self.redis_client.setex(
             key,
             self.ttl,
-            json.dumps(data)
+            self._serialize(data)
         )
         
         logger.debug(f"Cached template for member {member_id}")
@@ -93,8 +170,10 @@ class TemplateCache:
         if not data:
             return None
         
-        # Deserialize
-        cached_data = json.loads(data)
+        # Deserialize (and decrypt when the record is encrypted)
+        cached_data = self._deserialize(data)
+        if cached_data is None:
+            return None
         
         # Convert template back to numpy array
         cached_data["template"] = np.array(cached_data["template"])
@@ -116,7 +195,9 @@ class TemplateCache:
         for key in keys:
             data = self.redis_client.get(key)
             if data:
-                cached_data = json.loads(data)
+                cached_data = self._deserialize(data)
+                if cached_data is None:
+                    continue
                 
                 # Only include active members
                 if cached_data.get("status") == "active":

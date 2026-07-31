@@ -47,6 +47,9 @@ services:
       USE_GPU: "false"
       API_KEY: dev-cv-api-key-change-in-production
       INTERNAL_API_SECRET: dev-internal-secret-change-in-production
+      # Valid AES-256 key placeholder (base64 of 32 bytes). Override with a
+      # real key: ENCRYPTION_KEY=<your-key> docker-compose up
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGQ=}
     depends_on:
       - backend
       - redis

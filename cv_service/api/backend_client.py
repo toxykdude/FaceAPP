@@ -6,7 +6,10 @@ using a shared secret (X-Internal-Secret header) for authentication.
 
 Security note: the shared secret is REQUIRED. If INTERNAL_API_SECRET is
 not configured the client refuses to construct, so requests can never be
-sent unauthenticated. Error handling is split by severity:
+sent unauthenticated. The secret and the biometric payloads it protects
+must only travel over TLS in production: when REQUIRE_PROD_SECRETS is
+enabled the client refuses to construct against a cleartext http://
+BACKEND_API_URL. Error handling is split by severity:
 
 - Auth/config failures (HTTP 401/403/503) RAISE RuntimeError. They are
   never masked as empty data, because treating a rejected/misconfigured
@@ -54,6 +57,15 @@ class BackendAPIClient:
             raise RuntimeError(
                 "INTERNAL_API_SECRET not configured; CV backend "
                 "client cannot authenticate"
+            )
+        if settings.REQUIRE_PROD_SECRETS and settings.BACKEND_API_URL.startswith(
+            "http://"
+        ):
+            raise RuntimeError(
+                "REQUIRE_PROD_SECRETS is enabled and BACKEND_API_URL is "
+                f"cleartext http:// ({settings.BACKEND_API_URL}) — the "
+                "internal secret and biometric payloads must only travel "
+                "over TLS in production; configure an https:// backend URL"
             )
         self.base_url = settings.BACKEND_API_URL
         self.timeout = settings.API_TIMEOUT

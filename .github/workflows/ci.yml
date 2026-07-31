@@ -107,6 +107,11 @@ jobs:
 
   cv_service:
     runs-on: ubuntu-latest
+    env:
+      # Valid raw 32-byte AES-256 key (same form as the backend job) so the
+      # template cache runs encrypted in CI. REQUIRE_PROD_SECRETS stays off:
+      # CI is a test environment, not production.
+      ENCRYPTION_KEY: ci-encryption-key-32-bytes-long!
     steps:
       - uses: actions/checkout@v4
 

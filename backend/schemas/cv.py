@@ -46,6 +46,7 @@ class CameraInternalResponse(BaseModel):
     rtsp_url: Optional[str] = None
     fps: int = 5
     location: Optional[str] = None
+    location_id: Optional[str] = None
     confidence_threshold: float = 0.85
 
 
