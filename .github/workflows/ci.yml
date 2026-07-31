@@ -33,6 +33,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      # CI is a test environment, not production. S3 (core.startup_checks)
+      # enforces strong secrets only when ENVIRONMENT == "production"; without
+      # this it would default to "production" and abort the test lifespan.
+      ENVIRONMENT: testing
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/powerhouse_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-secret-key-not-for-production

@@ -30,7 +30,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.STAFF.value)
     is_active = Column(Boolean, nullable=False, default=True)
-    permissions = Column(JSONB, nullable=False, default=lambda: {"pages": ["all"]})
+    permissions = Column(JSONB, nullable=False, default=lambda: {"pages": []})
 
     created_at = Column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)

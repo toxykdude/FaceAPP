@@ -49,7 +49,16 @@ _is_production = settings.ENVIRONMENT == "production"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the background scheduler for email reports."""
+    """Validate production secrets, then start the background scheduler."""
+    from core.startup_checks import assert_production_secrets
+
+    # Fail fast on missing/weak secrets in production (S3). No-op in dev/test.
+    try:
+        assert_production_secrets()
+    except RuntimeError:
+        logger.exception("Production secret validation failed — aborting startup")
+        raise
+
     from apscheduler.schedulers.background import BackgroundScheduler
     from api.reports_email import send_scheduled_report
     from core.database import SessionLocal

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, date, timedelta, timezone
 
-from api.deps import get_db, require_staff, require_admin
+from api.deps import get_db, require_page, require_admin
 from models.user import User
 from models.member import Member
 from models.membership import Membership, MembershipStatus, MembershipPlan
@@ -29,7 +29,7 @@ def list_memberships(
     member_id: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     List all memberships with pagination and filtering.
@@ -97,7 +97,7 @@ def list_memberships(
 def create_membership(
     membership: MembershipCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Create a new membership for a member.
@@ -143,7 +143,7 @@ def create_membership(
 def get_membership(
     membership_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Get membership by ID.
@@ -163,7 +163,7 @@ def update_membership(
     membership_id: str,
     membership_update: MembershipUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Update membership information.
@@ -218,7 +218,7 @@ async def renew_membership(
     membership_id: str,
     extend_days: int = Query(30, ge=1, description="Days to extend the membership"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Renew/extend a membership by adding days to the end_date.
@@ -252,7 +252,7 @@ async def renew_membership(
 def get_active_membership(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("memberships")),
 ):
     """
     Get active membership for a member.

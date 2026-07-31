@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct
 from decimal import Decimal
 
-from api.deps import get_db, get_current_user
+from api.deps import get_db, require_page
 from models.user import User
 from models.member import Member
 from models.membership import Membership
@@ -285,7 +285,7 @@ def send_scheduled_report(db_session_factory):
 @router.post("/send-now", response_model=MessageResponse)
 def send_report_now(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("reports")),
 ):
     """Manually trigger the email report."""
     from core.database import SessionLocal

@@ -12,7 +12,7 @@ from decimal import Decimal
 import csv
 import io
 
-from api.deps import get_db, require_staff
+from api.deps import get_db, require_page
 from models.user import User
 from models.member import Member
 from models.membership import Membership
@@ -76,7 +76,7 @@ def list_transactions(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """
     List all sales transactions with pagination and filtering.
@@ -149,7 +149,7 @@ def list_transactions(
 def create_transaction(
     transaction: SalesTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """
     Create a new sales transaction.
@@ -201,7 +201,7 @@ def get_dashboard_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """
     Get aggregated dashboard data for the Reports page.
@@ -231,7 +231,7 @@ def get_sales_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """
     Get sales report summary.
@@ -289,7 +289,7 @@ def export_sales_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """Stream a server-side CSV of sales transactions for the selected range.
 
@@ -372,7 +372,7 @@ def export_sales_report(
 def get_transaction(
     transaction_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("sales")),
 ):
     """
     Get transaction by ID.

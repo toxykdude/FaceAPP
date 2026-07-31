@@ -12,7 +12,7 @@ from sqlalchemy import inspect
 from pydantic import BaseModel, Field
 
 from api.deps import get_db, require_staff
-from models.user import User
+from models.user import User, UserRole
 from models.member import Member
 from models.membership import Membership, MembershipPlan
 from models.sale import SalesTransaction
@@ -42,6 +42,37 @@ PUSH_ALLOWED_TABLES = {
     "sales_transactions": SalesTransaction,
     "cameras": Camera,
 }
+
+# table -> page permission required to read/write it via sync.
+# None = ADMIN-ONLY (sensitive: password hashes, RTSP credentials, audit events).
+SYNC_TABLE_PAGE = {
+    "members": "members",
+    "memberships": "memberships",
+    "membership_plans": "memberships",
+    "sales_transactions": "sales",
+    "users": None,  # admin-only: contains password hashes
+    "cameras": None,  # admin-only: contains RTSP credentials
+    "access_events": None,  # admin-only
+}
+
+
+def _assert_table_allowed(current_user: User, table_name: str) -> None:
+    """Enforce per-table RBAC on sync. Admins bypass. None = admin-only."""
+    page = SYNC_TABLE_PAGE.get(table_name)
+    if current_user.role.upper() == UserRole.ADMIN.value.upper():
+        return
+    if page is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Sync of '{table_name}' requires admin",
+        )
+    perms = current_user.permissions or {}
+    pages = perms.get("pages", [])
+    if "all" not in pages and page not in pages:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to {page}",
+        )
 
 
 def _serialize_value(val):
@@ -134,6 +165,11 @@ def sync_pull(
                 detail=f"Unknown table: {table_name}. Valid tables: {list(SYNC_TABLE_MAP.keys())}",
             )
 
+    # Enforce per-table authorization BEFORE reading any data. Fail fast with
+    # 403 if any requested table is not permitted; never return partial data.
+    for table_name in tables:
+        _assert_table_allowed(current_user, table_name)
+
     response = {}
     now = datetime.now(timezone.utc)
 
@@ -166,6 +202,12 @@ def sync_push(
     """
     results = []
     now = datetime.now(timezone.utc)
+
+    # Enforce per-table authorization for EVERY op BEFORE processing any of
+    # them. Fail fast with 403 if any op targets a table the caller may not
+    # write; do not partially apply a batch that contains an unauthorized op.
+    for op in req.operations:
+        _assert_table_allowed(current_user, op.table)
 
     for op in req.operations:
         table_name = op.table

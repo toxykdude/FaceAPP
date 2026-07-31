@@ -3,6 +3,7 @@ Main CV service application with Streaming API.
 """
 
 import asyncio
+import hmac
 import sys
 import time
 import cv2
@@ -99,12 +100,15 @@ async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     Verify API key for CV service endpoints.
 
     When API_KEY is set in environment, ALL requests must include a matching
-    X-API-Key header. When empty (development only), auth is skipped.
+    X-API-Key header.
+
+    FAIL CLOSED (S2): when API_KEY is not configured, every request is rejected
+    with 503 (service misconfiguration) instead of silently allowed.
+    Comparison uses hmac.compare_digest to be timing-safe.
     """
     if not settings.API_KEY:
-        # Development mode: no auth configured
-        return None
-    if x_api_key != settings.API_KEY:
+        raise HTTPException(status_code=503, detail="API_KEY not configured")
+    if not hmac.compare_digest(x_api_key or "", settings.API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
 
