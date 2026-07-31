@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     CACHE_TTL: int = 86400  # 24 hours
+
+    # Biometric at-rest encryption (Redis template cache). AES-256 key in
+    # one of three forms: 44-char base64, 64-char hex, or raw 32 bytes.
+    # When set, cached face embeddings are encrypted with AES-256-GCM.
+    ENCRYPTION_KEY: str = ""
+
+    # Fail-closed production posture: when enabled, refuse to run with
+    # cleartext biometric cache or cleartext (http://) backend transport.
+    REQUIRE_PROD_SECRETS: bool = False
     
     # Face Recognition
     FACE_DETECTION_MODEL: str = "mtcnn"  # or "haar"

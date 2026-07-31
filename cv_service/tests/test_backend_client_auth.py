@@ -120,6 +120,43 @@ def test_init_with_secret_attaches_header(monkeypatch):
     assert client._headers["X-Internal-Secret"] == TEST_SECRET
 
 
+def test_init_refuses_cleartext_backend_when_required(monkeypatch):
+    """REQUIRE_PROD_SECRETS must refuse a cleartext http:// backend URL.
+
+    The internal secret and biometric payloads travel over this channel;
+    in production-strict mode plaintext HTTP is a hard config error.
+    """
+    monkeypatch.setattr(config.settings, "INTERNAL_API_SECRET", TEST_SECRET)
+    monkeypatch.setattr(config.settings, "REQUIRE_PROD_SECRETS", True)
+    monkeypatch.setattr(
+        config.settings, "BACKEND_API_URL", "http://backend:8000/api"
+    )
+    with pytest.raises(RuntimeError, match="REQUIRE_PROD_SECRETS"):
+        BackendAPIClient()
+
+
+def test_init_allows_cleartext_backend_in_dev_mode(monkeypatch):
+    """Without REQUIRE_PROD_SECRETS the dev http:// URL stays usable."""
+    monkeypatch.setattr(config.settings, "INTERNAL_API_SECRET", TEST_SECRET)
+    monkeypatch.setattr(config.settings, "REQUIRE_PROD_SECRETS", False)
+    monkeypatch.setattr(
+        config.settings, "BACKEND_API_URL", "http://backend:8000/api"
+    )
+    client = BackendAPIClient()
+    assert client.base_url == "http://backend:8000/api"
+
+
+def test_init_allows_https_backend_when_required(monkeypatch):
+    """https:// URLs pass the strict-mode guard."""
+    monkeypatch.setattr(config.settings, "INTERNAL_API_SECRET", TEST_SECRET)
+    monkeypatch.setattr(config.settings, "REQUIRE_PROD_SECRETS", True)
+    monkeypatch.setattr(
+        config.settings, "BACKEND_API_URL", "https://api.facegym.example/api"
+    )
+    client = BackendAPIClient()
+    assert client.base_url == "https://api.facegym.example/api"
+
+
 # --- sync_templates ------------------------------------------------------
 
 

@@ -157,15 +157,17 @@ class LivenessDetector:
         }
         
         if self._eye_cascade is None:
-            # Liveness check not available — pass by default
-            return True, {"method": "disabled", "reason": "eye cascade not loaded"}
+            # Liveness cannot be established — FAIL CLOSED. A photo or a
+            # broken detector must never unlock the door.
+            return False, {"method": "disabled", "reason": "eye cascade not loaded"}
         
         # Detect eyes
         eye_rois = self._detect_eyes(face_roi, face_bbox)
         
         if len(eye_rois) < 2:
-            # Can't detect both eyes — pass but flag
-            return True, {"method": "blink_detection", "reason": "insufficient_eyes", "eyes_found": len(eye_rois)}
+            # Both eyes are required to compute a blink. A face with a
+            # single visible eye (or none) cannot be proven live — deny.
+            return False, {"method": "blink_detection", "reason": "insufficient_eyes", "eyes_found": len(eye_rois)}
         
         # Compute EAR for both eyes
         ears = []
@@ -175,7 +177,8 @@ class LivenessDetector:
                 ears.append(ear)
         
         if not ears:
-            return True, {"method": "blink_detection", "reason": "ear_computation_failed"}
+            # EAR could not be computed — no evidence, fail closed.
+            return False, {"method": "blink_detection", "reason": "ear_computation_failed"}
         
         avg_ear = sum(ears) / len(ears)
         
@@ -203,9 +206,11 @@ class LivenessDetector:
                 self._blink_counts[face_key] += 1
             self._closed_frames[face_key] = 0
         
-        # Need at least 5 frames of history to make a determination
+        # Need at least 5 frames of history to make a determination.
+        # Grace frames are ZERO: until positive liveness evidence exists,
+        # no recognition is allowed.
         if len(history) < 5:
-            return True, {
+            return False, {
                 "method": "blink_detection", 
                 "reason": "collecting_baseline",
                 "frames_collected": len(history),
@@ -214,7 +219,9 @@ class LivenessDetector:
             }
         
         blink_count = self._blink_counts[face_key]
-        is_live = blink_count >= 1 or avg_ear > self.ear_threshold  # Has blinked OR eyes clearly open
+        # Positive liveness requires a detected blink. A photo never blinks
+        # (its EAR is constant), so "eyes continuously open" is NOT a pass.
+        is_live = blink_count >= 1
         
         details = {
             "method": "blink_detection",

@@ -41,10 +41,14 @@ class StartCameraRequest(BaseModel):
     @field_validator("rtsp_url")
     @classmethod
     def validate_rtsp_url(cls, v: str) -> str:
-        """Validate RTSP URL to prevent SSRF and injection (VULN-2 fix)."""
-        import ipaddress
-        from urllib.parse import urlparse
+        """Validate RTSP URL structure (VULN-2 fix).
 
+        Only STRUCTURAL validation lives here (scheme allowlist, forbidden
+        characters, local device passthrough). Network safety — private
+        IP / loopback / DNS-based SSRF checks — is enforced by
+        core.net_guard.assert_safe_rtsp at the endpoint, where a
+        rejection aborts the request with HTTP 400.
+        """
         if not v or not v.strip():
             raise ValueError("RTSP URL cannot be empty")
         v = v.strip()
@@ -59,35 +63,13 @@ class StartCameraRequest(BaseModel):
         if v.startswith("browser:") or v.startswith("client:"):
             return v
 
-        # Network URLs — validate scheme and block internal IPs
+        # Network URLs — validate scheme
         allowed_schemes = ("rtsp://", "http://", "https://")
         if not any(v.lower().startswith(scheme) for scheme in allowed_schemes):
             raise ValueError(
                 f"URL must start with one of: rtsp://, http://, https://, /dev/video"
             )
 
-        # Block internal/private IPs to prevent SSRF
-        try:
-            parsed = urlparse(v)
-            hostname = parsed.hostname
-            if hostname:
-                # Block common internal hostnames
-                if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-                    raise ValueError(
-                        "URLs pointing to internal addresses are not allowed"
-                    )
-                # Block private IP ranges
-                try:
-                    ip = ipaddress.ip_address(hostname)
-                    if ip.is_private or ip.is_loopback or ip.is_reserved:
-                        raise ValueError(
-                            "URLs pointing to private/internal addresses are not allowed"
-                        )
-                except ValueError:
-                    pass  # Not an IP, could be a hostname — allow
-        except Exception as e:
-            if "not allowed" in str(e):
-                raise
         return v
 
 
@@ -461,6 +443,12 @@ async def start_camera_endpoint(
     request: StartCameraRequest, _: None = Depends(verify_api_key)
 ):
     try:
+        # SSRF guard: rejects private/loopback/link-local targets (directly
+        # or via DNS resolution) before any connection is attempted. Raises
+        # ValueError, caught below and surfaced as HTTP 400.
+        from core.net_guard import assert_safe_rtsp
+
+        assert_safe_rtsp(request.rtsp_url)
         await service.start_camera(request.camera_id, request.rtsp_url, request.fps)
         return {"status": "started", "camera_id": request.camera_id}
     except Exception as e:
@@ -537,14 +525,17 @@ def build_ws_pipeline_components() -> WsPipelineComponents:
     """Load the recognition models for one WebSocket connection."""
     from detection.face_detector import FaceDetector
     from detection.quality_assessor import FaceQualityAssessor
-    from detection.liveness_detector import liveness_detector
+    from detection.liveness_detector import LivenessDetector
     from recognition.face_recognizer import FaceRecognizer
     from recognition.template_matcher import TemplateMatcher
 
     return WsPipelineComponents(
         detector=FaceDetector(),
         quality_assessor=FaceQualityAssessor(),
-        liveness_detector=liveness_detector,
+        # Fresh per connection: blink/EAR state must never carry across
+        # kiosk sessions (a blink witnessed on one connection must not
+        # unlock another).
+        liveness_detector=LivenessDetector(),
         recognizer=FaceRecognizer(),
         matcher=TemplateMatcher(),
     )

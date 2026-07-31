@@ -13,68 +13,13 @@ implements exactly the client surface TemplateCache uses. Each test gets a
 fresh fake, so no keys leak between tests (and nothing touches real Redis).
 """
 
-import fnmatch
-
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 import main
 from recognition.template_cache import TemplateCache
-
-
-class _FakeRedis:
-    """Minimal in-memory stand-in for the redis client API TemplateCache uses.
-
-    Supports: ping, get, setex, incr, scan, delete, sadd, sismember, expire,
-    ttl. ``expire`` records the requested TTL so ``ttl`` can report it
-    (0 < ttl <= 60 assertions).
-    """
-
-    def __init__(self):
-        self._data = {}
-        self._ttls = {}
-
-    def ping(self):
-        return True
-
-    def get(self, key):
-        return self._data.get(key)
-
-    def setex(self, key, ttl, value):
-        self._data[key] = value
-
-    def incr(self, key):
-        self._data[key] = int(self._data.get(key, 0)) + 1
-        return self._data[key]
-
-    def scan(self, cursor, match=None, count=100):
-        keys = [
-            k
-            for k in self._data
-            if match is None or fnmatch.fnmatch(k, match)
-        ]
-        return 0, keys
-
-    def delete(self, *keys):
-        for k in keys:
-            self._data.pop(k, None)
-            self._ttls.pop(k, None)
-        return len(keys)
-
-    def sadd(self, key, member):
-        self._data.setdefault(key, set()).add(member)
-        return 1
-
-    def sismember(self, key, member):
-        return member in self._data.get(key, set())
-
-    def expire(self, key, ttl):
-        self._ttls[key] = ttl
-        return True
-
-    def ttl(self, key):
-        return self._ttls.get(key, -1)
+from tests.redis_fake import FakeRedis as _FakeRedis
 
 
 @pytest.fixture
