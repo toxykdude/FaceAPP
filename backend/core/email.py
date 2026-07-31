@@ -35,6 +35,8 @@ class EmailService:
 
         try:
             import smtplib
+            import ssl
+            import os
             from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
             from core.config import settings
@@ -50,13 +52,23 @@ class EmailService:
 
             use_ssl = getattr(settings, "SMTP_USE_SSL", False)
 
+            # Validate the SMTP server certificate (hostname + chain) by default
+            # to prevent MITM credential interception (CWE-295). Insecure mode
+            # is opt-in via the SMTP_INSECURE env var for non-production only.
+            if os.getenv("SMTP_INSECURE", "").strip().lower() in ("1", "true", "yes"):
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            else:
+                ctx = ssl.create_default_context()
+
             if use_ssl:
                 # SMTP over SSL (port 465)
-                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port)
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=ctx)
             else:
                 # SMTP with STARTTLS (port 587)
                 server = smtplib.SMTP(self.smtp_host, self.smtp_port)
-                server.starttls()
+                server.starttls(context=ctx)
 
             server.login(self.smtp_user, self.smtp_password)
             server.sendmail(self.smtp_from, to, msg.as_string())
