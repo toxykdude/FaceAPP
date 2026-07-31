@@ -108,15 +108,20 @@ async def portal_renew(
     db: Session = Depends(get_db),
 ):
     """
-    Renew membership using a Wompi payment reference.
+    Confirm a Wompi-paid membership renewal.
 
-    Validates the plan, creates a new membership and sales transaction.
+    SECURITY: this route NEVER creates or activates a membership. Activation
+    happens ONLY in the HMAC-verified /webhook-renew endpoint, after Wompi
+    confirms the payment. Here we look up whether that webhook has already
+    processed this wompi_reference for the authenticated member and return the
+    resulting membership, or signal that payment has not been confirmed yet.
 
-    Uses the privileged `get_db` session (not `get_portal_session`) because
-    `member_portal` is SELECT-only — ownership is enforced via
-    `get_current_member` (JWT) + explicit `member.id` filters below.
+    `request.amount` is accepted for backward compatibility but IGNORED — the
+    authoritative price is the plan's price (set server-side by the webhook).
+    Previously this endpoint trusted the client amount + reference and created
+    a membership directly, allowing free memberships (CWE-602/840).
     """
-    # Verify plan exists and is active
+    # Verify plan exists and is active (validates plan_id early)
     plan = (
         db.query(MembershipPlan)
         .filter(
@@ -132,76 +137,45 @@ async def portal_renew(
             detail="Plan no encontrado o inactivo",
         )
 
-    today = date.today()
-
-    # Check for existing active membership
-    active_membership = (
-        db.query(Membership)
+    # Activation requires a VERIFIED payment. The webhook writes a
+    # SalesTransaction whose notes carry the wompi_reference. If none exists
+    # for THIS member + reference, payment has not been confirmed -> refuse.
+    # (Scoped to member.id so a member cannot confirm another member's ref.)
+    transaction = (
+        db.query(SalesTransaction)
         .filter(
-            Membership.member_id == str(member.id),
-            Membership.status == "active",
-            Membership.start_date <= today,
-            Membership.end_date >= today,
+            SalesTransaction.member_id == str(member.id),
+            SalesTransaction.notes.like(f"%{request.wompi_reference}%"),
         )
-        .order_by(Membership.end_date.desc())
         .first()
     )
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Pago no confirmado aún",
+        )
 
-    # Calculate dates — extend from current end_date if active, otherwise start today
-    start_date = today
-    if active_membership and active_membership.end_date >= today:
-        start_date = active_membership.end_date + timedelta(days=1)
-
-    end_date = start_date + timedelta(days=plan.duration_days)
-
-    # Create membership
-    new_membership = Membership(
-        member_id=str(member.id),
-        plan_id=plan.id,
-        type=plan.name,
-        start_date=start_date,
-        end_date=end_date,
-        price=Decimal(str(request.amount)),
-        status="active",
+    # The verified webhook already created the membership; return it.
+    membership = (
+        db.query(Membership).filter(Membership.id == transaction.membership_id).first()
     )
-    db.add(new_membership)
-    db.flush()  # Get the ID before creating the transaction
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membresía no encontrada",
+        )
 
-    # Generate invoice number
-    invoice_number = (
-        f"REN-{date.today().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
-    )
-
-    # Create sales transaction
-    transaction = SalesTransaction(
-        member_id=str(member.id),
-        membership_id=new_membership.id,
-        amount=Decimal(str(request.amount)),
-        payment_method="card",
-        invoice_number=invoice_number,
-        notes=f"Wompi ref: {request.wompi_reference}",
-    )
-    db.add(transaction)
-    db.commit()
-    db.refresh(new_membership)
-    db.refresh(transaction)
-
-    # Post-commit only — never on a failed/rolled-back write
-    await notify_cv_invalidation(str(member.id))
-
-    # Build plan name
-    plan_name = plan.name if plan else None
-
+    today = date.today()
     return PortalRenewResponse(
         membership=ActiveMembershipResponse(
-            id=new_membership.id,
-            type=new_membership.type,
-            plan_name=plan_name,
-            start_date=new_membership.start_date,
-            end_date=new_membership.end_date,
-            price=new_membership.price,
-            status=new_membership.status,
-            days_remaining=(new_membership.end_date - today).days,
+            id=membership.id,
+            type=membership.type,
+            plan_name=plan.name,
+            start_date=membership.start_date,
+            end_date=membership.end_date,
+            price=membership.price,
+            status=membership.status,
+            days_remaining=(membership.end_date - today).days,
         ),
         transaction=transaction,
     )
@@ -342,7 +316,7 @@ async def portal_webhook_renew(
         type=plan.name,
         start_date=start_date,
         end_date=end_date,
-        price=Decimal(str(request_data.amount)),
+        price=plan.price,  # server-derived; never trust the webhook body amount
         status="active",
     )
     db.add(new_membership)
@@ -355,7 +329,7 @@ async def portal_webhook_renew(
     transaction = SalesTransaction(
         member_id=str(member.id),
         membership_id=new_membership.id,
-        amount=Decimal(str(request_data.amount)),
+        amount=plan.price,  # server-derived; never trust the webhook body amount
         payment_method="card",
         invoice_number=invoice_number,
         notes=f"Wompi ref: {request_data.wompi_reference} | Wompi tx: {request_data.wompi_transaction_id}",
@@ -386,10 +360,14 @@ async def portal_webhook_renew(
 def portal_pending_payment(
     request: PortalWebhookRenewRequest,
     member: Member = Depends(get_current_member),
+    db: Session = Depends(get_db),
 ):
     """
     Store pending payment info in Redis BEFORE opening Wompi widget.
     The webhook later reads this to activate membership.
+
+    The stored amount is the plan's server-side price — never the client's
+    `request.amount` — so a member cannot pin a lower amount for a plan.
     """
     import redis
     import json
@@ -398,12 +376,27 @@ def portal_pending_payment(
 
     logger = logging.getLogger(__name__)
 
+    # Resolve the authoritative price from the plan (server-side).
+    plan = (
+        db.query(MembershipPlan)
+        .filter(
+            MembershipPlan.id == request.plan_id,
+            MembershipPlan.is_active == True,
+        )
+        .first()
+    )
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plan no encontrado o inactivo",
+        )
+
     r = redis.from_url(settings.REDIS_URL)
     key = f"pending-payment:{request.wompi_reference}"
     data = {
-        "plan_id": request.plan_id,
+        "plan_id": str(plan.id),
         "member_id": str(member.id),
-        "amount": str(request.amount),
+        "amount": str(plan.price),  # server-derived, never the client amount
         "wompi_reference": request.wompi_reference,
     }
     # TTL 24 hours — more than enough for a payment to complete
