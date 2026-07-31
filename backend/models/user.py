@@ -4,7 +4,7 @@ User model for authentication and authorization.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Enum, Boolean
+from sqlalchemy import Column, String, DateTime, Enum, Boolean, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -30,6 +30,11 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.STAFF.value)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Session revocation epoch (S6): stamped into issued JWTs ("ver") and
+    # checked in get_current_user. Bumped on password change/reset so every
+    # previously-issued token for this user is invalidated instantly
+    # (session-revocation.* findings, CWE-613).
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
     permissions = Column(JSONB, nullable=False, default=lambda: {"pages": []})
 
     created_at = Column(

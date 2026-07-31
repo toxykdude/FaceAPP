@@ -210,6 +210,8 @@ def change_password(
     # Update password
     user.password_hash = get_password_hash(password_data.new_password)
     user.updated_at = datetime.now(timezone.utc)
+    # Invalidate all previously-issued JWTs for this user (S6, CWE-613).
+    user.token_version = (user.token_version or 0) + 1
 
     db.commit()
 
