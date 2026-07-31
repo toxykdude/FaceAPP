@@ -23,8 +23,13 @@ from models.member import Member
 
 
 @pytest.fixture
-def internal_headers():
-    return {"X-Internal-Secret": settings.INTERNAL_API_SECRET}
+def internal_headers(monkeypatch):
+    # Pin a known non-empty secret so tests authenticate properly under the
+    # fail-closed verify_internal_secret (S1), independent of whatever .env
+    # holds. settings is the same object cv_internal reads at request time.
+    secret = "test-internal-secret-0123456789abcdef"
+    monkeypatch.setattr(settings, "INTERNAL_API_SECRET", secret)
+    return {"X-Internal-Secret": secret}
 
 
 def make_template(db_session, member):
