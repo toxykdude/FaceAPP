@@ -12,6 +12,8 @@ from sqlalchemy import inspect
 from pydantic import BaseModel, Field
 
 from api.deps import get_db, require_staff
+from services.cv_notify import notify_cv_invalidation
+from core.audit import log_action
 from models.user import User, UserRole
 from models.member import Member
 from models.membership import Membership, MembershipPlan
@@ -187,7 +189,7 @@ def sync_pull(
 
 
 @router.post("/push", response_model=SyncPushResponse)
-def sync_push(
+async def sync_push(
     req: PushRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
@@ -235,6 +237,19 @@ def sync_push(
             )
             continue
 
+        # Financial records are immutable via sync: sales_transactions allows
+        # INSERT only (business-logic.sales-{delete,update}-integrity, CWE-840).
+        if table_name == "sales_transactions" and operation != "INSERT":
+            results.append(
+                OperationResult(
+                    table=table_name,
+                    id=str(op.id or data.get("id") or ""),
+                    status="error",
+                    error="sales_transactions are immutable via sync (INSERT only)",
+                )
+            )
+            continue
+
         model = PUSH_ALLOWED_TABLES[table_name]
 
         try:
@@ -258,6 +273,28 @@ def sync_push(
                 mapper = inspect(model).mapper
                 valid_columns = {c.key for c in mapper.columns}
                 filtered_data = {k: v for k, v in data.items() if k in valid_columns}
+
+                # sales_transactions INSERT: server-generate the invoice number
+                # when absent and reject negative amounts (input-validation.
+                # sales-insert-validation, CWE-20/840).
+                if table_name == "sales_transactions":
+                    if not filtered_data.get("invoice_number"):
+                        filtered_data["invoice_number"] = (
+                            f"SYNC-{now.strftime('%Y%m%d')}-"
+                            f"{uuid.uuid4().hex[:8].upper()}"
+                        )
+                    amt = filtered_data.get("amount")
+                    if amt is None or (
+                        isinstance(amt, (int, float, Decimal)) and Decimal(str(amt)) < 0
+                    ):
+                        results.append(
+                            OperationResult(
+                                table=table_name,
+                                status="error",
+                                error="sales_transactions INSERT requires a non-negative amount",
+                            )
+                        )
+                        continue
 
                 new_record = model(**filtered_data)
                 db.add(new_record)
@@ -364,8 +401,27 @@ def sync_push(
                     )
                     continue
 
+                is_member_delete = table_name == "members"
                 db.delete(existing)
+                if is_member_delete:
+                    # Audit the protected deletion atomically (log_action only
+                    # flushes; the commit below persists delete + audit together).
+                    log_action(
+                        db,
+                        action="member_delete",
+                        resource_type="member",
+                        resource_id=str(record_id),
+                        user_id=str(current_user.id),
+                        username=current_user.username,
+                        details={"via": "sync"},
+                    )
                 db.commit()
+                if is_member_delete:
+                    # Drop the member's facial template from the CV service cache
+                    # (stale-resource.member-delete-audit-invalidation, CWE-672).
+                    # notify_cv_invalidation swallows its own errors, so this is
+                    # safe to await post-commit without breaking the response.
+                    await notify_cv_invalidation(str(record_id))
                 results.append(
                     OperationResult(
                         table=table_name, id=str(record_id), status="success"
