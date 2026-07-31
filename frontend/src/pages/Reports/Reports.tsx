@@ -45,8 +45,9 @@ import {
     Filler,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { format, parseISO } from 'date-fns';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useAppTimezone } from '@/hooks/useAppTimezone';
+import { formatDateLabel, formatLocalDateTime } from '@/utils/dateTime';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -125,6 +126,9 @@ export const Reports: React.FC = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const isXs = useMediaQuery(theme.breakpoints.down('xs'));
+    // Configured app timezone from public settings — every timestamp on this
+    // page renders in this zone, never the browser's local zone.
+    const timezone = useAppTimezone();
     const [timeRange, setTimeRange] = useState('30days');
     const [customStart, setCustomStart] = useState('');
     const [customEnd, setCustomEnd] = useState('');
@@ -212,9 +216,7 @@ export const Reports: React.FC = () => {
     };
 
     const revenueChartData = {
-        labels: (reportData?.revenue_trend || []).map((d: any) => {
-            try { return format(parseISO(d.date), 'MMM dd'); } catch { return d.date; }
-        }),
+        labels: (reportData?.revenue_trend || []).map((d: any) => formatDateLabel(d.date)),
         datasets: [
             {
                 label: 'Revenue',
@@ -230,9 +232,7 @@ export const Reports: React.FC = () => {
     };
 
     const checkinTrendData = {
-        labels: (reportData?.checkin_trend || []).map((d: any) => {
-            try { return format(parseISO(d.date), 'MMM dd'); } catch { return d.date; }
-        }),
+        labels: (reportData?.checkin_trend || []).map((d: any) => formatDateLabel(d.date)),
         datasets: [
             {
                 label: 'Check-ins',
@@ -529,13 +529,7 @@ export const Reports: React.FC = () => {
                                         </Typography>
                                     </Box>
                                     <Typography variant="caption" color="text.secondary">
-                                        {(() => {
-                                            try {
-                                                return format(new Date(tx.transaction_date), 'MMM d, yyyy h:mm a');
-                                            } catch {
-                                                return tx.transaction_date;
-                                            }
-                                        })()} &bull; {tx.payment_method}
+                                        {formatLocalDateTime(tx.transaction_date, timezone)} &bull; {tx.payment_method}
                                     </Typography>
                                 </Box>
                             ))}
