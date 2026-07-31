@@ -30,19 +30,36 @@ class MembershipBase(BaseModel):
     access_rules: Optional[AccessRules] = None
 
 
-class MembershipCreate(MembershipBase):
-    """Schema for creating a membership."""
+class MembershipCreate(BaseModel):
+    """Schema for creating a membership.
+
+    NOTE: `price` is intentionally NOT a field here. The server derives the
+    price from the membership's plan and never trusts a client-supplied value
+    (WS-4b). Pydantic drops unknown extra fields by default, so a client that
+    still sends `price` gets it silently ignored.
+    """
 
     member_id: str
-    plan_id: Optional[str] = None
+    plan_id: str = Field(
+        ..., description="Required — price/end_date derive from the plan"
+    )
+    type: str
+    start_date: date
+    # Optional: when absent, end_date is derived from the plan duration so
+    # creation and portal renewal agree on the period math.
+    end_date: Optional[date] = None
+    access_rules: Optional[AccessRules] = None
 
 
 class MembershipUpdate(BaseModel):
-    """Schema for updating a membership."""
+    """Schema for updating a membership.
+
+    NOTE: `price` is intentionally NOT a field (WS-4b) — the server derives it
+    from the plan. Any client-supplied `price` is dropped as an unknown field.
+    """
 
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    price: Optional[Decimal] = None
     plan_id: Optional[str] = None
     type: Optional[str] = None
     status: Optional[MembershipStatus] = None

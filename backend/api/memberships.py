@@ -111,21 +111,41 @@ def create_membership(
             status_code=status.HTTP_404_NOT_FOUND, detail="Member not found"
         )
 
+    # WS-4b: the plan is required and authoritative — the price is derived from
+    # it, never trusted from the client.
+    plan = (
+        db.query(MembershipPlan).filter(MembershipPlan.id == membership.plan_id).first()
+    )
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
+        )
+
+    # When the client omits end_date, derive it from the plan duration — mirror
+    # the portal webhook renewal math exactly (start + duration_days) so both
+    # creation paths agree on the period.
+    end_date = membership.end_date or (
+        membership.start_date + timedelta(days=plan.duration_days)
+    )
+
     # Validate dates
-    if membership.end_date <= membership.start_date:
+    if end_date <= membership.start_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="End date must be after start date",
         )
 
     # Create membership
+    # `type` stays client-supplied: the MembershipPlan model has no type field
+    # (only name/duration/price/description), so it is not derivable from the
+    # plan like price is.
     db_membership = Membership(
         member_id=membership.member_id,
         plan_id=membership.plan_id,
         type=membership.type,
         start_date=membership.start_date,
-        end_date=membership.end_date,
-        price=membership.price,
+        end_date=end_date,
+        price=plan.price,  # server-derived from the plan; client price ignored
         status=MembershipStatus.ACTIVE.value,
         access_rules=(
             membership.access_rules.model_dump() if membership.access_rules else {}
@@ -177,6 +197,24 @@ def update_membership(
 
     # Update fields
     update_data = membership_update.model_dump(exclude_unset=True)
+    # WS-4b: the price is always derived from the plan. Defensive pop — the
+    # schema no longer accepts `price`, so a stale client would have it dropped
+    # as an unknown field; this guards any future path that leaks it through.
+    update_data.pop("price", None)
+    if "plan_id" in update_data:
+        # Plan change -> re-derive the price from the new plan (404 if the plan
+        # is gone; plan_id=None also lands here and fails, so a membership can
+        # never be unlinked from its plan).
+        new_plan = (
+            db.query(MembershipPlan)
+            .filter(MembershipPlan.id == update_data["plan_id"])
+            .first()
+        )
+        if not new_plan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
+            )
+        update_data["price"] = new_plan.price
     for field, value in update_data.items():
         if field == "access_rules" and value:
             setattr(membership, field, value.model_dump())
