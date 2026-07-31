@@ -21,6 +21,7 @@ plaintext password is ever returned to the client, written to the audit log, or
 echoed in probe output.
 """
 
+import logging
 import os
 import re
 import shutil
@@ -51,6 +52,16 @@ PROBE_TIMEOUT_RC = 124
 PROBE_HARD_TIMEOUT = 30  # safety net above the 20s coreutil deadline
 
 _DEFAULT_PORTS = {"sftp": 22, "ftp": 21}
+
+# Username is interpolated into ssh/sftp/ftp/rsync/smb command lines; restrict
+# to a safe charset to prevent OpenSSH option injection (e.g. "-o ProxyCommand",
+# CWE-88 argument-injection).
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+# Reject control characters (newline / CR / NUL / ...) in transport fields: a
+# newline in a path breaks the sftp batch file (command injection, CWE-78).
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+logger = logging.getLogger(__name__)
 
 # Controlled vocabulary for SMB probe failures. Well-known NT_STATUS_*
 # protocol codes found in the probe log map to operator-actionable reason
@@ -208,6 +219,24 @@ def validate(value: dict) -> dict:
         "password_enc": value.get("password_enc"),
     }
 
+    # Reject control characters in any transport field. A newline/CR/NUL in a
+    # path or share breaks the generated sftp batch file and enables command
+    # injection (CWE-78); control chars in host/user break the command line.
+    for field in ("host", "port", "share", "path", "username"):
+        val = cfg.get(field)
+        if isinstance(val, str) and _CONTROL_RE.search(val):
+            raise BackupConfigError(f"{field} must not contain control characters")
+
+    # Username is passed verbatim into ssh/sftp/ftp/rsync/smb argv; restrict to
+    # a safe charset so it cannot be parsed as an OpenSSH option such as
+    # "-o ProxyCommand=..." (CWE-88 argument injection).
+    if cfg["type"] in {"sftp", "ftp", "rsync", "smb"} and cfg["username"]:
+        if not _USERNAME_RE.match(cfg["username"]):
+            raise BackupConfigError(
+                "username may contain only letters, digits, dots, hyphens, "
+                "and underscores (max 64 chars)"
+            )
+
     host = cfg["host"]
     user = cfg["username"]
     path = cfg["path"]
@@ -240,6 +269,14 @@ def validate(value: dict) -> dict:
         if not path:
             raise BackupConfigError("nfs requires path")
     # none: no required fields.
+
+    if raw_type == "ftp":
+        # FTP transmits the database dump and credentials in cleartext (CWE-319).
+        # Retained for legacy compatibility but warned loudly; prefer SFTP/rsync/SMB.
+        logger.warning(
+            "FTP backup transport sends the database dump and credentials in "
+            "cleartext (CWE-319); prefer SFTP, rsync, or SMB."
+        )
     return cfg
 
 
