@@ -64,9 +64,8 @@ async def import_members(
         except Exception as e:
             errors.append({"row": row_num, "error": str(e)})
 
-    db.commit()
-
-    # Audit
+    # Audit (atomic with the import — log_action flushes; the commit below
+    # persists both the imported members and the audit row).
     log_action(
         db,
         action="import",
@@ -75,6 +74,7 @@ async def import_members(
         username=current_user.username,
         details={"created": created, "errors": len(errors)},
     )
+    db.commit()
 
     return {"created": created, "errors": errors, "total_rows": created + len(errors)}
 
