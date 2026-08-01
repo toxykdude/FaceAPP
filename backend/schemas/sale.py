@@ -4,7 +4,7 @@ Pydantic schemas for Sales/Transactions.
 
 from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 from models.sale import PaymentMethod
@@ -44,6 +44,23 @@ class SalesTransactionResponse(SalesTransactionBase):
         if value is None:
             return None
         return str(value)
+
+    @field_serializer("transaction_date", "created_at", when_used="json")
+    def serialize_utc_datetimes(self, value: Any) -> Optional[str]:
+        """Serialise naive-UTC DB timestamps as explicit UTC instants (``Z``).
+
+        The columns are 'timestamp without time zone' storing UTC. Without an
+        explicit offset, JavaScript clients parse the string as browser-local
+        time, so every rendered timestamp drifts by the device's UTC offset and
+        no two computers agree with the configured app timezone. Emitting ``Z``
+        (self-describing UTC) lets clients resolve the true instant before any
+        timezone conversion (spec: Configured-Timezone Reporting).
+        """
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     class Config:
         from_attributes = True

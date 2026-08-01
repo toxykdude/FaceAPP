@@ -23,6 +23,12 @@ vi.mock('@/api/sales', () => ({
   },
 }));
 
+vi.mock('@/api/settings', () => ({
+  settingsApi: {
+    getPublic: vi.fn().mockResolvedValue({ timezone: 'America/Bogota' }),
+  },
+}));
+
 function renderReports() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
