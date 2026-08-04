@@ -54,8 +54,9 @@ class LivenessDetector:
         self._eye_baselines: dict = {}
         self._blink_counts: dict = {}
         self._closed_frames: dict = {}
-        # Last-seen center per face key, for stable tracking
-        self._face_centers: dict = {}
+        # Last-seen bbox per face key, for stable geometry-based tracking.
+        self._face_boxes: dict = {}
+        self._next_face_key = 0
 
         # Load face landmark detector
         self._landmark_detector = None
@@ -229,29 +230,55 @@ class LivenessDetector:
         The top-left bbox corner jitters twice as much as the center and
         crosses quantization cells frame to frame, which reset the
         baseline/blink history forever (kiosk stuck on "collecting_baseline").
-        Track by quantized CENTER, and reassign to a previously tracked face
-        when its center moved by less than ~20% of the face width.
+        Match the nearest geometrically compatible track. Browser streams only
+        submit their largest face, while RTSP can retain several bounded tracks.
+        Requiring plausible center motion, scale, and overlap prevents liveness
+        evidence from crossing an implausible jump to a different face.
         """
-        x, y, w, h = face_bbox
-        cx, cy = x + w // 2, y + h // 2
-        reassign_threshold = max(30.0, 0.2 * w)
+        x, y, w, h = (float(value) for value in face_bbox)
+        cx, cy = x + w / 2, y + h / 2
+        best_match = None
 
-        for key, (pcx, pcy) in self._face_centers.items():
-            if (pcx - cx) ** 2 + (pcy - cy) ** 2 <= reassign_threshold**2:
-                self._face_centers[key] = (cx, cy)
-                return key
+        if w > 0 and h > 0:
+            for key, (px, py, pw, ph) in self._face_boxes.items():
+                if pw <= 0 or ph <= 0:
+                    continue
+                pcx, pcy = px + pw / 2, py + ph / 2
+                scale = max((w + pw) / 2, (h + ph) / 2, 1.0)
+                center_distance = ((pcx - cx) ** 2 + (pcy - cy) ** 2) ** 0.5
+                width_ratio = max(w, pw) / min(w, pw)
+                height_ratio = max(h, ph) / min(h, ph)
 
-        base_key = f"{cx // 40}_{cy // 40}"
-        key = base_key
-        suffix = 1
-        while key in self._face_centers:
-            key = f"{base_key}_{suffix}"
-            suffix += 1
-        self._face_centers[key] = (cx, cy)
-        if len(self._face_centers) > 16:
+                overlap_w = max(0.0, min(x + w, px + pw) - max(x, px))
+                overlap_h = max(0.0, min(y + h, py + ph) - max(y, py))
+                intersection = overlap_w * overlap_h
+                union = w * h + pw * ph - intersection
+                iou = intersection / union if union > 0 else 0.0
+
+                if (
+                    center_distance <= 0.55 * scale
+                    and width_ratio <= 1.8
+                    and height_ratio <= 1.8
+                    and iou >= 0.15
+                ):
+                    score = center_distance / scale + 0.25 * (
+                        width_ratio - 1 + height_ratio - 1
+                    ) - 0.25 * iou
+                    if best_match is None or score < best_match[0]:
+                        best_match = (score, key)
+
+        if best_match is not None:
+            key = best_match[1]
+            self._face_boxes[key] = (x, y, w, h)
+            return key
+
+        key = f"face_{self._next_face_key}"
+        self._next_face_key += 1
+        self._face_boxes[key] = (x, y, w, h)
+        if len(self._face_boxes) > 16:
             # Bound memory on long-running kiosks.
-            stale_key = next(iter(self._face_centers))
-            self._face_centers.pop(stale_key)
+            stale_key = next(iter(self._face_boxes))
+            self._face_boxes.pop(stale_key)
             self._ear_history.pop(stale_key, None)
             self._eye_baselines.pop(stale_key, None)
             self._blink_counts.pop(stale_key, None)
@@ -400,7 +427,8 @@ class LivenessDetector:
         self._eye_baselines.clear()
         self._blink_counts.clear()
         self._closed_frames.clear()
-        self._face_centers.clear()
+        self._face_boxes.clear()
+        self._next_face_key = 0
 
 
 # Global instance
