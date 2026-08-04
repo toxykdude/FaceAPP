@@ -53,7 +53,7 @@ def _components(
             assess_quality=lambda roi: (quality, {}),
         ),
         liveness_detector=SimpleNamespace(
-            check_liveness=lambda frame, roi, bbox: (is_live, {}),
+            check_liveness=lambda frame, roi, bbox, landmarks=None: (is_live, {}),
         ),
         recognizer=SimpleNamespace(
             generate_embedding=lambda roi: np.zeros(512, dtype=np.float32),
