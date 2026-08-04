@@ -1,8 +1,18 @@
 """
 Configuration for CV service.
 """
+from enum import Enum
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+
+class LivenessMode(str, Enum):
+    """Browser WebSocket policy applied to liveness evaluation outcomes."""
+
+    ENFORCE = "enforce"
+    OBSERVE = "observe"
+    DISABLED = "disabled"
+
 
 class Settings(BaseSettings):
     """CV Service settings."""
@@ -38,6 +48,11 @@ class Settings(BaseSettings):
     FACE_DETECTION_MODEL: str = "mtcnn"  # or "haar"
     CONFIDENCE_THRESHOLD: float = 0.85
     MIN_FACE_SIZE: int = 100
+
+    # Browser/WebSocket liveness policy. Observe must be selected explicitly;
+    # development environments never weaken enforcement automatically.
+    # A challenge mode is a future policy and is intentionally not accepted yet.
+    WS_LIVENESS_MODE: LivenessMode = LivenessMode.ENFORCE
     
     # GPU
     USE_GPU: bool = False

@@ -4,11 +4,13 @@ Main CV service application with Streaming API.
 
 import asyncio
 import hmac
+import secrets
 import sys
 import time
 import cv2
 import numpy as np
 import io
+from dataclasses import dataclass, field
 from typing import Any, Dict, NamedTuple, Optional
 from loguru import logger
 from contextlib import asynccontextmanager
@@ -26,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-from config import settings
+from config import LivenessMode, settings
 from stream.rtsp_processor import RTSPStreamProcessor
 from validation.access_validator import AccessValidator
 from api.backend_client import BackendAPIClient
@@ -521,6 +523,107 @@ class WsPipelineComponents(NamedTuple):
     matcher: Any
 
 
+WS_NO_FACE_RESET_FRAMES = 15
+
+
+@dataclass
+class WsAttemptState:
+    """Short-lived liveness state metadata for one browser connection."""
+
+    connection_id: str = field(default_factory=lambda: secrets.token_hex(4))
+    attempt_id: str = field(default_factory=lambda: secrets.token_hex(4))
+    no_face_frames: int = 0
+    attempt_active: bool = False
+    observation_complete: bool = False
+    terminal_logged: bool = False
+    last_liveness_marker: Optional[tuple] = None
+
+    def note_face(self) -> None:
+        self.no_face_frames = 0
+
+    def note_no_face(self, liveness_detector: Any) -> None:
+        self.no_face_frames += 1
+        if self.attempt_active and self.no_face_frames >= WS_NO_FACE_RESET_FRAMES:
+            self.reset(liveness_detector, "sustained_no_face")
+
+    def record_liveness(
+        self, mode: LivenessMode, outcome: str, blocked: bool
+    ) -> None:
+        self.attempt_active = True
+        marker = (mode.value, outcome, blocked)
+        if marker == self.last_liveness_marker:
+            return
+
+        log = logger.warning if blocked else logger.info
+        log(
+            "liveness stage=evaluation "
+            f"policy={mode.value} outcome={outcome} "
+            f"blocked={str(blocked).lower()} connection={self.connection_id} "
+            f"attempt={self.attempt_id}"
+        )
+        self.last_liveness_marker = marker
+
+    def complete_observation(self, liveness_detector: Any) -> None:
+        """Consume observed proof without starting another shadow attempt."""
+        liveness_detector.reset()
+        self.observation_complete = True
+        logger.info(
+            "liveness stage=observation_complete policy=observe "
+            f"connection={self.connection_id} attempt={self.attempt_id}"
+        )
+
+    def record_terminal(self, mode: LivenessMode) -> None:
+        if self.terminal_logged:
+            return
+        logger.info(
+            "recognition stage=terminal_response "
+            f"policy={mode.value} connection={self.connection_id} "
+            f"attempt={self.attempt_id}"
+        )
+        self.terminal_logged = True
+
+    def reset(self, liveness_detector: Any, boundary: str) -> None:
+        liveness_detector.reset()
+        logger.info(
+            "liveness stage=reset "
+            f"boundary={boundary} connection={self.connection_id} "
+            f"attempt={self.attempt_id}"
+        )
+        self.attempt_id = secrets.token_hex(4)
+        self.no_face_frames = 0
+        self.attempt_active = False
+        self.observation_complete = False
+        self.terminal_logged = False
+        self.last_liveness_marker = None
+
+
+def evaluate_ws_liveness(
+    liveness_detector: Any,
+    frame: "np.ndarray",
+    face_roi: "np.ndarray",
+    face_bbox: tuple,
+    landmarks: Any,
+) -> str:
+    """Evaluate liveness without deciding whether recognition may continue."""
+    is_live, details = liveness_detector.check_liveness(
+        frame, face_roi, face_bbox, landmarks
+    )
+    if is_live:
+        return "pass"
+    if (details or {}).get("reason"):
+        return "indeterminate"
+    return "fail"
+
+
+def ws_liveness_blocks(mode: LivenessMode, outcome: str) -> bool:
+    """Apply the explicit browser policy to a privacy-safe outcome."""
+    if mode is LivenessMode.ENFORCE:
+        return outcome != "pass"
+    if mode in (LivenessMode.OBSERVE, LivenessMode.DISABLED):
+        return False
+    raise ValueError(f"Unsupported WebSocket liveness mode: {mode!r}")
+
+
 def build_ws_pipeline_components() -> WsPipelineComponents:
     """Load the recognition models for one WebSocket connection."""
     from detection.face_detector import FaceDetector
@@ -547,6 +650,7 @@ async def process_ws_frame(
     components: WsPipelineComponents,
     frame_count: int,
     fps: Optional[float],
+    attempt_state: WsAttemptState,
 ) -> Optional[Dict]:
     """
     Run the recognition pipeline over a single browser-pushed frame.
@@ -558,6 +662,7 @@ async def process_ws_frame(
     # Detect faces with landmarks for alignment
     faces_with_lm = components.detector.detect_faces_with_landmarks(frame)
     if not faces_with_lm:
+        attempt_state.note_no_face(components.liveness_detector)
         return {
             "type": "status",
             "fps": fps,
@@ -568,6 +673,7 @@ async def process_ws_frame(
     # Process largest face only (sort by area)
     faces_with_lm.sort(key=lambda f: f[0][2] * f[0][3], reverse=True)
     largest_face, largest_landmarks = faces_with_lm[0]
+    attempt_state.note_face()
 
     # Align face using eye landmarks (matches enrollment pipeline)
     face_roi = components.detector.align_face(frame, largest_face, largest_landmarks)
@@ -577,13 +683,26 @@ async def process_ws_frame(
     if quality_score < 0.5:
         return None
 
-    # Liveness check (anti-spoofing)
-    is_live, liveness_details = components.liveness_detector.check_liveness(
-        frame, face_roi, largest_face, largest_landmarks
-    )
-    if not is_live:
-        logger.warning(f"Spoof detected via WS camera {camera_id}: {liveness_details}")
-        return None
+    mode = settings.WS_LIVENESS_MODE
+    if not (mode is LivenessMode.OBSERVE and attempt_state.observation_complete):
+        evaluator_ran = mode is not LivenessMode.DISABLED
+        outcome = (
+            evaluate_ws_liveness(
+                components.liveness_detector,
+                frame,
+                face_roi,
+                largest_face,
+                largest_landmarks,
+            )
+            if evaluator_ran
+            else "skipped"
+        )
+        blocked = ws_liveness_blocks(mode, outcome)
+        attempt_state.record_liveness(mode, outcome, blocked)
+        if mode is LivenessMode.OBSERVE and outcome == "pass":
+            attempt_state.complete_observation(components.liveness_detector)
+        if blocked:
+            return None
 
     # Generate embedding and match
     embedding = components.recognizer.generate_embedding(face_roi)
@@ -651,7 +770,7 @@ async def process_ws_frame(
         else None
     )
 
-    return {
+    payload = {
         "type": "recognition",
         "member_id": member_id,
         "member_name": name,
@@ -664,6 +783,10 @@ async def process_ws_frame(
         ),
         "days_remaining": days_remaining,
     }
+    attempt_state.record_terminal(mode)
+    if mode is LivenessMode.ENFORCE:
+        attempt_state.reset(components.liveness_detector, "terminal_result")
+    return payload
 
 
 @app.websocket("/ws/camera/{camera_id}")
@@ -682,9 +805,13 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
             return
 
     await websocket.accept()
-    logger.info(f"WebSocket connected for camera {camera_id}")
-
     components = build_ws_pipeline_components()
+    attempt_state = WsAttemptState()
+    logger.info(
+        "liveness stage=connection_open "
+        f"policy={settings.WS_LIVENESS_MODE.value} "
+        f"connection={attempt_state.connection_id} attempt={attempt_state.attempt_id}"
+    )
 
     frame_count = 0
     last_process_time = 0.0
@@ -724,16 +851,23 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
 
             try:
                 payload = await process_ws_frame(
-                    frame, camera_id, components, frame_count, fps
+                    frame,
+                    camera_id,
+                    components,
+                    frame_count,
+                    fps,
+                    attempt_state,
                 )
-            except Exception as e:
+            except Exception:
                 # One bad frame — or a transient recognition/backend fault —
                 # must never take the connection down. The kiosk renders a
                 # dropped WebSocket as "Camera unavailable", so escalating a
                 # frame error to a disconnect misreports a software fault as a
                 # broken camera. Log it and let the next frame try again.
-                logger.exception(
-                    f"Frame {frame_count} failed for camera {camera_id}: {e}"
+                logger.warning(
+                    "recognition stage=frame_error "
+                    f"connection={attempt_state.connection_id} "
+                    f"attempt={attempt_state.attempt_id}"
                 )
                 continue
 
@@ -741,12 +875,22 @@ async def websocket_camera_feed(websocket: WebSocket, camera_id: str):
                 await websocket.send_json(payload)
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for camera {camera_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error for camera {camera_id}: {e}")
+        logger.info(
+            "liveness stage=connection_closed "
+            f"connection={attempt_state.connection_id}"
+        )
+    except Exception:
+        logger.error(
+            "liveness stage=connection_error "
+            f"connection={attempt_state.connection_id}"
+        )
     finally:
+        attempt_state.reset(components.liveness_detector, "websocket_cleanup")
         service._ws_frames.pop(camera_id, None)
-        logger.info(f"WebSocket cleanup for camera {camera_id}")
+        logger.info(
+            "liveness stage=connection_cleanup "
+            f"connection={attempt_state.connection_id}"
+        )
 
 
 @app.post("/reload")
