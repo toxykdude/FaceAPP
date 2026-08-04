@@ -27,13 +27,15 @@ class LivenessDetector:
 
     def __init__(
         self,
-        ear_threshold: float = 0.21,
+        close_ratio: float = 0.6,
+        reopen_ratio: float = 0.8,
         consecutive_frames: int = 1,
         history_length: int = 30,
     ):
         """
         Args:
-            ear_threshold: EAR below this = eye is closed
+            close_ratio: Eye is closed below this fraction of its open baseline.
+            reopen_ratio: Eye has reopened above this fraction of its baseline.
             consecutive_frames: How many consecutive low-EAR frames count as a
                 blink.
                 Defaults to 1: at the pipeline's 5fps budget a natural blink
@@ -42,12 +44,14 @@ class LivenessDetector:
                 so a single dip still never passes a static face.
             history_length: How many EAR values to track
         """
-        self.ear_threshold = ear_threshold
+        self.close_ratio = close_ratio
+        self.reopen_ratio = reopen_ratio
         self.consecutive_frames = consecutive_frames
         self.history_length = history_length
 
         # EAR history per tracked face (keyed by face position hash)
         self._ear_history: dict = {}
+        self._eye_baselines: dict = {}
         self._blink_counts: dict = {}
         self._closed_frames: dict = {}
         # Last-seen center per face key, for stable tracking
@@ -165,8 +169,10 @@ class LivenessDetector:
                 upper_half, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20)
             )
 
+            # Cascade result order is not stable. Keep a left-to-right contract
+            # so each EAR is compared with the same eye's baseline every frame.
             eye_rois = []
-            for ex, ey, ew, eh in eyes[:2]:  # Take first 2 eyes
+            for ex, ey, ew, eh in sorted(eyes, key=lambda eye: eye[0])[:2]:
                 eye_roi = face_roi[ey : ey + eh, ex : ex + ew]
                 if eye_roi.size > 0:
                     eye_rois.append(eye_roi)
@@ -235,11 +241,21 @@ class LivenessDetector:
                 self._face_centers[key] = (cx, cy)
                 return key
 
-        key = f"{cx // 40}_{cy // 40}"
+        base_key = f"{cx // 40}_{cy // 40}"
+        key = base_key
+        suffix = 1
+        while key in self._face_centers:
+            key = f"{base_key}_{suffix}"
+            suffix += 1
         self._face_centers[key] = (cx, cy)
         if len(self._face_centers) > 16:
             # Bound memory on long-running kiosks.
-            self._face_centers.pop(next(iter(self._face_centers)))
+            stale_key = next(iter(self._face_centers))
+            self._face_centers.pop(stale_key)
+            self._ear_history.pop(stale_key, None)
+            self._eye_baselines.pop(stale_key, None)
+            self._blink_counts.pop(stale_key, None)
+            self._closed_frames.pop(stale_key, None)
         return key
 
     def check_liveness(
@@ -268,6 +284,7 @@ class LivenessDetector:
             "avg_ear": 0.0,
             "method": "blink_detection",
         }
+        face_key = self._get_face_key(face_bbox)
 
         # Prefer landmark-anchored eye ROIs (does not need the cascade).
         eye_rois = self._eye_rois_from_landmarks(frame, face_bbox, landmarks)
@@ -275,6 +292,8 @@ class LivenessDetector:
             if self._eye_cascade is None:
                 # No eye evidence source at all — FAIL CLOSED. A photo or a
                 # broken detector must never unlock the door.
+                if face_key in self._closed_frames:
+                    self._closed_frames[face_key] = [0, 0]
                 return False, {"method": "disabled", "reason": "eye cascade not loaded"}
             # Detect eyes
             eye_rois = self._detect_eyes(face_roi, face_bbox)
@@ -282,6 +301,8 @@ class LivenessDetector:
         if len(eye_rois) < 2:
             # Both eyes are required to compute a blink. A face with a
             # single visible eye (or none) cannot be proven live — deny.
+            if face_key in self._closed_frames:
+                self._closed_frames[face_key] = [0, 0]
             return False, {
                 "method": "blink_detection",
                 "reason": "insufficient_eyes",
@@ -295,23 +316,26 @@ class LivenessDetector:
             if ear is not None:
                 ears.append(ear)
 
-        if not ears:
-            # EAR could not be computed — no evidence, fail closed.
+        if len(ears) != 2:
+            # Both eyes need valid measurements. Partial or garbage evidence
+            # cannot calibrate a trustworthy per-eye baseline or bridge a
+            # close-to-open transition across an uncertain frame.
+            if face_key in self._closed_frames:
+                self._closed_frames[face_key] = [0, 0]
             return False, {
                 "method": "blink_detection",
                 "reason": "ear_computation_failed",
+                "ears_computed": len(ears),
             }
 
         avg_ear = sum(ears) / len(ears)
 
-        # Track face by a stable center-based key (jitter-resistant)
-        face_key = self._get_face_key(face_bbox)
-
         # Initialize tracking for new face
         if face_key not in self._ear_history:
             self._ear_history[face_key] = []
+            self._eye_baselines[face_key] = [[], []]
             self._blink_counts[face_key] = 0
-            self._closed_frames[face_key] = 0
+            self._closed_frames[face_key] = [0, 0]
 
         # Add EAR to history
         history = self._ear_history[face_key]
@@ -319,13 +343,25 @@ class LivenessDetector:
         if len(history) > self.history_length:
             history.pop(0)
 
-        # Detect blink: EAR drops below threshold for consecutive frames
-        if avg_ear < self.ear_threshold:
-            self._closed_frames[face_key] += 1
+        baselines = self._eye_baselines[face_key]
+        if len(history) <= 5:
+            for index, ear in enumerate(ears):
+                baselines[index].append(ear)
         else:
-            if self._closed_frames[face_key] >= self.consecutive_frames:
+            blink_detected = False
+            for index, ear in enumerate(ears):
+                baseline = float(np.median(baselines[index]))
+                if ear < baseline * self.close_ratio:
+                    self._closed_frames[face_key][index] += 1
+                elif ear >= baseline * self.reopen_ratio:
+                    if (
+                        self._closed_frames[face_key][index]
+                        >= self.consecutive_frames
+                    ):
+                        blink_detected = True
+                    self._closed_frames[face_key][index] = 0
+            if blink_detected:
                 self._blink_counts[face_key] += 1
-            self._closed_frames[face_key] = 0
 
         # Need at least 5 frames of history to make a determination.
         # Grace frames are ZERO: until positive liveness evidence exists,
@@ -350,6 +386,9 @@ class LivenessDetector:
             "blink_count": blink_count,
             "avg_ear": round(avg_ear, 3),
             "ear_values": [round(e, 3) for e in ears],
+            "eye_baselines": [
+                round(float(np.median(values)), 3) for values in baselines
+            ],
             "frames_tracked": len(history),
         }
 
@@ -358,6 +397,7 @@ class LivenessDetector:
     def reset(self):
         """Reset all tracking state."""
         self._ear_history.clear()
+        self._eye_baselines.clear()
         self._blink_counts.clear()
         self._closed_frames.clear()
         self._face_centers.clear()
