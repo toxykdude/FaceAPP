@@ -579,7 +579,7 @@ async def process_ws_frame(
 
     # Liveness check (anti-spoofing)
     is_live, liveness_details = components.liveness_detector.check_liveness(
-        frame, face_roi, largest_face
+        frame, face_roi, largest_face, largest_landmarks
     )
     if not is_live:
         logger.warning(f"Spoof detected via WS camera {camera_id}: {liveness_details}")

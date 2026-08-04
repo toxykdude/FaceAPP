@@ -214,6 +214,15 @@ class RTSPStreamProcessor:
             
             # Reset reconnect counter
             reconnect_attempts = 0
+
+            # Browser/client mode cameras skip RTSP processing. The flag is
+            # only set INSIDE _connect_stream, so the pre-loop guard above
+            # misses the very first pass: without this post-connect guard the
+            # frame loop would call self.capture.read() on None (no capture
+            # is ever opened for browser mode) and kill the thread.
+            if getattr(self, '_is_browser_mode', False):
+                logger.info(f"Camera {self.camera_id} in browser mode - skipping stream processing")
+                return
             
             # Process frames
             last_frame_time = 0
@@ -294,7 +303,7 @@ class RTSPStreamProcessor:
             
 
             # Anti-spoofing: liveness check
-            is_live, liveness_details = self.liveness.check_liveness(frame, face_roi, largest_face)
+            is_live, liveness_details = self.liveness.check_liveness(frame, face_roi, largest_face, largest_landmarks)
             if not is_live:
                 logger.warning(f"Spoof detected for camera {self.camera_id}: {liveness_details}")
                 return  # Skip potential spoof
