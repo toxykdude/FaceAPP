@@ -259,13 +259,15 @@ class TestLivenessDetector:
         detector._eye_baselines["test"] = [[0.3], [0.3]]
         detector._blink_counts["test"] = 1
         detector._closed_frames["test"] = [1, 0]
-        detector._face_centers["test"] = (50, 50)
+        detector._face_boxes["test"] = (0, 0, 100, 100)
+        detector._next_face_key = 4
         detector.reset()
         assert detector._ear_history == {}
         assert detector._eye_baselines == {}
         assert detector._blink_counts == {}
         assert detector._closed_frames == {}
-        assert detector._face_centers == {}
+        assert detector._face_boxes == {}
+        assert detector._next_face_key == 0
 
     def test_detectors_do_not_share_blink_state(self):
         """Two instances must never share EAR/blink state (cross-stream fix).
@@ -411,8 +413,66 @@ class TestLivenessDetector:
         assert len(detector._ear_history) == 1
         assert len(next(iter(detector._ear_history.values()))) == 7
 
-    def test_face_tracking_state_is_bounded_with_center_cache(self):
-        """Evicting a face center must evict every associated state map."""
+    def test_realistic_center_and_scale_jitter_completes_blink(self):
+        """Largest-face motion and scale jitter must retain one baseline."""
+        detector = LivenessDetector()
+        detector._eye_cascade = object()
+        detector._detect_eyes = lambda frame, bbox: [_eye_roi(), _eye_roi()]
+        detector._compute_ear = lambda roi: detector._current_ear
+        detector._current_ear = 0.3
+        frame = np.zeros((300, 300, 3), dtype=np.uint8)
+        bboxes = [
+            (80, 70, 120, 140),
+            (94, 79, 110, 130),
+            (72, 62, 132, 152),
+            (88, 72, 116, 136),
+            (76, 66, 126, 146),
+        ]
+
+        for bbox in bboxes:
+            is_live, _ = detector.check_liveness(frame, frame, bbox)
+            assert is_live is False
+
+        detector._current_ear = 0.1
+        is_live, _ = detector.check_liveness(frame, frame, (96, 80, 108, 128))
+        assert is_live is False
+        detector._current_ear = 0.3
+        is_live, details = detector.check_liveness(
+            frame, frame, (70, 60, 134, 154)
+        )
+
+        assert is_live is True
+        assert details["blink_count"] == 1
+        assert len(detector._face_boxes) == 1
+
+    def test_distant_face_cannot_inherit_liveness_state(self):
+        """An implausible jump must start isolated baseline and blink state."""
+        detector = LivenessDetector()
+        first_key = detector._get_face_key((10, 10, 100, 100))
+        detector._eye_baselines[first_key] = [[0.3] * 5, [0.3] * 5]
+        detector._blink_counts[first_key] = 1
+
+        second_key = detector._get_face_key((500, 400, 100, 100))
+
+        assert second_key != first_key
+        assert second_key not in detector._eye_baselines
+        assert second_key not in detector._blink_counts
+
+    def test_nearest_compatible_track_wins(self):
+        """Association must choose geometry, not dict insertion order."""
+        detector = LivenessDetector()
+        first_key = "first"
+        second_key = "second"
+        detector._face_boxes[first_key] = (0, 0, 100, 100)
+        detector._face_boxes[second_key] = (60, 0, 100, 100)
+
+        matched_key = detector._get_face_key((40, 0, 100, 100))
+
+        assert matched_key == second_key
+        assert matched_key != first_key
+
+    def test_face_tracking_state_is_bounded_with_bbox_cache(self):
+        """Evicting a face bbox must evict every associated state map."""
         detector = LivenessDetector()
         for index in range(17):
             key = detector._get_face_key((index * 100, 0, 40, 40))
@@ -421,7 +481,7 @@ class TestLivenessDetector:
             detector._blink_counts[key] = 0
             detector._closed_frames[key] = [0, 0]
 
-        assert len(detector._face_centers) == 16
+        assert len(detector._face_boxes) == 16
         assert len(detector._ear_history) == 16
         assert len(detector._eye_baselines) == 16
         assert len(detector._blink_counts) == 16
