@@ -12,6 +12,7 @@ approval tests documenting/preserving current (already correct) behavior.
 import json
 import uuid
 from datetime import date, timedelta, datetime, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -21,6 +22,7 @@ from core.encryption import encrypt_template
 from models.biometric import BiometricTemplate
 from models.membership import Membership, MembershipStatus
 from models.member import Member
+from models.sale import SalesTransaction
 from models.setting import Setting
 from services.timezone import CACHE_KEY, DEFAULT_TZ
 
@@ -222,6 +224,67 @@ class TestAccessWindowUnchanged:
         data = resp.json()
         assert data["has_active"] is True
         assert data["membership"]["id"] == str(m.id)
+
+
+class TestAccessMembershipCarriesPaymentBalance:
+    """The access payload must carry the outstanding balance.
+
+    This is the wire that was missing: the kiosk showed every active member a
+    full-payment grant because the CV service was never told about the money.
+    A balance is reporting-only — has_active stays True regardless.
+    """
+
+    def _pay(self, db_session, membership, member, amount):
+        tx = SalesTransaction(
+            member_id=member.id,
+            membership_id=membership.id,
+            amount=Decimal(amount),
+            payment_method="cash",
+            invoice_number=f"INV-CV-{uuid.uuid4().hex[:10]}",
+        )
+        db_session.add(tx)
+        db_session.flush()
+        return tx
+
+    def _membership_payload(self, client, member, headers):
+        resp = client.get(f"/api/cv/members/{member.id}/membership", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_active"] is True
+        return data["membership"]
+
+    def test_partial_payment_is_reported_without_denying_access(
+        self, client, db_session, sample_member, internal_headers
+    ):
+        # make_membership prices every fixture membership at 29.99.
+        m = make_membership(db_session, sample_member, start_offset=-5, end_offset=30)
+        self._pay(db_session, m, sample_member, "10.00")
+
+        membership = self._membership_payload(client, sample_member, internal_headers)
+
+        assert membership["payment_status"] == "partial"
+        assert membership["amount_due"] == pytest.approx(19.99)
+
+    def test_unpaid_membership_reports_the_whole_price(
+        self, client, db_session, sample_member, internal_headers
+    ):
+        make_membership(db_session, sample_member, start_offset=-5, end_offset=30)
+
+        membership = self._membership_payload(client, sample_member, internal_headers)
+
+        assert membership["payment_status"] == "pending"
+        assert membership["amount_due"] == pytest.approx(29.99)
+
+    def test_settled_membership_reports_zero(
+        self, client, db_session, sample_member, internal_headers
+    ):
+        m = make_membership(db_session, sample_member, start_offset=-5, end_offset=30)
+        self._pay(db_session, m, sample_member, "29.99")
+
+        membership = self._membership_payload(client, sample_member, internal_headers)
+
+        assert membership["payment_status"] == "paid"
+        assert membership["amount_due"] == 0
 
 
 class TestCvSettingsEndpoint:

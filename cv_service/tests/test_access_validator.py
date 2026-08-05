@@ -99,7 +99,7 @@ class TestAccessValidatorStartDateGuard:
             membership=_membership(start_offset_days=5, end_offset_days=40),
         )
 
-        granted, reason, days_remaining = await validator.validate_access(
+        granted, reason, days_remaining, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -114,7 +114,7 @@ class TestAccessValidatorStartDateGuard:
             membership=_membership(start_offset_days=0, end_offset_days=30),
         )
 
-        granted, reason, _ = await validator.validate_access("member-1", 0.95, "cam-1")
+        granted, reason, _, _ = await validator.validate_access("member-1", 0.95, "cam-1")
 
         assert granted is True
         assert reason is None
@@ -128,7 +128,7 @@ class TestAccessValidatorStartDateGuard:
             membership=_membership(start_offset_days=-10, end_offset_days=5),
         )
 
-        granted, reason, _ = await validator.validate_access("member-1", 0.95, "cam-1")
+        granted, reason, _, _ = await validator.validate_access("member-1", 0.95, "cam-1")
 
         assert granted is True
         assert reason is None
@@ -144,7 +144,7 @@ class TestAccessValidatorDaysRemaining:
             membership=_membership(start_offset_days=-10, end_offset_days=12),
         )
 
-        granted, _, days_remaining = await validator.validate_access(
+        granted, _, days_remaining, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -161,7 +161,7 @@ class TestAccessValidatorDaysRemaining:
             membership=_membership(start_offset_days=-30, end_offset_days=0),
         )
 
-        granted, _, days_remaining = await validator.validate_access(
+        granted, _, days_remaining, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -179,7 +179,7 @@ class TestAccessValidatorDaysRemaining:
             ),
         )
 
-        granted, reason, days_remaining = await validator.validate_access(
+        granted, reason, days_remaining, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -191,7 +191,7 @@ class TestAccessValidatorDaysRemaining:
     async def test_unknown_face_reports_no_days_remaining(self):
         validator = _validator(member=None, membership=None)
 
-        granted, reason, days_remaining = await validator.validate_access(
+        granted, reason, days_remaining, _ = await validator.validate_access(
             None, 0.95, "cam-1"
         )
 
@@ -210,13 +210,223 @@ class TestAccessValidatorDaysRemaining:
             ),
         )
 
-        granted, reason, days_remaining = await validator.validate_access(
+        granted, reason, days_remaining, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
         assert granted is True
         assert reason is None
         assert days_remaining is None
+
+
+class TestAccessValidatorAmountDue:
+    """amount_due drives the kiosk's amber "pending payment" splash.
+
+    A balance is a REMINDER, never a gate: every assertion here that reports
+    money owed also asserts the member still got in.
+    """
+
+    @pytest.mark.asyncio
+    async def test_partial_payment_grants_access_and_reports_balance(self):
+        """The regression this whole feature exists for — a member who paid
+        part of their plan used to be shown a clean full-payment grant."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=20,
+                payment_status="partial",
+                amount_due=29.99,
+            ),
+        )
+
+        granted, reason, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+        assert amount_due == 29.99
+
+    @pytest.mark.asyncio
+    async def test_settled_membership_reports_no_balance(self):
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=20,
+                payment_status="paid",
+                amount_due=0.0,
+            ),
+        )
+
+        granted, _, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert amount_due is None
+
+    @pytest.mark.asyncio
+    async def test_fully_unpaid_membership_is_denied_entry(self):
+        """A customer who has paid NOTHING has no usable membership — they are
+        turned away, not welcomed with a reminder. The denial still carries the
+        amount so the kiosk can say what to settle at reception."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=20,
+                payment_status="pending",
+                amount_due=49.99,
+            ),
+        )
+
+        granted, reason, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "unpaid_membership"
+        assert amount_due == 49.99
+
+    @pytest.mark.asyncio
+    async def test_unpaid_denial_outranks_access_rule_restrictions(self):
+        """Non-payment is the actionable message. An unpaid member outside their
+        allowed hours must hear about the money, not the schedule."""
+        current_day = datetime.now(TEST_ZONE).strftime("%A").lower()
+        other_day = "monday" if current_day != "monday" else "tuesday"
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10,
+                end_offset_days=20,
+                payment_status="pending",
+                amount_due=49.99,
+                access_rules={"allowed_days": [other_day]},
+            ),
+        )
+
+        granted, reason, _, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "unpaid_membership"
+
+    @pytest.mark.asyncio
+    async def test_expired_membership_still_reports_expiry_not_payment(self):
+        """Triangulation on ordering the other way: an expired membership is
+        rejected for being expired even when nothing was ever paid on it."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-60,
+                end_offset_days=-1,
+                status="expired",
+                payment_status="pending",
+                amount_due=49.99,
+            ),
+        )
+
+        granted, reason, _, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "expired_membership"
+
+    @pytest.mark.asyncio
+    async def test_missing_payment_status_grants_rather_than_locking_everyone_out(self):
+        """Version skew must not become a gym-wide lockout.
+
+        A backend that predates the payment gate sends no payment_status. The
+        gate denies only on a POSITIVE report of non-payment, so this member is
+        let in — failing closed here would deny every paying member at once.
+        """
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(start_offset_days=-10, end_offset_days=20),
+        )
+
+        granted, reason, _, _ = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+
+    @pytest.mark.asyncio
+    async def test_denial_never_reports_a_balance(self):
+        """A denied member gets a denial reason, not a bill."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-30,
+                end_offset_days=-1,
+                status="expired",
+                amount_due=29.99,
+            ),
+        )
+
+        granted, reason, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is False
+        assert reason == "expired_membership"
+        assert amount_due is None
+
+    @pytest.mark.asyncio
+    async def test_grant_tolerates_a_backend_without_balance_data(self):
+        """An older backend omits amount_due entirely — that must degrade to
+        "nothing to report", never crash the recognition frame."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(start_offset_days=-10, end_offset_days=20),
+        )
+
+        granted, reason, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+        assert amount_due is None
+
+    @pytest.mark.asyncio
+    async def test_grant_tolerates_an_unreadable_balance(self):
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10, end_offset_days=20, amount_due="not-a-number"
+            ),
+        )
+
+        granted, reason, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert reason is None
+        assert amount_due is None
+
+    @pytest.mark.asyncio
+    async def test_negative_balance_is_not_reported_as_a_debt(self):
+        """An overpaid membership must never render as money owed."""
+        validator = _validator(
+            member={"status": "active"},
+            membership=_membership(
+                start_offset_days=-10, end_offset_days=20, amount_due=-10.0
+            ),
+        )
+
+        granted, _, _, amount_due = await validator.validate_access(
+            "member-1", 0.95, "cam-1"
+        )
+
+        assert granted is True
+        assert amount_due is None
 
 
 class TestAccessValidatorTimezoneAwareRules:
@@ -236,7 +446,7 @@ class TestAccessValidatorTimezoneAwareRules:
             ),
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -255,7 +465,7 @@ class TestAccessValidatorTimezoneAwareRules:
             ),
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -280,7 +490,7 @@ class TestAccessValidatorTimezoneAwareRules:
             ),
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -305,7 +515,7 @@ class TestAccessValidatorTimezoneAwareRules:
             ),
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -327,7 +537,7 @@ class TestAccessValidatorTimezoneAwareRules:
         )
         validator._get_app_timezone = AsyncMock(return_value=None)
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -353,7 +563,7 @@ class TestAccessValidatorLocationFailClosed:
             return_value={"id": "cam-1", "location": "Lobby", "location_id": "loc-2"}
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -377,7 +587,7 @@ class TestAccessValidatorLocationFailClosed:
             return_value={"id": "cam-1", "location": "Lobby", "location_id": None}
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -398,7 +608,7 @@ class TestAccessValidatorLocationFailClosed:
         )
         validator._get_camera = AsyncMock(return_value=None)
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 
@@ -419,7 +629,7 @@ class TestAccessValidatorLocationFailClosed:
             return_value={"id": "cam-1", "location": "Lobby", "location_id": "loc-1"}
         )
 
-        granted, reason, _ = await validator.validate_access(
+        granted, reason, _, _ = await validator.validate_access(
             "member-1", 0.95, "cam-1"
         )
 

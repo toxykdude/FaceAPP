@@ -82,7 +82,7 @@ class AccessValidator:
 
     async def validate_access(
         self, member_id: Optional[str], confidence: float, camera_id: str
-    ) -> Tuple[bool, Optional[str], Optional[int]]:
+    ) -> Tuple[bool, Optional[str], Optional[int], Optional[float]]:
         """
         Validate access for recognized face.
 
@@ -92,44 +92,52 @@ class AccessValidator:
             camera_id: Camera ID
 
         Returns:
-            Tuple of (access_granted, denial_reason, days_remaining).
+            Tuple of (access_granted, denial_reason, days_remaining, amount_due).
+
             days_remaining is the whole days left on the membership and is
             only populated on a grant — a denied member has no remaining-days
             figure to display. It may still be None on a grant when the
             membership carries no usable end_date.
+
+            amount_due is the outstanding balance on that membership. A PARTIAL
+            balance is reporting-only — the door still opens and the kiosk shows
+            an amber reminder. A membership with NOTHING paid is denied outright
+            ("unpaid_membership"), and that denial carries the amount so the
+            kiosk can tell the member what to settle at reception. Every other
+            denial reports None: only the payment denial is about money.
         """
         # Step 1: Check if face was matched
         if member_id is None:
-            return False, "unknown_face", None
+            return False, "unknown_face", None, None
 
         # Step 2: Check confidence threshold (already done in matcher, but double-check)
         # Note: Confidence threshold is already applied in template matching
         # This is a safety check
         if confidence < 0.70:
-            return False, "low_confidence", None
+            return False, "low_confidence", None, None
 
         # Step 3: Get member data
         member = await self.api_client.get_member(member_id)
         if not member:
             logger.error(f"Member {member_id} not found in database")
-            return False, "member_not_found", None
+            return False, "member_not_found", None, None
 
         # Step 4: Check member status
         if member["status"] != "active":
-            return False, f"member_{member['status']}", None
+            return False, f"member_{member['status']}", None, None
 
         # Step 5: Get active membership
         membership = await self.api_client.get_active_membership(member_id)
         if not membership:
-            return False, "no_active_membership", None
+            return False, "no_active_membership", None, None
 
         # Step 6: Check membership status
         if membership["status"] == "expired":
-            return False, "expired_membership", None
+            return False, "expired_membership", None, None
         elif membership["status"] == "suspended":
-            return False, "suspended_membership", None
+            return False, "suspended_membership", None, None
         elif membership["status"] != "active":
-            return False, f"membership_{membership['status']}", None
+            return False, f"membership_{membership['status']}", None, None
 
         # Step 7: Defense-in-depth date-window guard.
         # The backend (get_member_membership) is the source of truth and
@@ -146,9 +154,30 @@ class AccessValidator:
             membership_start = None
 
         if membership_start is not None and membership_start > today:
-            return False, "membership_not_started", None
+            return False, "membership_not_started", None, None
 
-        # Step 8: Check access rules
+        # Step 8: Payment gate. A membership with NOTHING paid against it is not
+        # a membership the member may use — they are denied and sent to
+        # reception. A PARTIAL payment still opens the door (the kiosk shows an
+        # amber reminder with the balance instead); only a zero payment blocks.
+        #
+        # This denies only on a POSITIVE report of non-payment. If the backend
+        # omits payment_status (version skew during a rolling deploy) the member
+        # is let in and the gap is logged, because failing closed here would
+        # lock out every paying member at once — a far worse outcome than one
+        # unpaid member training for one session. The identity and membership
+        # window checks above remain fail-closed; this one is business policy,
+        # not a security boundary.
+        payment_status = membership.get("payment_status")
+        if payment_status is None:
+            logger.error(
+                "Membership carries no payment_status — backend may predate the "
+                "payment gate; granting access without a payment check"
+            )
+        elif payment_status == "pending":
+            return False, "unpaid_membership", None, self._amount_due(membership)
+
+        # Step 9: Check access rules
         access_rules = membership.get("access_rules", {})
 
         if access_rules:
@@ -165,8 +194,8 @@ class AccessValidator:
                         "restrictions — denying access (fail closed)"
                     )
                     if has_day_rules:
-                        return False, "access_day_restriction", None
-                    return False, "access_time_restriction", None
+                        return False, "access_day_restriction", None, None
+                    return False, "access_time_restriction", None, None
 
                 now_local = datetime.now(app_tz)
                 current_day = now_local.strftime("%A").lower()
@@ -175,7 +204,7 @@ class AccessValidator:
                 # Check day of week
                 if has_day_rules:
                     if current_day not in access_rules["allowed_days"]:
-                        return False, "access_day_restriction", None
+                        return False, "access_day_restriction", None, None
 
                 # Check time windows
                 if has_time_rules:
@@ -196,7 +225,7 @@ class AccessValidator:
                             break
 
                     if not allowed:
-                        return False, "access_time_restriction", None
+                        return False, "access_time_restriction", None, None
 
             # Check location restrictions — FAIL CLOSED. A camera whose
             # location cannot be positively matched to the allowed
@@ -206,11 +235,17 @@ class AccessValidator:
                 camera_data = await self._get_camera(camera_id)
                 cam_location_id = (camera_data or {}).get("location_id")
                 if cam_location_id is None or cam_location_id not in location_ids:
-                    return False, "access_location_restriction", None
+                    return False, "access_location_restriction", None, None
 
-        # All checks passed — report how much membership is left so the kiosk
-        # can warn a member whose membership is about to lapse.
-        return True, None, self._days_remaining(membership, today)
+        # All checks passed — report how much membership is left, and anything
+        # still owed on it, so the kiosk can warn a member whose membership is
+        # about to lapse or who left a balance unpaid at reception.
+        return (
+            True,
+            None,
+            self._days_remaining(membership, today),
+            self._amount_due(membership),
+        )
 
     async def _resolve_timezone(self) -> Tuple[Optional[ZoneInfo], bool]:
         """Resolve the business timezone to a ZoneInfo.
@@ -247,6 +282,25 @@ class AccessValidator:
         except (TypeError, ValueError):
             return None
         return (end_date - today).days
+
+    @staticmethod
+    def _amount_due(membership: Dict) -> Optional[float]:
+        """Outstanding balance on a membership, or None when there is none.
+
+        Returns None (not 0.0) for a settled membership so the kiosk has a
+        single "nothing to say about money" signal and never renders a $0
+        reminder. A malformed or missing value is also None: an unreadable
+        balance must not invent a debt at the door.
+        """
+        raw = membership.get("amount_due")
+        if raw is None:
+            return None
+        try:
+            amount = float(raw)
+        except (TypeError, ValueError):
+            logger.error(f"Unreadable amount_due on membership: {raw!r}")
+            return None
+        return amount if amount > 0 else None
 
     async def close(self):
         """Close API client."""

@@ -284,6 +284,29 @@ CI-placeholder env vars (see the workflow file). Locally, run
     PUT *response*, not the submitted form — the backend normalizes values (smb
     share → `//server/share`, default ports), so baselining the request leaves
     the form permanently dirty and **Test** unclickable forever.
+20. **`alembic upgrade head` CANNOT run as the app role.** All 14 public tables
+    are owned by `postgres`, while migrations run as `backend_app`, which owns
+    nothing — so every DDL migration fails with `must be owner of ...`. This bit
+    the 2026-08-05 DEV deploy: `6b5c4d3e2f1a` died on
+    `must be owner of index ix_members_phone_unique` and took the follow-on
+    migration down with it, leaving new code on disk against an unmigrated DB.
+    Run migrations as the owning role over the local socket instead:
+    ```bash
+    cd /opt/powerhouse-membership/backend
+    sudo -u postgres env \
+      DATABASE_URL="postgresql://postgres@/membership_db?host=/var/run/postgresql" \
+      ./venv/bin/alembic upgrade head
+    ```
+    Peer auth over the unix socket needs no password, but only the `postgres` OS
+    user can use it — `sudo -u postgres`, never plain root. This is a workaround:
+    production has the same ownership layout and will fail identically on its
+    first schema change. Always run `alembic current` AFTER an upgrade and
+    confirm the head actually moved — the failure is loud in the log, but a
+    deploy script will happily continue past it.
+21. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
+    `usmm: command not found` / `Gym: command not found` (lines 17 and 24) —
+    trap 13 live on DEV: anything after a bad line may never get set. Quote
+    those values before trusting any script that sources `.env`.
 
 ## Where to look next
 

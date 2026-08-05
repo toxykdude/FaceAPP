@@ -149,6 +149,30 @@ export const MembershipsList: React.FC = () => {
         }
     };
 
+    // Unsettled memberships carry a balance chip alongside their status so an
+    // unpaid period is visible while scanning the list, not only after opening
+    // the member. Red = the kiosk refuses this member at the door (nothing
+    // paid); amber = they get in but still owe the balance.
+    const getPaymentChip = (amountDue: number, amountPaid: number) => {
+        const balance = Number(amountDue);
+        if (!Number.isFinite(balance) || balance <= 0) return null;
+        const unpaid = !(Number(amountPaid) > 0);
+        const amount = `$${balance.toLocaleString()}`;
+        return (
+            <Chip
+                label={
+                    unpaid
+                        ? `${t.members.pending}: ${amount}`
+                        : t.members.balanceDue.replace('${amount}', amount)
+                }
+                color={unpaid ? 'error' : 'warning'}
+                size="small"
+                variant="outlined"
+                title={unpaid ? t.members.unpaidNoEntry : undefined}
+            />
+        );
+    };
+
     return (
         <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
             <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} gap={2}>
@@ -205,7 +229,12 @@ export const MembershipsList: React.FC = () => {
                                     <TableCell>{m.plan_name || m.type}</TableCell>
                                     {!isMobile && <TableCell>{format(new Date(m.start_date + 'T12:00:00'), 'PPP')}</TableCell>}
                                     <TableCell>{format(new Date(m.end_date + 'T12:00:00'), 'PPP')}</TableCell>
-                                    <TableCell>{getStatusChip(m.status)}</TableCell>
+                                    <TableCell>
+                                        <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
+                                            {getStatusChip(m.status)}
+                                            {getPaymentChip(m.amount_due, m.amount_paid)}
+                                        </Box>
+                                    </TableCell>
                                     <TableCell align="right">
                                         <IconButton size="small" onClick={() => navigate(`/members/${m.member_id}`)} title={t.memberships.viewMember} sx={{ minWidth: 44, minHeight: 44 }}><ViewIcon /></IconButton>
                                     </TableCell>

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import api.memberships as memberships_module
 
 from models.membership import MembershipPlan
+from models.sale import SalesTransaction
 
 
 @pytest.fixture
@@ -217,6 +218,151 @@ class TestMembershipRenewal:
         data = renew_resp.json()
         assert data["status"] == "active"
         assert date.fromisoformat(data["end_date"]) >= date.today() + timedelta(days=29)
+
+
+class TestMembershipPaymentBalance:
+    """A membership's payment state is derived from the sales transactions
+    recorded against it — there is no stored paid/partial flag to drift.
+
+    Before this existed, "partial payment" was computed in the browser at
+    assignment time and discarded, so the kiosk showed a full-payment grant
+    to a member who still owed money.
+    """
+
+    def _create(self, client, auth_headers, member_id, plan_id):
+        resp = client.post(
+            "/api/memberships",
+            headers=auth_headers,
+            json={
+                "member_id": str(member_id),
+                "plan_id": str(plan_id),
+                "type": "monthly",
+                "start_date": str(date.today()),
+            },
+        )
+        assert resp.status_code == 201
+        return resp.json()
+
+    def _pay(self, db_session, membership, member, amount):
+        tx = SalesTransaction(
+            member_id=member.id,
+            membership_id=membership["id"],
+            amount=Decimal(amount),
+            payment_method="cash",
+            invoice_number=f"INV-TEST-{uuid.uuid4().hex[:10]}",
+        )
+        db_session.add(tx)
+        db_session.flush()
+        return tx
+
+    def _fetch(self, client, auth_headers, membership_id):
+        resp = client.get(f"/api/memberships/{membership_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def test_unpaid_membership_owes_the_full_price(
+        self, client, auth_headers, sample_member, sample_plan
+    ):
+        """No transaction recorded at all -> pending, whole price outstanding."""
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        data = self._fetch(client, auth_headers, membership["id"])
+
+        assert data["payment_status"] == "pending"
+        assert float(data["amount_paid"]) == 0.0
+        assert float(data["amount_due"]) == 49.99
+
+    def test_partial_payment_reports_the_remaining_balance(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        """The exact case that used to show as a full-payment grant."""
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        self._pay(db_session, membership, sample_member, "20.00")
+
+        data = self._fetch(client, auth_headers, membership["id"])
+
+        assert data["payment_status"] == "partial"
+        assert float(data["amount_paid"]) == 20.0
+        assert float(data["amount_due"]) == 29.99
+
+    def test_full_payment_owes_nothing(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        self._pay(db_session, membership, sample_member, "49.99")
+
+        data = self._fetch(client, auth_headers, membership["id"])
+
+        assert data["payment_status"] == "paid"
+        assert float(data["amount_due"]) == 0.0
+
+    def test_instalments_accumulate_until_settled(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        """Recording the rest of the money clears the balance — this is what
+        makes the yellow mark dismissable instead of permanent."""
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        self._pay(db_session, membership, sample_member, "20.00")
+        self._pay(db_session, membership, sample_member, "29.99")
+
+        data = self._fetch(client, auth_headers, membership["id"])
+
+        assert data["payment_status"] == "paid"
+        assert float(data["amount_paid"]) == 49.99
+        assert float(data["amount_due"]) == 0.0
+
+    def test_overpayment_never_reports_a_negative_balance(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        self._pay(db_session, membership, sample_member, "60.00")
+
+        data = self._fetch(client, auth_headers, membership["id"])
+
+        assert data["payment_status"] == "paid"
+        assert float(data["amount_due"]) == 0.0
+
+    def test_payment_from_another_membership_does_not_settle_this_one(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        """Balances are per-membership: paying for a renewal must not silently
+        clear the previous period's debt."""
+        unpaid = self._create(client, auth_headers, sample_member.id, sample_plan.id)
+        other = self._create(client, auth_headers, sample_member.id, sample_plan.id)
+        self._pay(db_session, other, sample_member, "49.99")
+
+        data = self._fetch(client, auth_headers, unpaid["id"])
+
+        assert data["payment_status"] == "pending"
+        assert float(data["amount_due"]) == 49.99
+
+    def test_list_endpoint_exposes_the_balance(
+        self, client, auth_headers, db_session, sample_member, sample_plan
+    ):
+        """The admin membership list is where staff see the yellow mark, so the
+        derived fields must survive the list serializer too."""
+        membership = self._create(
+            client, auth_headers, sample_member.id, sample_plan.id
+        )
+        self._pay(db_session, membership, sample_member, "20.00")
+
+        resp = client.get(
+            f"/api/memberships?member_id={sample_member.id}", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        row = next(m for m in resp.json()["memberships"] if m["id"] == membership["id"])
+
+        assert row["payment_status"] == "partial"
+        assert float(row["amount_due"]) == 29.99
 
 
 class TestRenewalInvalidation:

@@ -11,7 +11,7 @@ import json
 import numpy as np
 from sqlalchemy import func
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 
 from api.deps import get_db
@@ -179,6 +179,9 @@ def get_member_membership(
             Membership.start_date <= date.today(),
             Membership.end_date >= date.today(),
         )
+        # This runs on every kiosk recognition, so the payment balance is loaded
+        # with the membership instead of costing a second round-trip per face.
+        .options(selectinload(Membership.sales_transactions))
         .order_by(Membership.end_date.desc())
         .first()
     )
@@ -195,6 +198,11 @@ def get_member_membership(
             "start_date": membership.start_date.isoformat(),
             "end_date": membership.end_date.isoformat(),
             "access_rules": membership.access_rules or {},
+            # Payment balance travels with the access decision so the kiosk can
+            # tell a member what they still owe. It NEVER gates entry — an
+            # unpaid balance is a reminder at the door, not a denial reason.
+            "payment_status": membership.payment_status,
+            "amount_due": float(membership.amount_due),
         },
     }
 

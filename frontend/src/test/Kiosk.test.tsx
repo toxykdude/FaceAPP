@@ -77,6 +77,7 @@ function recognitionMessage(overrides: Partial<{
   face_bbox: number[] | null;
   membership_end_date: string | null;
   days_remaining: number | null;
+  amount_due: number | null;
 }> = {}) {
   return JSON.stringify({
     type: 'recognition',
@@ -90,6 +91,8 @@ function recognitionMessage(overrides: Partial<{
     // Comfortably outside the expiring-soon window so the default granted
     // message lands on the plain welcome splash, not the amber warning.
     days_remaining: 40,
+    // Nothing owed by default — the payment warning is opt-in per test.
+    amount_due: null,
     ...overrides,
   });
 }
@@ -283,6 +286,104 @@ describe('Kiosk result splash', () => {
     expect(splash).toHaveTextContent(t.kiosk.membershipExpiringSoon);
   });
 
+  // Amber is reserved for members who ARE let in but need a nudge: a partial
+  // payment or an imminent expiry. Red means the door stayed shut.
+  it('tells a partially-paid member what they still owe, and still lets them in', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(ws, recognitionMessage({ access_granted: true, days_remaining: 40, amount_due: 29.99 }));
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    // The regression: this used to render as a clean full-payment grant.
+    expect(splash).toHaveAttribute('data-state', 'granted_payment_due');
+    // Access is still GRANTED — a balance is a reminder, not a refusal.
+    expect(splash).toHaveTextContent(t.kiosk.welcomeBack);
+    expect(splash).toHaveTextContent('Jane Doe');
+    expect(splash).toHaveTextContent(t.kiosk.paymentPending);
+    expect(screen.getByTestId('payment-due-amount')).toHaveTextContent('29,99');
+  });
+
+  it('leaves a fully-paid member on the plain welcome splash', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(ws, recognitionMessage({ access_granted: true, days_remaining: 40, amount_due: 0 }));
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    expect(splash).toHaveAttribute('data-state', 'granted');
+    expect(splash).not.toHaveTextContent(t.kiosk.paymentPending);
+  });
+
+  it('says nothing about money when the CV service reports no balance', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(ws, recognitionMessage({ access_granted: true, days_remaining: 40, amount_due: null }));
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    expect(splash).toHaveAttribute('data-state', 'granted');
+    expect(screen.queryByTestId('payment-due-notice')).not.toBeInTheDocument();
+  });
+
+  it('surfaces both the balance and an imminent expiry when both apply', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(ws, recognitionMessage({ access_granted: true, days_remaining: 2, amount_due: 15000 }));
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    // The balance leads, but the renewal nudge is not swallowed by it.
+    expect(splash).toHaveAttribute('data-state', 'granted_payment_due');
+    expect(splash).toHaveTextContent(t.kiosk.paymentPending);
+    expect(splash).toHaveTextContent(`${t.kiosk.membershipExpiringSoon}: 2 ${t.kiosk.daysUnit}`);
+  });
+
+  it('turns away a member who has paid nothing, and names what they owe', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(
+      ws,
+      recognitionMessage({
+        access_granted: false,
+        denial_reason: 'unpaid_membership',
+        days_remaining: null,
+        amount_due: 49.99,
+      })
+    );
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    // RED and denied — a customer who has not paid does not come in.
+    expect(splash).toHaveAttribute('data-state', 'membership_denied');
+    expect(splash).toHaveTextContent(t.kiosk.reasonUnpaidMembership);
+    expect(screen.getByTestId('denied-amount-due')).toHaveTextContent('49,99');
+    expect(splash).toHaveTextContent(t.kiosk.pleaseVisitReception);
+    // Never the amber "welcome, please settle up" treatment.
+    expect(screen.queryByTestId('payment-due-notice')).not.toBeInTheDocument();
+  });
+
+  it('does not show an amount on a denial that has nothing to do with money', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+
+    sendMessage(
+      ws,
+      recognitionMessage({
+        access_granted: false,
+        denial_reason: 'expired_membership',
+        days_remaining: null,
+        amount_due: null,
+      })
+    );
+
+    const splash = await screen.findByTestId('result-splash', undefined, { timeout: 2000 });
+    expect(splash).toHaveAttribute('data-state', 'membership_denied');
+    expect(splash).toHaveTextContent(t.kiosk.reasonExpiredMembership);
+    expect(screen.queryByTestId('denied-amount-due')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('payment-due-notice')).not.toBeInTheDocument();
+  });
+
   it('never names an unrecognized person on the splash', async () => {
     renderKiosk();
     const ws = await awaitAutoStartedCamera();
@@ -330,6 +431,7 @@ describe('Kiosk result splash', () => {
   it.each([
     ['granted', { access_granted: true, days_remaining: 40 }],
     ['granted_expiring', { access_granted: true, days_remaining: 0 }],
+    ['granted_payment_due', { access_granted: true, days_remaining: 40, amount_due: 29.99 }],
     ['membership_denied', { access_granted: false, denial_reason: 'expired_membership', days_remaining: null }],
     ['unknown_denied', { access_granted: false, denial_reason: 'unknown_face', days_remaining: null }],
   ])('returns the %s terminal state to idle within three seconds', async (state, overrides) => {
