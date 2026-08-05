@@ -14,10 +14,19 @@ export interface Membership {
     status: 'active' | 'expired' | 'cancelled' | 'suspended';
     created_at: string;
     updated_at: string;
+    // Payment state derived server-side from the transactions recorded against
+    // this membership. `amount_due` is what reception still has to collect.
+    // Like `price`, these are Numeric(10,2) columns that Pydantic serializes as
+    // decimal STRINGS ("29.99") — always read them through Number().
+    amount_paid: number;
+    amount_due: number;
+    payment_status: PaymentStatus;
     member_name?: string;
     member_id_number?: string;
     plan_name?: string;
 }
+
+export type PaymentStatus = 'paid' | 'partial' | 'pending';
 
 export interface MembershipCreate {
     member_id: string;

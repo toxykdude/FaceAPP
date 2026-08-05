@@ -54,6 +54,10 @@ interface WsRecognitionResult {
     // Whole days left on the membership. Only populated on a grant; null when
     // the CV service couldn't determine it.
     days_remaining: number | null;
+    // Outstanding balance on the membership. Only populated on a grant, and
+    // null whenever nothing is owed — a balance NEVER denies entry, it only
+    // turns the welcome amber and names the amount.
+    amount_due?: number | null;
 }
 
 interface WsStatusMessage {
@@ -73,6 +77,7 @@ interface LocalEvent {
     timestamp: Date;
     denial_reason?: string | null;
     days_remaining?: number | null;
+    amount_due?: number | null;
 }
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -81,6 +86,7 @@ type RecognitionState =
     | 'verifying'
     | 'granted'
     | 'granted_expiring'
+    | 'granted_payment_due'
     | 'membership_denied'
     | 'unknown_denied';
 type DenialCategory = 'membership' | 'unknown';
@@ -97,6 +103,15 @@ const RESULT_RESET_DELAY_MS = 3000;
 // splash turns amber and names the day count so they can renew at reception
 // before it actually lapses.
 const EXPIRY_WARNING_DAYS = 5;
+
+// Formats a balance for the splash. Read from across a lobby, so cents are
+// dropped when there are none — "$29" beats "$29.00" at that distance.
+function formatAmountDue(amount: number): string {
+    return `$${amount.toLocaleString('es-CO', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    })}`;
+}
 
 // An unattended kiosk has nobody to pick a camera for it, so it remembers the
 // last one it used and re-claims it after a reload or power cycle.
@@ -138,6 +153,7 @@ type KioskTranslations = ReturnType<typeof useLanguage>['t'];
 const MEMBERSHIP_REASON_KEY: Record<string, keyof KioskTranslations['kiosk']> = {
     no_active_membership: 'reasonNoActiveMembership',
     expired_membership: 'reasonExpiredMembership',
+    unpaid_membership: 'reasonUnpaidMembership',
     suspended_membership: 'reasonSuspendedMembership',
     membership_not_started: 'reasonMembershipNotStarted',
     access_day_restriction: 'reasonAccessDayRestriction',
@@ -146,10 +162,12 @@ const MEMBERSHIP_REASON_KEY: Record<string, keyof KioskTranslations['kiosk']> = 
 };
 
 // A granted-but-expiring member is still welcomed — the amber styling and the
-// day count carry the "renew soon" message, not a scarier headline.
+// day count carry the "renew soon" message, not a scarier headline. The same
+// holds for an unpaid balance: the door opened, so the title stays a welcome.
 const SPLASH_TITLE_KEY: Record<SplashState, keyof KioskTranslations['kiosk']> = {
     granted: 'welcomeBack',
     granted_expiring: 'welcomeBack',
+    granted_payment_due: 'welcomeBack',
     membership_denied: 'membershipIssue',
     unknown_denied: 'unknownTitle',
 };
@@ -257,6 +275,7 @@ const STATE_BORDER_COLOR: Record<RecognitionState, string> = {
     verifying: COLORS.accent,
     granted: COLORS.success,
     granted_expiring: COLORS.warning,
+    granted_payment_due: COLORS.warning,
     membership_denied: COLORS.warning,
     unknown_denied: COLORS.danger,
 };
@@ -266,6 +285,7 @@ const STATE_ANIMATION: Record<RecognitionState, string> = {
     verifying: `${pulseAccent} 1.1s ease-in-out infinite`,
     granted: `${pulseGreen} 1.4s ease-in-out 2`,
     granted_expiring: `${pulseWarning} 1.4s ease-in-out 2`,
+    granted_payment_due: `${pulseWarning} 1.4s ease-in-out 2`,
     membership_denied: `${pulseWarning} 1.8s ease-in-out 1`,
     unknown_denied: `${pulseDanger} 1.8s ease-in-out 1`,
 };
@@ -277,6 +297,7 @@ const STATE_ANIMATION: Record<RecognitionState, string> = {
 const SPLASH_ACCENT: Record<SplashState, string> = {
     granted: COLORS.success,
     granted_expiring: COLORS.warning,
+    granted_payment_due: COLORS.warning,
     membership_denied: COLORS.danger,
     unknown_denied: COLORS.danger,
 };
@@ -430,6 +451,7 @@ export const Kiosk: React.FC = () => {
     const [denialReason, setDenialReason] = useState<string | null>(null);
     const [membershipExpiry, setMembershipExpiry] = useState<string | null>(null);
     const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
+    const [amountDue, setAmountDue] = useState<number | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
 
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -490,6 +512,7 @@ export const Kiosk: React.FC = () => {
         setDenialReason(null);
         setMembershipExpiry(null);
         setDaysRemaining(null);
+        setAmountDue(null);
     }, []);
 
     useEffect(() => {
@@ -519,6 +542,7 @@ export const Kiosk: React.FC = () => {
             membership_end_date,
             member_id,
             days_remaining,
+            amount_due,
         } = latestRecognition;
         const resultKey = `${member_id ?? 'unknown'}:${access_granted}`;
 
@@ -554,16 +578,28 @@ export const Kiosk: React.FC = () => {
             setRecognizedName(member_name);
             setMembershipExpiry(membership_end_date || null);
             setDaysRemaining(days_remaining ?? null);
+            setAmountDue(amount_due ?? null);
 
             if (access_granted) {
-                // Still a grant — the door opens either way. The amber variant
-                // only adds a nudge to renew. `0` is a real warning value (the
-                // final valid day), so test the null-ness separately.
+                // Still a grant — the door opens either way. The amber variants
+                // only add a nudge to settle up or renew. `0` is a real warning
+                // value for days (the final valid day), so test the null-ness
+                // separately.
                 const expiringSoon =
                     days_remaining !== null &&
                     days_remaining !== undefined &&
                     days_remaining <= EXPIRY_WARNING_DAYS;
-                setRecognitionState(expiringSoon ? 'granted_expiring' : 'granted');
+                // A balance on a GRANT can only be a partial payment — a member
+                // who paid nothing is denied upstream by the CV payment gate and
+                // never reaches this branch. The balance outranks the renewal
+                // nudge (money owed is what reception acts on today) and the
+                // payment splash still shows the day count when both apply.
+                const owesMoney = amount_due !== null && amount_due !== undefined && amount_due > 0;
+                if (owesMoney) {
+                    setRecognitionState('granted_payment_due');
+                } else {
+                    setRecognitionState(expiringSoon ? 'granted_expiring' : 'granted');
+                }
             } else {
                 setDenialReason(denial_reason || null);
                 setRecognitionState(classifyDenial(denial_reason) === 'unknown' ? 'unknown_denied' : 'membership_denied');
@@ -1164,7 +1200,8 @@ export const Kiosk: React.FC = () => {
                                 }}
                             />
                         )}
-                        {recognitionState === 'granted_expiring' && (
+                        {(recognitionState === 'granted_expiring' ||
+                            recognitionState === 'granted_payment_due') && (
                             <WarningAmberIcon
                                 sx={{
                                     fontSize: { xs: 80, sm: 120 },
@@ -1264,6 +1301,46 @@ export const Kiosk: React.FC = () => {
                         </>
                     )}
 
+                    {/* The door already opened — this block exists purely so the
+                        member learns at the door what they still owe, instead of
+                        finding out weeks later. */}
+                    {recognitionState === 'granted_payment_due' && (
+                        <>
+                            <Typography
+                                variant={isMobile ? 'body1' : 'h6'}
+                                sx={{ color: COLORS.warning, fontWeight: 600, mb: 0.5 }}
+                                data-testid="payment-due-notice"
+                            >
+                                {t.kiosk.paymentPending}
+                            </Typography>
+                            {amountDue !== null && (
+                                <Typography
+                                    variant={isMobile ? 'h6' : 'h5'}
+                                    fontWeight={800}
+                                    sx={{ color: COLORS.warning, mb: 0.5 }}
+                                    data-testid="payment-due-amount"
+                                >
+                                    {t.kiosk.amountDue}: {formatAmountDue(amountDue)}
+                                </Typography>
+                            )}
+                            {/* Both warnings can apply at once. The balance leads,
+                                but an expiry that is also imminent still gets said
+                                rather than being swallowed by it. */}
+                            {daysRemaining !== null && daysRemaining <= EXPIRY_WARNING_DAYS && (
+                                <Typography
+                                    variant={isMobile ? 'body2' : 'body1'}
+                                    sx={{ color: alpha(COLORS.warning, 0.75), fontWeight: 400 }}
+                                >
+                                    {t.kiosk.membershipExpiringSoon}: {daysRemaining}{' '}
+                                    {daysRemaining === 1 ? t.kiosk.dayUnit : t.kiosk.daysUnit}
+                                </Typography>
+                            )}
+                            <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 1 }}>
+                                {t.kiosk.pleaseVisitReception}
+                            </Typography>
+                        </>
+                    )}
+
                     {recognitionState === 'membership_denied' && (
                         <>
                             <Typography
@@ -1272,6 +1349,19 @@ export const Kiosk: React.FC = () => {
                             >
                                 {humanizeDenialReason(denialReason, t)}
                             </Typography>
+                            {/* Only the non-payment denial carries a balance, and
+                                naming it turns "come see reception" into an
+                                errand the member can actually complete. */}
+                            {amountDue !== null && (
+                                <Typography
+                                    variant={isMobile ? 'h6' : 'h5'}
+                                    fontWeight={800}
+                                    sx={{ color: COLORS.danger, mt: 0.5 }}
+                                    data-testid="denied-amount-due"
+                                >
+                                    {t.kiosk.amountDue}: {formatAmountDue(amountDue)}
+                                </Typography>
+                            )}
                             <Typography variant="body2" sx={{ color: COLORS.secondaryText, mt: 1 }}>
                                 {t.kiosk.pleaseVisitReception}
                             </Typography>

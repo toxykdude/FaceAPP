@@ -37,7 +37,7 @@ import {
 } from '@mui/material';
 import { PhotoCamera, Edit as EditIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { membersApi, MemberCreate, MemberUpdate } from '@/api/members';
-import { membershipsApi } from '@/api/memberships';
+import { membershipsApi, PaymentStatus } from '@/api/memberships';
 import { membershipPlansApi, MembershipPlan } from '@/api/membershipPlans';
 import { salesApi } from '@/api/sales';
 import { addDays, format } from 'date-fns';
@@ -337,7 +337,28 @@ interface MembershipHistoryItem {
     created_at: string;
     updated_at: string;
     plan_name?: string;
+    // Derived server-side from the transactions recorded against this
+    // membership — see backend Membership.amount_paid.
+    amount_paid: number;
+    amount_due: number;
+    payment_status: PaymentStatus;
 }
+
+// A membership owes money when the server says so. `amount_due` arrives as a
+// decimal string, and a stale cached response predating the field arrives as
+// undefined — both go through Number() and the isFinite guard so neither can
+// render "NaN" as a balance or invent a debt.
+const outstandingBalance = (m: MembershipHistoryItem): number => {
+    const due = Number(m.amount_due);
+    return Number.isFinite(due) && due > 0 ? due : 0;
+};
+
+// Nothing paid at all. The CV payment gate DENIES entry for this state, so the
+// admin UI marks it red to match the kiosk — a partial payment still gets in
+// and stays amber. Derived from the amounts rather than the payment_status
+// string so a response missing that label still classifies correctly.
+const isFullyUnpaid = (m: MembershipHistoryItem): boolean =>
+    outstandingBalance(m) > 0 && !(Number(m.amount_paid) > 0);
 
 const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const queryClient = useQueryClient();
@@ -358,6 +379,9 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
     const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'transfer'>('cash');
     const [paymentAmount, setPaymentAmount] = React.useState<string>('');
     const [deleteTarget, setDeleteTarget] = React.useState<MembershipHistoryItem | null>(null);
+    const [paymentTarget, setPaymentTarget] = React.useState<MembershipHistoryItem | null>(null);
+    const [paymentInputAmount, setPaymentInputAmount] = React.useState('');
+    const [paymentInputMethod, setPaymentInputMethod] = React.useState<'cash' | 'transfer'>('cash');
     const { data: memberships, isLoading: membershipsLoading } = useQuery({
         queryKey: ['memberships', 'member', memberId],
         queryFn: () => membershipsApi.getMemberships(0, 50, memberId),
@@ -461,6 +485,61 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         }
     });
 
+    // Settling a balance is just another transaction against the same
+    // membership — that is what makes the yellow mark clear itself instead of
+    // needing a separate "paid" flag someone has to remember to flip.
+    const recordPaymentMutation = useMutation({
+        mutationFn: async ({ membership, amount, method }: { membership: MembershipHistoryItem; amount: number; method: 'cash' | 'transfer' }) => {
+            return await salesApi.createTransaction({
+                member_id: membership.member_id,
+                membership_id: membership.id,
+                amount,
+                payment_method: method,
+                notes: `Abono. Saldo previo: $${outstandingBalance(membership).toLocaleString()}`,
+            });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['memberships', 'member', memberId] });
+            queryClient.invalidateQueries({ queryKey: ['memberships'] });
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            // The transaction shows up in Sales/Reports too, so those caches
+            // are stale the moment this succeeds.
+            queryClient.invalidateQueries({ queryKey: ['sales'] });
+            setPaymentTarget(null);
+            setPaymentInputAmount('');
+            setPaymentInputMethod('cash');
+        },
+        onError: (error: any) => {
+            alert('Error: ' + (error.response?.data?.detail || error.message));
+        }
+    });
+
+    const handleOpenPayment = (membership: MembershipHistoryItem) => {
+        setPaymentTarget(membership);
+        // Pre-fill the full balance: settling in one go is the common case, and
+        // an instalment is a quick edit from there.
+        setPaymentInputAmount(String(outstandingBalance(membership)));
+        setPaymentInputMethod('cash');
+    };
+
+    const paymentInputValue = Number(paymentInputAmount) || 0;
+    const paymentBalance = paymentTarget ? outstandingBalance(paymentTarget) : 0;
+    const paymentError =
+        paymentInputValue <= 0
+            ? t.members.paymentMustBePositive
+            : paymentInputValue > paymentBalance
+              ? t.members.paymentExceedsBalance
+              : null;
+
+    const handleConfirmPayment = () => {
+        if (!paymentTarget || paymentError) return;
+        recordPaymentMutation.mutate({
+            membership: paymentTarget,
+            amount: paymentInputValue,
+            method: paymentInputMethod,
+        });
+    };
+
     const handleEdit = (membership: MembershipHistoryItem) => {
         setEditingMembership(membership);
         setEditStartDate(membership.start_date);
@@ -551,6 +630,31 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
         }
     };
 
+    // The payment mark. Staff scanning the history need to spot an unsettled
+    // membership without opening anything, so the amount rides on the chip.
+    // Red means the kiosk will refuse this member at the door; amber means they
+    // get in but owe the balance.
+    const getPaymentChip = (m: MembershipHistoryItem) => {
+        const balance = outstandingBalance(m);
+        if (balance <= 0) return null;
+        const unpaid = isFullyUnpaid(m);
+        const amount = `$${balance.toLocaleString()}`;
+        return (
+            <Chip
+                label={
+                    unpaid
+                        ? `${t.members.pending}: ${amount}`
+                        : t.members.balanceDue.replace('${amount}', amount)
+                }
+                color={unpaid ? 'error' : 'warning'}
+                size="small"
+                icon={<span>{unpaid ? '⛔' : '⚠️'}</span>}
+                title={unpaid ? t.members.unpaidNoEntry : undefined}
+                data-testid={`membership-balance-${m.id}`}
+            />
+        );
+    };
+
     const getStatusChip = (status: string) => {
         switch (status) {
             case 'active':
@@ -588,6 +692,7 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                         {m.plan_name || m.type}
                     </Typography>
                     {getStatusChip(m.status)}
+                    {getPaymentChip(m)}
                 </Box>
                 {editingMembership?.id === m.id ? (
                     <Box display="flex" flexDirection="column" gap={1.5} mt={1} mb={0.5}>
@@ -664,6 +769,18 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
             </Box>
             {editingMembership?.id !== m.id && (
                 <Box display="flex" gap={1} flexShrink={0}>
+                    {outstandingBalance(m) > 0 && (
+                        <Button
+                            variant="contained"
+                            size="small"
+                            color="warning"
+                            onClick={() => handleOpenPayment(m)}
+                            sx={{ minHeight: 44 }}
+                            data-testid={`record-payment-${m.id}`}
+                        >
+                            {t.members.recordPayment}
+                        </Button>
+                    )}
                     {isAdmin && (
                         <Button
                             variant="outlined"
@@ -920,6 +1037,85 @@ const MembershipSection: React.FC<{ memberId: string }> = ({ memberId }) => {
                         fullWidth={isMobile}
                     >
                         {deleteMutation.isPending ? t.members.deleting : t.members.delete}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Record Payment Dialog — clears the outstanding balance by
+                recording the money actually received against this membership. */}
+            <Dialog
+                open={!!paymentTarget}
+                onClose={() => setPaymentTarget(null)}
+                fullWidth
+                fullScreen={isMobile}
+            >
+                <DialogTitle>
+                    {t.members.recordPaymentFor.replace(
+                        '{plan}',
+                        paymentTarget?.plan_name || paymentTarget?.type || ''
+                    )}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>{t.members.recordPaymentDesc}</DialogContentText>
+                    {paymentTarget && (
+                        <Box display="flex" flexDirection="column" gap={2} mt={2}>
+                            <Box p={2} bgcolor="warning.light" borderRadius={1}>
+                                <Typography variant="body2">
+                                    {t.members.outstandingBalance}
+                                </Typography>
+                                <Typography variant="h6" fontWeight="bold">
+                                    ${paymentBalance.toLocaleString()}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary">
+                                    {t.members.planPrice}: ${Number(paymentTarget.price).toLocaleString()}
+                                    {' — '}
+                                    {t.members.paid}: ${Number(paymentTarget.amount_paid || 0).toLocaleString()}
+                                </Typography>
+                            </Box>
+
+                            <TextField
+                                select
+                                label={t.members.paymentMethod}
+                                value={paymentInputMethod}
+                                onChange={(e) => setPaymentInputMethod(e.target.value as 'cash' | 'transfer')}
+                                fullWidth
+                            >
+                                <MenuItem value="cash">{'💵'} {t.members.cash}</MenuItem>
+                                <MenuItem value="transfer">{'🏦'} {t.members.transfer}</MenuItem>
+                            </TextField>
+
+                            <TextField
+                                label={t.members.amountReceived}
+                                type="number"
+                                value={paymentInputAmount}
+                                onChange={(e) => setPaymentInputAmount(e.target.value)}
+                                fullWidth
+                                autoFocus
+                                error={!!paymentError}
+                                helperText={paymentError || ''}
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                }}
+                                inputProps={{ 'data-testid': 'payment-amount-input' }}
+                            />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                    <Button onClick={() => setPaymentTarget(null)} fullWidth={isMobile}>
+                        {t.members.cancel}
+                    </Button>
+                    <Button
+                        onClick={handleConfirmPayment}
+                        color="warning"
+                        variant="contained"
+                        disabled={!!paymentError || recordPaymentMutation.isPending}
+                        fullWidth={isMobile}
+                        data-testid="confirm-payment"
+                    >
+                        {recordPaymentMutation.isPending
+                            ? t.members.savingPayment
+                            : t.members.confirmPayment}
                     </Button>
                 </DialogActions>
             </Dialog>
