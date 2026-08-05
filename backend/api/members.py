@@ -29,6 +29,21 @@ from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/members", tags=["Members"])
 
+_MEMBER_EMAIL_CONSTRAINTS = {"members_email_key", "ix_members_email"}
+
+
+def _member_integrity_conflict(error: IntegrityError) -> HTTPException:
+    constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if constraint in _MEMBER_EMAIL_CONSTRAINTS:
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Member conflicts with existing data",
+    )
+
 
 @router.get("", response_model=MemberListResponse)
 def list_members(
@@ -181,16 +196,6 @@ def create_member(
                 detail="Email already registered",
             )
 
-    # Check if phone already exists (mirror of the email check; enforced by
-    # the DB partial unique index as belt-and-suspenders below)
-    if member.phone:
-        existing = db.query(Member).filter(Member.phone == member.phone).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Phone already registered",
-            )
-
     # Create member
     db_member = Member(
         first_name=member.first_name,
@@ -219,15 +224,9 @@ def create_member(
             details={"name": f"{db_member.first_name} {db_member.last_name}"},
         )
         db.commit()
-    except IntegrityError:
-        # Belt-and-suspenders for the DB unique index on phone: a concurrent
-        # create (or any other unique-constraint race) must surface as the
-        # same 400, never as a 500.
+    except IntegrityError as error:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone already registered",
-        )
+        raise _member_integrity_conflict(error) from None
     db.refresh(db_member)
 
     return db_member
@@ -391,20 +390,24 @@ async def update_member(
 
     member.updated_at = datetime.now(timezone.utc)
 
-    # Audit (atomic with the update — log_action flushes; the commit below
-    # persists both, so an update never completes without a durable audit).
-    from core.audit import log_action
+    try:
+        db.flush()
+        # Audit remains atomic with the member write; commit persists both.
+        from core.audit import log_action
 
-    log_action(
-        db,
-        action="update",
-        resource_type="member",
-        resource_id=str(member.id),
-        user_id=str(current_user.id),
-        username=current_user.username,
-        details={"updated_fields": list(update_data.keys())},
-    )
-    db.commit()
+        log_action(
+            db,
+            action="update",
+            resource_type="member",
+            resource_id=str(member.id),
+            user_id=str(current_user.id),
+            username=current_user.username,
+            details={"updated_fields": list(update_data.keys())},
+        )
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise _member_integrity_conflict(error) from None
     db.refresh(member)
 
     # Invalidate CV cache if member status changed

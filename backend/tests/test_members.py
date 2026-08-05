@@ -1,7 +1,15 @@
 """Tests for member CRUD endpoints."""
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+
+from api.members import create_member
+from schemas.member import MemberCreate
 
 
 class TestMemberList:
@@ -58,33 +66,83 @@ class TestMemberCreate:
         assert response.status_code == 422
 
 
-class TestMemberPhoneUniqueness:
-    """WS-9: member phone must be unique (pre-check mirrors the email check)."""
+class TestMemberContactPhone:
+    """Phone is nullable, non-unique member contact data."""
 
-    def test_create_member_duplicate_phone_400(self, client, auth_headers):
-        """Second create with an already-registered phone -> 400 (pre-check)."""
+    def test_create_members_with_duplicate_phone(self, client, auth_headers):
         phone = "555-4444"
-        base = {
-            "first_name": "Dup",
-            "last_name": "Phone",
-            "phone": phone,
-            "consent_given": True,
-        }
+        responses = [
+            client.post(
+                "/api/members",
+                headers=auth_headers,
+                json={
+                    "first_name": f"Contact{index}",
+                    "last_name": "Member",
+                    "email": f"contact{index}.{uuid.uuid4().hex[:8]}@test.com",
+                    "phone": phone,
+                },
+            )
+            for index in range(2)
+        ]
 
-        resp1 = client.post(
+        assert [response.status_code for response in responses] == [201, 201]
+        assert responses[0].json()["id"] != responses[1].json()["id"]
+        assert {response.json()["phone"] for response in responses} == {phone}
+
+    def test_update_member_to_existing_phone(self, client, auth_headers, sample_member):
+        created = client.post(
             "/api/members",
             headers=auth_headers,
-            json={**base, "email": f"dup1.{uuid.uuid4().hex[:8]}@test.com"},
+            json={
+                "first_name": "Other",
+                "last_name": "Member",
+                "email": f"other.{uuid.uuid4().hex[:8]}@test.com",
+                "phone": "555-5555",
+            },
         )
-        assert resp1.status_code == 201, resp1.text
+        assert created.status_code == 201, created.text
 
-        resp2 = client.post(
-            "/api/members",
+        response = client.put(
+            f"/api/members/{created.json()['id']}",
             headers=auth_headers,
-            json={**base, "email": f"dup2.{uuid.uuid4().hex[:8]}@test.com"},
+            json={"phone": sample_member.phone},
         )
-        assert resp2.status_code == 400, resp2.text
-        assert resp2.json()["detail"] == "Phone already registered"
+
+        assert response.status_code == 200, response.text
+        assert response.json()["phone"] == sample_member.phone
+
+    def test_duplicate_email_stays_an_accurate_safe_error(self, client, auth_headers):
+        email = f"duplicate.{uuid.uuid4().hex[:8]}@test.com"
+        base = {"first_name": "Email", "last_name": "Member", "email": email}
+        first = client.post("/api/members", headers=auth_headers, json=base)
+        second = client.post("/api/members", headers=auth_headers, json=base)
+
+        assert first.status_code == 201, first.text
+        assert second.status_code == 400
+        assert second.json() == {"detail": "Email already registered"}
+
+    def test_unknown_integrity_error_is_generic_and_rolls_back(self):
+        original = Exception("private database detail")
+        setattr(
+            original,
+            "diag",
+            SimpleNamespace(constraint_name="unexpected_constraint"),
+        )
+        db = Mock()
+        db.flush.side_effect = IntegrityError("private statement", {}, original)
+
+        with pytest.raises(HTTPException) as caught:
+            create_member(
+                MemberCreate(first_name="Conflict", last_name="Member"),
+                db=db,
+                current_user=Mock(id=uuid.uuid4(), username="tester"),
+            )
+
+        assert caught.value.status_code == 409
+        assert caught.value.detail == "Member conflicts with existing data"
+        assert "phone" not in str(caught.value.detail).lower()
+        assert "private" not in str(caught.value.detail).lower()
+        db.rollback.assert_called_once_with()
 
 
 class TestMemberGetUpdateDelete:
