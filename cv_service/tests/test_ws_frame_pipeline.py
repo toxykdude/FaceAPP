@@ -103,7 +103,7 @@ def isolated_service(monkeypatch):
         _recent_events={},
         _event_cooldown=30.0,
         validator=SimpleNamespace(
-            validate_access=AsyncMock(return_value=(True, None, 12)),
+            validate_access=AsyncMock(return_value=(True, None, 12, None)),
         ),
         api_client=SimpleNamespace(create_access_event=AsyncMock()),
     )
@@ -143,7 +143,7 @@ class TestProcessWsFrame:
     @pytest.mark.asyncio
     async def test_recognition_payload_carries_days_remaining(self, isolated_service):
         frame = np.zeros((64, 64, 3), dtype=np.uint8)
-        isolated_service.validator.validate_access.return_value = (True, None, 4)
+        isolated_service.validator.validate_access.return_value = (True, None, 4, None)
 
         payload = await _process(frame, _components())
 
@@ -153,11 +153,41 @@ class TestProcessWsFrame:
         assert payload["days_remaining"] == 4
 
     @pytest.mark.asyncio
+    async def test_recognition_payload_carries_amount_due(self, isolated_service):
+        """The kiosk cannot warn about a pending payment it never receives —
+        the balance has to survive the WS payload, not just the validator."""
+        frame = np.zeros((64, 64, 3), dtype=np.uint8)
+        isolated_service.validator.validate_access.return_value = (
+            True,
+            None,
+            40,
+            29.99,
+        )
+
+        payload = await _process(frame, _components())
+
+        assert payload["access_granted"] is True
+        assert payload["amount_due"] == 29.99
+
+    @pytest.mark.asyncio
+    async def test_settled_membership_payload_carries_no_amount_due(
+        self, isolated_service
+    ):
+        frame = np.zeros((64, 64, 3), dtype=np.uint8)
+        isolated_service.validator.validate_access.return_value = (True, None, 40, None)
+
+        payload = await _process(frame, _components())
+
+        assert payload["access_granted"] is True
+        assert payload["amount_due"] is None
+
+    @pytest.mark.asyncio
     async def test_denied_payload_carries_reason_and_no_days(self, isolated_service):
         frame = np.zeros((64, 64, 3), dtype=np.uint8)
         isolated_service.validator.validate_access.return_value = (
             False,
             "expired_membership",
+            None,
             None,
         )
 
@@ -166,6 +196,7 @@ class TestProcessWsFrame:
         assert payload["access_granted"] is False
         assert payload["denial_reason"] == "expired_membership"
         assert payload["days_remaining"] is None
+        assert payload["amount_due"] is None
 
     @pytest.mark.asyncio
     async def test_status_payload_when_no_face_present(self, isolated_service):

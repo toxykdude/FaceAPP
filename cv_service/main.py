@@ -327,9 +327,10 @@ class CVService:
 
             self._recent_events[event_key] = now
 
-            # Validate access. days_remaining is only surfaced to the kiosk
-            # over the WebSocket path; RTSP events don't render it.
-            access_granted, denial_reason, _ = await self.validator.validate_access(
+            # Validate access. days_remaining and amount_due are only surfaced
+            # to the kiosk over the WebSocket path; RTSP events don't render
+            # them.
+            access_granted, denial_reason, _, _ = await self.validator.validate_access(
                 member_id, confidence, camera_id
             )
 
@@ -709,7 +710,7 @@ async def process_ws_frame(
     member_id, confidence, member_data = components.matcher.find_match(embedding)
 
     # Validate access
-    access_granted, denial_reason, days_remaining = (
+    access_granted, denial_reason, days_remaining, amount_due = (
         await service.validator.validate_access(member_id, confidence, camera_id)
     )
 
@@ -782,6 +783,9 @@ async def process_ws_frame(
             member_data.get("membership_end_date") if member_data else None
         ),
         "days_remaining": days_remaining,
+        # Outstanding balance on the granted membership, or None when nothing
+        # is owed. Never a denial — the door still opens.
+        "amount_due": amount_due,
     }
     attempt_state.record_terminal(mode)
     if mode is LivenessMode.ENFORCE:
