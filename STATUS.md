@@ -7,13 +7,13 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-07-30 (PR #29+#30 merged and SHA `946c605` deployed + runtime-verified on production LXC 114) |
-| **Current HEAD** | `465c9a6` — Merge PR #29 `fix/backup-remote-test-connection` |
-| **Commits on main** | 145 |
-| **PRs merged to date** | 24 merged PR records through #29 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — PR #29 passed backend, frontend, and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-08-05 (PR #64 merged and SHA `c239710` deployed + runtime-verified on DEV LXC 124) |
+| **Current HEAD** | `c239710` — Merge PR #64 `feat/membership-payment-enforcement` |
+| **Commits on main** | 212 |
+| **PRs merged to date** | through #64 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — PR #64 passed backend (288 tests), frontend (82 tests / 13 suites), and cv_service (142 tests) before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `465c9a68e397b87f46e2b1b5972ad4c1bb2bf168` (main).
+`git rev-parse HEAD` → `c2397106d841e4f605ea22f3a28b80dbd579709e` (main).
 Remote is clean and in sync.
 
 ✅ **Production is in sync with `main`.** LXC 114 was deployed to `946c605` on
@@ -86,13 +86,23 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 ## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.101`)
 
 - **Latest DEV deployment (current)**: exact SHA
+  `c2397106d841e4f605ea22f3a28b80dbd579709e` — `main` at Merge PR #64
+  (membership payment balance + unpaid-entry gate), deployed 2026-08-05. DEV is
+  back to tracking `main`. PR #64 passed all three CI jobs before merge —
+  including `frontend`, whose `MembershipAccordion.test.tsx` cannot run in the
+  bun-only sandbox (13 suites / 82 tests green on Node in CI).
+  This deploy was code-identical to the branch deploy below: only `AGENTS.md`
+  and `STATUS.md` changed content, and the built asset hash was byte-identical
+  (`index-DagbKDRJ.js`). Alembic already at head, so no migration ran.
+  Rollback code SHA `b41954ff43f10f59772c8fcc97782330d25c1aa8`; verified
+  14-table-data-entry dump
+  `/var/backups/powerhouse-deploy/membership_db_predeploy_20260805T173206Z.dump`.
+- **Preceding DEV deployment (branch validation)**: exact SHA
   `b41954ff43f10f59772c8fcc97782330d25c1aa8` — branch
-  `feat/membership-payment-enforcement` (membership payment balance +
-  unpaid-entry gate), deployed 2026-08-05. **Deployed from a BRANCH, not
-  `main`** — this SHA is not on `main` and CI has not run on it; it carries the
-  three payment commits on top of `8dc2b0a`, and also brought DEV forward past
-  the 6 commits it was missing (liveness fix, portal ambiguous-phone auth,
-  duplicate contact phones).
+  `feat/membership-payment-enforcement`, deployed 2026-08-05 **from a BRANCH,
+  before CI had ever run on it**, to measure the unpaid-gate blast radius before
+  merging. It also brought DEV forward past the 6 commits it was missing
+  (liveness fix, portal ambiguous-phone auth, duplicate contact phones).
   Verified: `/api/health` 200, `/api/health/db` 200, frontend 200, all five
   services active (`facegym-backend`, `facegym-cv`, `nginx`, `postgresql`,
   `redis-server`), `nginx -t` valid, zero error-level journal lines, served
