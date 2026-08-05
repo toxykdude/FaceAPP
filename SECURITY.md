@@ -99,6 +99,27 @@ Entender este flujo es crítico antes de escribir cualquier línea de código.
 | `CORS_ORIGINS` | Backend (.env) | N/A | Dominios permitidos |
 | `ADMIN_PASSWORD` | Backend (.env) | **NO** | Password inicial del admin |
 | `API_KEY` | CV Service (.env) | **NO** | Auth del CV Service |
+| `BACKUP_DATABASE_URL` | `/etc/faceapp/backup-db.env` (0600, solo root) | **NO** | Rol `powerhouse_backup` (BYPASSRLS) para respaldos y export de BD |
+| `MIGRATE_DATABASE_URL` | `/etc/faceapp/migrate-db.env` (0600, solo root) | **NO** | Rol `powerhouse_migrator`, dueño de las tablas, usado solo por Alembic en el despliegue |
+
+### Separación de privilegios en la base de datos
+
+El rol de tiempo de ejecución (`backend_app`) **no es dueño de ninguna tabla**, y
+esto es deliberado. Ser dueño de una tabla permite `DROP TABLE`, permite
+`ALTER TABLE ... DISABLE ROW LEVEL SECURITY`, y **omite RLS en toda tabla que no
+declare FORCE ROW LEVEL SECURITY** — solo `audit_logs` lo declara; las otras 12
+tablas con RLS, incluidas `biometric_templates` y `fingerprint_templates`, no.
+
+Otorgarle esa autoridad al rol expuesto a Internet sería una escalada de
+privilegios permanente. Por eso la autoridad DDL vive en un rol separado
+(`powerhouse_migrator`, sin superusuario y con `NOBYPASSRLS`) que solo se usa
+durante el despliegue. Ver
+[`scripts/migrations/002_migration_role.sql`](./scripts/migrations/002_migration_role.sql)
+y AGENTS.md trampa 20.
+
+Al agregar una tabla en una migración: los privilegios por defecto cubren los
+`GRANT`, **no** la seguridad a nivel de fila. Toda tabla nueva con datos
+asociados a un miembro debe habilitar RLS y definir sus políticas explícitamente.
 
 ### ⚠️ Defaults peligrosos en config.py
 

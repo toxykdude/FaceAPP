@@ -2,6 +2,8 @@
 Application configuration using Pydantic settings.
 """
 
+import os
+
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -93,3 +95,27 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def resolve_migration_database_url() -> str:
+    """Return the connection URL Alembic should run migrations with.
+
+    When ``MIGRATE_DATABASE_URL`` is set (a dedicated role that OWNS the tables,
+    provisioned by ``scripts/migrations/002_migration_role.sql``) it takes
+    precedence over the runtime ``DATABASE_URL``.
+
+    The runtime role owns nothing on purpose. Table ownership carries DDL
+    authority — ``DROP TABLE`` and, worse,
+    ``ALTER TABLE ... DISABLE ROW LEVEL SECURITY`` — and a table owner also
+    BYPASSES row-level security on every table that does not set FORCE ROW LEVEL
+    SECURITY (only ``audit_logs`` does; the other 12 RLS tables, including both
+    biometric tables, do not). Granting the internet-facing application role that
+    authority permanently, to serve an operation that runs for seconds at deploy
+    time, would trade a standing privilege escalation for a little convenience.
+
+    Falls back to ``DATABASE_URL`` so local development, CI and the in-process
+    migration tests — where the connecting role already owns the schema — keep
+    working with no extra configuration. Read at call time, never logged;
+    mirrors ``api/system.py::_resolve_pg_dump_url``.
+    """
+    return os.environ.get("MIGRATE_DATABASE_URL") or settings.DATABASE_URL
