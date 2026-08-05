@@ -53,6 +53,18 @@ def _config() -> Config:
     return config
 
 
+@pytest.fixture(autouse=True)
+def _ignore_deploy_migration_role(monkeypatch):
+    """Keep these tests on their own throwaway database.
+
+    alembic/env.py prefers MIGRATE_DATABASE_URL (the owning role used at deploy
+    time) over DATABASE_URL. If a shell has the deploy env file sourced, that
+    would silently point these migrations at the REAL database instead of the
+    per-test one built below.
+    """
+    monkeypatch.delenv("MIGRATE_DATABASE_URL", raising=False)
+
+
 @pytest.fixture
 def migration_database():
     source_url = make_url(settings.DATABASE_URL)

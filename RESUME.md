@@ -336,6 +336,16 @@ rsync -a --exclude='.env*' --exclude='venv/' --exclude='node_modules/' \
 # `grep '^deleting'` reports zero deletions even when it is about to delete.
 
 git -C /opt/faceapp rev-parse HEAD > /opt/powerhouse-membership/.deployed-sha
+
+# Migrations run as the OWNING role, never the runtime role (AGENTS.md trap 20).
+# backend_app owns nothing by design, so without the env file below every DDL
+# migration dies with `must be owner of ...`.
+cd /opt/powerhouse-membership/backend
+set -a; . ./.env; . /etc/faceapp/migrate-db.env; set +a
+./venv/bin/alembic upgrade head
+./venv/bin/alembic current   # MUST confirm the head moved — a failed upgrade
+                             # does not stop the rest of this script
+
 nginx -t && systemctl restart facegym-backend facegym-cv
 # Verify on port 80 — nginx has no TLS listener, so https:// returns 000.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/

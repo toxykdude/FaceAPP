@@ -11,7 +11,7 @@ from alembic import context
 
 # Import Base and all models
 from models import Base
-from core.config import settings
+from core.config import resolve_migration_database_url
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -22,8 +22,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Migrations connect as the OWNING role (MIGRATE_DATABASE_URL) when one is
+# configured, falling back to the runtime URL otherwise. The runtime role owns
+# no tables by design and therefore cannot execute DDL — see
+# resolve_migration_database_url() for why that separation is deliberate.
+config.set_main_option("sqlalchemy.url", resolve_migration_database_url())
 
 # add your model's MetaData object here
 # for 'autogenerate' support

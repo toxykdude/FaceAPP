@@ -284,25 +284,39 @@ CI-placeholder env vars (see the workflow file). Locally, run
     PUT *response*, not the submitted form — the backend normalizes values (smb
     share → `//server/share`, default ports), so baselining the request leaves
     the form permanently dirty and **Test** unclickable forever.
-20. **`alembic upgrade head` CANNOT run as the app role.** All 14 public tables
-    are owned by `postgres`, while migrations run as `backend_app`, which owns
-    nothing — so every DDL migration fails with `must be owner of ...`. This bit
-    the 2026-08-05 DEV deploy: `6b5c4d3e2f1a` died on
-    `must be owner of index ix_members_phone_unique` and took the follow-on
-    migration down with it, leaving new code on disk against an unmigrated DB.
-    Run migrations as the owning role over the local socket instead:
+20. **Migrations run as a DEDICATED role, never as the app role.** The runtime
+    role (`backend_app`) owns nothing on purpose, so `alembic upgrade head` with
+    the runtime `DATABASE_URL` fails every DDL migration with
+    `must be owner of ...`. **The fix is not to grant `backend_app` ownership** —
+    a table owner can `DROP TABLE`, and can
+    `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`, and **bypasses RLS on every
+    table that does not set FORCE ROW LEVEL SECURITY** (only `audit_logs` does;
+    the other 12, including both biometric tables, do not). That would be a
+    permanent privilege escalation on the most internet-exposed credential.
+    Instead, `powerhouse_migrator` owns the tables (non-superuser,
+    `NOBYPASSRLS`), provisioned by
+    [`scripts/migrations/002_migration_role.sql`](./scripts/migrations/002_migration_role.sql),
+    with credentials root-only in `/etc/faceapp/migrate-db.env` (0600) — the same
+    pattern as `backup-db.env` (trap 12). Deploys run:
     ```bash
     cd /opt/powerhouse-membership/backend
-    sudo -u postgres env \
-      DATABASE_URL="postgresql://postgres@/membership_db?host=/var/run/postgresql" \
-      ./venv/bin/alembic upgrade head
+    set -a; . ./.env; . /etc/faceapp/migrate-db.env; set +a
+    ./venv/bin/alembic upgrade head
+    ./venv/bin/alembic current        # ALWAYS confirm the head actually moved
     ```
-    Peer auth over the unix socket needs no password, but only the `postgres` OS
-    user can use it — `sudo -u postgres`, never plain root. This is a workaround:
-    production has the same ownership layout and will fail identically on its
-    first schema change. Always run `alembic current` AFTER an upgrade and
-    confirm the head actually moved — the failure is loud in the log, but a
-    deploy script will happily continue past it.
+    `alembic/env.py` prefers `MIGRATE_DATABASE_URL` over `DATABASE_URL`
+    (`core/config.py::resolve_migration_database_url`), falling back so local dev
+    and CI — where the connecting role already owns the schema — need no extra
+    config. **Always run `alembic current` after an upgrade**: the failure is loud
+    in the log, but a deploy script will happily continue past it and leave new
+    code running against an unmigrated database, which is exactly what happened
+    on 2026-08-05 before this was fixed. If you see `must be owner of ...`, the
+    env file was not sourced — do NOT reach for `sudo -u postgres` as a shortcut.
+    Two follow-ons are deliberately left undone: the three views stay owned by
+    `postgres` (reassigning them would silently change which rows portal users
+    see through them), and **new tables do not get RLS automatically** — default
+    privileges cover grants, not row security, so any migration adding
+    member-scoped data must `ENABLE ROW LEVEL SECURITY` and add policies itself.
 21. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
     `usmm: command not found` / `Gym: command not found` (lines 17 and 24) —
     trap 13 live on DEV: anything after a bad line may never get set. Quote
