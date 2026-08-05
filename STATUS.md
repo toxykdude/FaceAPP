@@ -29,7 +29,15 @@ were installed directly on the host earlier the same day.
 | Env | Host | IP | SSH alias | Key |
 |-----|------|----|-----------|-----|
 | Production | `FaceAPP` (LXC 114) | `10.162.36.16` | `faceapp-prod-114` | `~/.ssh/faceapp-prod-lxc114_ed25519` |
-| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.105` | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
+| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.101` | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
+
+⚠️ **The DEV IP in this table was wrong until 2026-08-05.** It read
+`10.162.36.105`, which has **no route to host**. The correct address is
+`10.162.36.101` — verified by SSH (`hostname` → `DEVFaceApp`) and consistent
+with `~/.ssh/config`, which had it right all along. The `faceapp` /
+`faceapp-dev-105` aliases both resolve correctly, so prefer the alias over a
+literal IP. (RESUME.md's note that the `faceapp` alias "does NOT resolve" is
+also stale — it resolves.)
 
 `known_hosts` uses `HashKnownHosts`, so hostnames cannot be read back out of it
 — this table is the only record.
@@ -75,9 +83,44 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 | #2 | `2213bee` | fix(kiosk): stuck-verifying, camera-restart freeze, denial masking + retry overlay, start race, name leak |
 | #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
-## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.105`)
+## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.101`)
 
 - **Latest DEV deployment (current)**: exact SHA
+  `b41954ff43f10f59772c8fcc97782330d25c1aa8` — branch
+  `feat/membership-payment-enforcement` (membership payment balance +
+  unpaid-entry gate), deployed 2026-08-05. **Deployed from a BRANCH, not
+  `main`** — this SHA is not on `main` and CI has not run on it; it carries the
+  three payment commits on top of `8dc2b0a`, and also brought DEV forward past
+  the 6 commits it was missing (liveness fix, portal ambiguous-phone auth,
+  duplicate contact phones).
+  Verified: `/api/health` 200, `/api/health/db` 200, frontend 200, all five
+  services active (`facegym-backend`, `facegym-cv`, `nginx`, `postgresql`,
+  `redis-server`), `nginx -t` valid, zero error-level journal lines, served
+  `index.html` referencing `index-DagbKDRJ.js`, and the internal CV access
+  payload confirmed carrying the new `payment_status` / `amount_due` fields.
+  Alembic advanced `5a4b3c2d1e0f` → `7c6d5e4f3a2b` (see the migration-privilege
+  blocker below). Rollback code SHA
+  `95666d0ba7eba38fb9d3f0c96b518aa7bb9e4238`; verified 14-table-data-entry dump
+  `/var/backups/powerhouse-deploy/membership_db_predeploy_20260805T170941Z.dump`.
+  `powerhouse-backup.timer` was stopped for the deploy and restarted after.
+- 🚨 **Migration-privilege blocker (affects PRODUCTION too, unresolved).** All
+  14 public tables are owned by `postgres`, but migrations run as `backend_app`,
+  which owns nothing — so **no DDL migration can succeed via the documented
+  `alembic upgrade head` step**. On this deploy `6b5c4d3e2f1a` failed with
+  `must be owner of index ix_members_phone_unique`, which also blocked the
+  follow-on `7c6d5e4f3a2b`. Worked around on DEV by running Alembic as the
+  owning role over the local socket:
+  `sudo -u postgres env DATABASE_URL="postgresql://postgres@/membership_db?host=/var/run/postgresql" ./venv/bin/alembic upgrade head`.
+  This is a workaround, not a fix — production will hit the identical failure
+  the first time it deploys a schema change. Decide deliberately between
+  granting `backend_app` ownership of the tables it migrates, or making the
+  owning-role invocation the documented deploy step.
+- **DEV payment-state census after deploy** (2735 memberships): 2712 `paid`,
+  2 `partial`, 21 `pending`. **Zero** currently-active memberships would be
+  denied by the new unpaid gate — every active membership has payment linked.
+  All 23 unsettled memberships are already inactive, so no live traffic
+  exercises the amber or red payment paths on DEV today.
+- **Previous DEV deployment**: exact SHA
   `8651568cbf6c3999c9b22e9343f66f13bd12acaa` (PRs #29–#31), deployed
   2026-07-30. Verified: `/api/health` 200, `/api/health/db` 200, authenticated
   CV `/health` 200, frontend 200, all five services active, `nginx -t` valid,
