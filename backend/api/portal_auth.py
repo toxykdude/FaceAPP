@@ -2,12 +2,16 @@
 Member Portal authentication endpoints (phone + WhatsApp PIN).
 """
 
-import re
-import random
+import hmac
+import json
 import logging
+import random
+import re
 import redis
-from datetime import date
+from typing import NoReturn
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from api.deps import get_db
@@ -15,7 +19,6 @@ from core.config import settings
 from core.rate_limiter import limiter
 from core.security import create_access_token
 from models.member import Member
-from models.membership import Membership
 from schemas.portal import (
     MemberLoginRequest,
     MemberVerifyRequest,
@@ -63,55 +66,34 @@ def _clear_failed_attempts(phone: str) -> None:
     r.delete(f"member-failed:{phone}")
 
 
-def _normalize_phone(phone: str) -> str:
-    return re.sub(r"\D", "", phone.strip())
+def _canonicalize_phone(phone: str) -> str:
+    digits = re.sub(r"[^0-9]", "", phone)
+    if len(digits) == 10 and digits.startswith("3"):
+        return f"57{digits}"
+    return digits
 
 
 def _generate_pin() -> str:
     return str(random.randint(100000, 999999))
 
 
-def _resolve_member(db: Session, phone: str) -> Member:
-    """
-    Resolve a member by phone number.
-    When multiple members share the same phone, prefer the one with
-    an active membership (most likely the real member account).
-    """
-    members = (
-        db.query(Member).filter(Member.phone == phone, Member.status == "active").all()
-    )
-
-    if not members:
-        members = db.query(Member).filter(Member.phone == phone).all()
-
-    if not members:
+def _resolve_member(db: Session, destination: str) -> Member | None:
+    """Return a member only for one unambiguous WhatsApp destination."""
+    if not destination:
         return None
 
-    if len(members) == 1:
-        return members[0]
-
-    today = date.today()
-    for m in members:
-        has_active = (
-            db.query(Membership)
-            .filter(
-                Membership.member_id == m.id,
-                Membership.status == "active",
-                Membership.start_date <= today,
-                Membership.end_date >= today,
-            )
-            .first()
-        )
-        if has_active:
-            return m
-
-    members_with_history = []
-    for m in members:
-        count = db.query(Membership).filter(Membership.member_id == m.id).count()
-        members_with_history.append((m, count))
-    members_with_history.sort(key=lambda x: x[1], reverse=True)
-
-    return members_with_history[0][0] if members_with_history else members[0]
+    digits = func.regexp_replace(Member.phone, "[^0-9]", "", "g")
+    stored_destination = case(
+        (
+            and_(func.length(digits) == 10, digits.like("3%")),
+            func.concat("57", digits),
+        ),
+        else_=digits,
+    )
+    candidates = (
+        db.query(Member).filter(stored_destination == destination).limit(2).all()
+    )
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _ensure_country_code(phone: str) -> str:
@@ -119,6 +101,38 @@ def _ensure_country_code(phone: str) -> str:
     if len(phone) == 10 and phone.startswith("3"):
         return f"57{phone}"
     return phone
+
+
+def _encode_challenge(pin: str, member: Member) -> str:
+    return json.dumps({"member_id": str(member.id), "pin": pin}, separators=(",", ":"))
+
+
+def _decode_challenge(value: str | None) -> tuple[str, str] | None:
+    try:
+        challenge = json.loads(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(challenge, dict) or set(challenge) != {"member_id", "pin"}:
+        return None
+    member_id, pin = challenge["member_id"], challenge["pin"]
+    if not isinstance(member_id, str) or not isinstance(pin, str):
+        return None
+    if not re.fullmatch(r"\d{6}", pin):
+        return None
+    try:
+        return pin, str(UUID(member_id))
+    except ValueError:
+        return None
+
+
+def _deny_pin(destination: str, *, discard_challenge: bool = False) -> NoReturn:
+    if discard_challenge:
+        r.delete(f"member-pin:{destination}")
+    _record_failed_attempt(destination)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Código incorrecto o expirado",
+    )
 
 
 async def _send_whatsapp_pin(phone: str, pin: str) -> None:
@@ -142,11 +156,9 @@ async def _send_whatsapp_pin(phone: str, pin: str) -> None:
                     "Content-Type": "application/json",
                 },
             )
-            logger.info(
-                f"WhatsApp PIN sent to {whatsapp_number}, status={resp.status_code}"
-            )
-    except Exception as e:
-        logger.error(f"Error sending WhatsApp PIN to {whatsapp_number}: {e}")
+            logger.info("WhatsApp PIN delivery completed, status=%s", resp.status_code)
+    except Exception:
+        logger.error("WhatsApp PIN delivery failed")
 
 
 @router.post("/member-login")
@@ -161,26 +173,22 @@ async def member_login(
 
     Validates phone number, generates 6-digit PIN, stores in Redis, sends via WhatsApp.
     """
-    normalized_phone = _normalize_phone(body.phone)
+    destination = _canonicalize_phone(body.phone)
 
     # Look up the member (unknown phones run the exact same flow below,
     # minus the WhatsApp send — see the send comment for why).
-    member = _resolve_member(db, normalized_phone)
+    member = _resolve_member(db, destination)
 
     # Check lockout before sending new PIN
-    _check_lockout(normalized_phone)
+    _check_lockout(destination)
 
     # Check 60s cooldown
-    cooldown_key = f"member-pin-cooldown:{normalized_phone}"
+    cooldown_key = f"member-pin-cooldown:{destination}"
     if r.exists(cooldown_key):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Espera 60 segundos antes de solicitar otro código",
         )
-
-    # Generate and store PIN
-    pin = _generate_pin()
-    r.setex(f"member-pin:{normalized_phone}", PIN_TTL, pin)
 
     # Set cooldown
     r.setex(cooldown_key, PIN_COOLDOWN, "1")
@@ -190,7 +198,9 @@ async def member_login(
     # arbitrary attacker-supplied numbers is its own abuse vector, and the
     # identical response shape prevents phone-number enumeration.
     if member:
-        await _send_whatsapp_pin(normalized_phone, pin)
+        pin = _generate_pin()
+        r.setex(f"member-pin:{destination}", PIN_TTL, _encode_challenge(pin, member))
+        await _send_whatsapp_pin(destination, pin)
 
     return {"message": "PIN enviado a tu WhatsApp", "expires_in": PIN_TTL}
 
@@ -205,36 +215,33 @@ async def member_verify(
 
     Validates the PIN stored in Redis, then issues a member JWT.
     """
-    normalized_phone = _normalize_phone(request.phone)
+    destination = _canonicalize_phone(request.phone)
 
     # Check lockout before verifying
-    _check_lockout(normalized_phone)
+    _check_lockout(destination)
 
     # Get stored PIN from Redis
-    stored_pin = r.get(f"member-pin:{normalized_phone}")
-    if not stored_pin or stored_pin != request.pin:
-        _record_failed_attempt(normalized_phone)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código incorrecto o expirado",
-        )
+    stored_challenge = r.get(f"member-pin:{destination}")
+    challenge = _decode_challenge(stored_challenge)
+    if not challenge:
+        _deny_pin(destination, discard_challenge=stored_challenge is not None)
+    stored_pin, bound_member_id = challenge
+    if not hmac.compare_digest(stored_pin, request.pin):
+        _deny_pin(destination)
 
     # PIN is valid — look up member. A valid PIN that resolves to no member
     # must be indistinguishable from a wrong PIN (WS-9, CWE-203): in practice
     # the PIN was never sent to unknown phones, but the response shape must
     # not differ from the wrong-PIN case.
-    member = _resolve_member(db, normalized_phone)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código incorrecto o expirado",
-        )
+    member = _resolve_member(db, destination)
+    if not member or str(member.id) != bound_member_id:
+        _deny_pin(destination, discard_challenge=True)
 
     # Delete PIN from Redis (single use)
-    r.delete(f"member-pin:{normalized_phone}")
+    r.delete(f"member-pin:{destination}")
 
     # Clear any failed attempt counters
-    _clear_failed_attempts(normalized_phone)
+    _clear_failed_attempts(destination)
 
     # Create JWT with member type
     from datetime import timedelta
@@ -264,10 +271,10 @@ async def member_resend(
 
     Same flow as member-login but enforces a cooldown to prevent abuse.
     """
-    normalized_phone = _normalize_phone(body.phone)
+    destination = _canonicalize_phone(body.phone)
 
     # Check cooldown
-    cooldown_key = f"member-pin-cooldown:{normalized_phone}"
+    cooldown_key = f"member-pin-cooldown:{destination}"
     if r.exists(cooldown_key):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -276,17 +283,15 @@ async def member_resend(
 
     # Look up member by phone (unknown phones run the same flow, minus the
     # WhatsApp send — see member_login for the enumeration/abuse rationale)
-    member = _resolve_member(db, normalized_phone)
-
-    # Generate and store PIN
-    pin = _generate_pin()
-    r.setex(f"member-pin:{normalized_phone}", PIN_TTL, pin)
+    member = _resolve_member(db, destination)
 
     # Set cooldown
     r.setex(cooldown_key, PIN_COOLDOWN, "1")
 
     # Send via WhatsApp (don't block on failure) — only for known members
     if member:
-        await _send_whatsapp_pin(normalized_phone, pin)
+        pin = _generate_pin()
+        r.setex(f"member-pin:{destination}", PIN_TTL, _encode_challenge(pin, member))
+        await _send_whatsapp_pin(destination, pin)
 
     return {"message": "PIN enviado a tu WhatsApp", "expires_in": PIN_TTL}
