@@ -11,17 +11,23 @@ import hashlib
 import hmac
 import inspect
 import json
+import logging
+import re
 import uuid
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 import redis as redis_lib
 import api.portal as portal_module
+import api.portal_auth as portal_auth_module
 from api.deps import get_db, get_portal_session
 from core.config import settings as app_settings
 from core.security import create_access_token
+from models.member import Member
 from models.membership import MembershipPlan, Membership
 from models.sale import SalesTransaction
 
@@ -226,57 +232,212 @@ def _fresh_phone():
     return "3" + str(uuid.uuid4().int)[:9]
 
 
+def _destination(phone):
+    digits = re.sub(r"[^0-9]", "", phone)
+    return f"57{digits}" if len(digits) == 10 and digits.startswith("3") else digits
+
+
+def _phone_variant(phone, variant):
+    if variant == "local":
+        return phone
+    if variant == "prefixed":
+        return f"57{phone}"
+    if variant == "spaced":
+        return f"57 {phone[:3]} {phone[3:6]} {phone[6:]}"
+    return f"+57 ({phone[:3]}) {phone[3:6]}-{phone[6:]}"
+
+
+def _add_member(db_session, phone, status="active"):
+    member = Member(
+        first_name="Portal",
+        last_name="Member",
+        email=f"portal-{uuid.uuid4().hex}@example.com",
+        phone=phone,
+        status=status,
+    )
+    db_session.add(member)
+    db_session.flush()
+    return member
+
+
 @pytest.fixture
 def pin_phone():
     """Fresh phone with no leftover member-PIN Redis state (cleaned at start
     AND end so tests never leak cooldown/lockout state into each other)."""
     phone = _fresh_phone()
-    for suffix in PIN_STATE_KEYS:
-        portal_redis.delete(f"{suffix}:{phone}")
+    for key_phone in (phone, _destination(phone)):
+        for suffix in PIN_STATE_KEYS:
+            portal_redis.delete(f"{suffix}:{key_phone}")
     yield phone
-    for suffix in PIN_STATE_KEYS:
-        portal_redis.delete(f"{suffix}:{phone}")
+    for key_phone in (phone, _destination(phone)):
+        for suffix in PIN_STATE_KEYS:
+            portal_redis.delete(f"{suffix}:{key_phone}")
+
+
+@pytest.fixture
+def pin_member(db_session, pin_phone):
+    return _add_member(db_session, pin_phone)
+
+
+@pytest.fixture
+def pin_send(monkeypatch):
+    send = AsyncMock()
+    monkeypatch.setattr(portal_auth_module, "_send_whatsapp_pin", send)
+    return send
 
 
 class TestMemberPinLoginHardening:
     """WS-9 (CWE-203/307): the member PIN login flow must not enumerate
     registered phones and must throttle PIN requests."""
 
-    def test_member_login_unknown_phone_returns_generic_200(self, client, pin_phone):
-        """Unknown phone gets the SAME 200 body as a known phone (no 404)."""
+    GENERIC_RESPONSE = {"message": "PIN enviado a tu WhatsApp", "expires_in": 300}
+    GENERIC_ERROR = "Código incorrecto o expirado"
+
+    def test_zero_candidate_is_unresolved(self, client, pin_phone, pin_send):
         resp = client.post("/api/auth/member-login", json={"phone": pin_phone})
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {
-            "message": "PIN enviado a tu WhatsApp",
-            "expires_in": 300,
-        }
+        assert resp.json() == self.GENERIC_RESPONSE
+        pin_send.assert_not_awaited()
+        assert portal_redis.get(f"member-pin:{_destination(pin_phone)}") is None
 
-    def test_member_login_second_call_within_cooldown_429(self, client, pin_phone):
-        """member-login now enforces the 60s cooldown (was resend-only)."""
-        resp1 = client.post("/api/auth/member-login", json={"phone": pin_phone})
-        assert resp1.status_code == 200, resp1.text
-        resp2 = client.post("/api/auth/member-login", json={"phone": pin_phone})
-        assert resp2.status_code == 429, resp2.text
-        assert "Espera 60 segundos" in resp2.json()["detail"]
-
-    def test_member_resend_unknown_phone_returns_generic_200(self, client, pin_phone):
-        """Resend for an unknown phone also returns the generic 200 body."""
-        resp = client.post("/api/auth/member-resend", json={"phone": pin_phone})
-        assert resp.status_code == 200, resp.text
-        assert resp.json() == {
-            "message": "PIN enviado a tu WhatsApp",
-            "expires_in": 300,
-        }
-
-    def test_member_verify_valid_pin_with_no_member_returns_401(
-        self, client, pin_phone
+    @pytest.mark.parametrize("endpoint", ["member-login", "member-resend"])
+    def test_exact_duplicate_is_unresolved(
+        self, client, db_session, pin_phone, pin_send, endpoint
     ):
-        """A valid PIN that resolves to no member must look exactly like a
-        wrong PIN (401, same detail) — not a 404."""
-        portal_redis.setex(f"member-pin:{pin_phone}", 300, "123456")
+        _add_member(db_session, pin_phone)
+        _add_member(db_session, pin_phone)
+        resp = client.post(f"/api/auth/{endpoint}", json={"phone": pin_phone})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == self.GENERIC_RESPONSE
+        pin_send.assert_not_awaited()
+        assert portal_redis.get(f"member-pin:{_destination(pin_phone)}") is None
+
+    def test_status_and_history_do_not_disambiguate(
+        self, client, db_session, sample_plan, pin_phone, pin_send
+    ):
+        preferred = _add_member(db_session, pin_phone, status="active")
+        _add_member(db_session, f"57{pin_phone}", status="inactive")
+        db_session.add(
+            Membership(
+                member_id=preferred.id,
+                plan_id=sample_plan.id,
+                type="Monthly",
+                start_date=date.today(),
+                end_date=date.today() + timedelta(days=30),
+                price=sample_plan.price,
+                status="active",
+            )
+        )
+        db_session.flush()
+        resp = client.post("/api/auth/member-login", json={"phone": pin_phone})
+        assert resp.status_code == 200
+        pin_send.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("stored_variant", "login_variant", "verify_variant"),
+        [("local", "prefixed", "punctuated"), ("punctuated", "spaced", "local")],
+    )
+    def test_canonical_unique_login_is_bound_and_single_use(
+        self,
+        client,
+        db_session,
+        pin_phone,
+        pin_send,
+        stored_variant,
+        login_variant,
+        verify_variant,
+    ):
+        member = _add_member(db_session, _phone_variant(pin_phone, stored_variant))
+        login_phone = _phone_variant(pin_phone, login_variant)
+        resp = client.post("/api/auth/member-login", json={"phone": login_phone})
+        assert resp.status_code == 200
+        destination, pin = pin_send.await_args.args
+        assert destination == _destination(pin_phone)
+        challenge = json.loads(portal_redis.get(f"member-pin:{destination}"))
+        if not hmac.compare_digest(challenge["member_id"], str(member.id)):
+            pytest.fail("PIN challenge is not bound to the selected member")
+
+        payload = {"phone": _phone_variant(pin_phone, verify_variant), "pin": pin}
+        verified = client.post("/api/auth/member-verify", json=payload)
+        assert verified.status_code == 200, verified.text
+        repeated = client.post("/api/auth/member-verify", json=payload)
+        assert repeated.status_code == 401
+        assert repeated.json()["detail"] == self.GENERIC_ERROR
+
+    def test_ambiguity_added_after_request_denies_token(
+        self, client, db_session, pin_member, pin_phone, pin_send
+    ):
+        client.post("/api/auth/member-login", json={"phone": pin_phone})
+        pin = pin_send.await_args.args[1]
+        _add_member(db_session, f"57{pin_phone}")
+        resp = client.post(
+            "/api/auth/member-verify",
+            json={"phone": pin_phone, "pin": pin},
+        )
+        assert resp.status_code == 401
+        assert "access_token" not in resp.json()
+
+    def test_member_binding_mismatch_denies_token(
+        self, client, db_session, pin_member, pin_phone, pin_send
+    ):
+        client.post("/api/auth/member-login", json={"phone": pin_phone})
+        pin = pin_send.await_args.args[1]
+        pin_member.phone = _fresh_phone()
+        db_session.flush()
+        _add_member(db_session, f"57{pin_phone}")
+        resp = client.post(
+            "/api/auth/member-verify", json={"phone": pin_phone, "pin": pin}
+        )
+        assert resp.status_code == 401
+        assert "access_token" not in resp.json()
+
+    def test_canonical_variants_share_all_redis_state(
+        self, client, pin_member, pin_phone, pin_send
+    ):
+        client.post("/api/auth/member-login", json={"phone": pin_phone})
+        destination = _destination(pin_phone)
+        assert portal_redis.exists(f"member-pin:{destination}")
+        cooldown = client.post(
+            "/api/auth/member-resend",
+            json={"phone": _phone_variant(pin_phone, "punctuated")},
+        )
+        assert cooldown.status_code == 429
+        for variant in ("local", "prefixed", "spaced"):
+            failed = client.post(
+                "/api/auth/member-verify",
+                json={"phone": _phone_variant(pin_phone, variant), "pin": "000000"},
+            )
+            assert failed.status_code == 401
+        assert portal_redis.exists(f"member-lockout:{destination}")
+        locked = client.post(
+            "/api/auth/member-verify",
+            json={"phone": _phone_variant(pin_phone, "punctuated"), "pin": "000000"},
+        )
+        assert locked.status_code == 429
+
+    @pytest.mark.parametrize("stored", ["123456", "{", '{"pin":"123456"}'])
+    def test_legacy_or_malformed_challenge_fails_closed(
+        self, client, pin_member, pin_phone, stored
+    ):
+        portal_redis.setex(f"member-pin:{_destination(pin_phone)}", 300, stored)
         resp = client.post(
             "/api/auth/member-verify",
             json={"phone": pin_phone, "pin": "123456"},
         )
         assert resp.status_code == 401, resp.text
-        assert resp.json()["detail"] == "Código incorrecto o expirado"
+        assert resp.json()["detail"] == self.GENERIC_ERROR
+
+    def test_delivery_logs_exclude_sensitive_values(
+        self, client, pin_member, pin_phone, monkeypatch, caplog
+    ):
+        http_client = AsyncMock()
+        request = http_client.__aenter__.return_value.post
+        request.return_value = type("Response", (), {"status_code": 200})()
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: http_client)
+        caplog.set_level(logging.INFO, logger=portal_auth_module.__name__)
+        client.post("/api/auth/member-login", json={"phone": pin_phone})
+        challenge = portal_redis.get(f"member-pin:{_destination(pin_phone)}")
+        pin = re.search(r"\b\d{6}\b", request.await_args.kwargs["json"]["text"]).group()
+        sensitive = (_destination(pin_phone), str(pin_member.id), pin, challenge)
+        if any(value and value in caplog.text for value in sensitive):
+            pytest.fail("portal authentication logs contain sensitive data")
