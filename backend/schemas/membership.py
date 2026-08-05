@@ -75,6 +75,12 @@ class MembershipResponse(MembershipBase):
     status: str
     created_at: datetime
     updated_at: datetime
+    # Derived payment state (see Membership.amount_paid). Required rather than
+    # defaulted: a response that silently reported a zero balance would tell
+    # staff a partially-paid membership is settled.
+    amount_paid: Decimal
+    amount_due: Decimal
+    payment_status: str
     # Joined member info
     member_name: Optional[str] = None
     member_id_number: Optional[str] = None

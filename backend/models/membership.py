@@ -4,6 +4,7 @@ Membership model for membership plans and subscriptions.
 
 import uuid
 from datetime import datetime, date, timezone
+from decimal import Decimal
 from sqlalchemy import (
     Column,
     String,
@@ -39,6 +40,19 @@ class MembershipStatus(str, enum.Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
     SUSPENDED = "suspended"
+
+
+class PaymentStatus(str, enum.Enum):
+    """How much of a membership's price has actually been collected.
+
+    Derived, never stored: the sales transactions recorded against a
+    membership are the only source of truth for money received, so a
+    separate column could only drift away from the ledger.
+    """
+
+    PAID = "paid"
+    PARTIAL = "partial"
+    PENDING = "pending"
 
 
 class MembershipPlan(Base):
@@ -128,3 +142,42 @@ class Membership(Base):
     def is_expired(self):
         """Check if membership has expired."""
         return date.today() > self.end_date
+
+    @property
+    def amount_paid(self) -> Decimal:
+        """Money actually collected for this membership.
+
+        Summed from the linked sales transactions rather than stored, so a
+        later instalment recorded against the same membership updates the
+        balance with no write to this row. Callers that serialize many
+        memberships should eager-load ``sales_transactions`` to avoid N+1
+        queries.
+        """
+        return sum(
+            (Decimal(str(tx.amount)) for tx in self.sales_transactions),
+            Decimal("0.00"),
+        )
+
+    @property
+    def amount_due(self) -> Decimal:
+        """Outstanding balance, floored at zero.
+
+        An overpayment is never reported as a negative debt — the kiosk and
+        the admin UI both read this as "how much to collect", and a negative
+        figure there would render as a nonsense charge.
+        """
+        outstanding = Decimal(str(self.price)) - self.amount_paid
+        return outstanding if outstanding > Decimal("0.00") else Decimal("0.00")
+
+    @property
+    def payment_status(self) -> str:
+        """``paid`` / ``partial`` / ``pending`` for this membership.
+
+        A zero-priced membership is ``paid``: nothing is owed, so there is
+        nothing to warn anyone about.
+        """
+        if self.amount_due <= Decimal("0.00"):
+            return PaymentStatus.PAID.value
+        if self.amount_paid > Decimal("0.00"):
+            return PaymentStatus.PARTIAL.value
+        return PaymentStatus.PENDING.value

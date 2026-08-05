@@ -4,7 +4,7 @@ Memberships API endpoints.
 
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from datetime import datetime, date, timedelta, timezone
 
 from api.deps import get_db, require_page, require_admin
@@ -60,6 +60,9 @@ def list_memberships(
         .options(
             joinedload(Membership.member),
             joinedload(Membership.plan),
+            # Payment state is derived from the transaction ledger — eager-load
+            # it or serializing the page costs one query per membership.
+            selectinload(Membership.sales_transactions),
         )
         .all()
     )
@@ -82,6 +85,9 @@ def list_memberships(
             "access_rules": m.access_rules,
             "created_at": m.created_at,
             "updated_at": m.updated_at,
+            "amount_paid": m.amount_paid,
+            "amount_due": m.amount_due,
+            "payment_status": m.payment_status,
             "member_name": (
                 f"{member.first_name} {member.last_name}" if member else "Unknown"
             ),

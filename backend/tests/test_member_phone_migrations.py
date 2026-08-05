@@ -16,7 +16,11 @@ from core.config import settings
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 LEGACY_REVISION = "5a4b3c2d1e0f"
-HEAD_REVISION = "6b5c4d3e2f1a"
+# The revision that drops the legacy unique phone index — the subject of this
+# module. Tracked separately from the chain head so that adding an unrelated
+# migration moves only HEAD_REVISION below.
+PHONE_DROP_REVISION = "6b5c4d3e2f1a"
+HEAD_REVISION = "7c6d5e4f3a2b"
 
 
 @pytest.fixture(autouse=True)
@@ -85,8 +89,10 @@ def _index_exists(engine) -> bool:
 def test_revision_chain_and_migration_operation_contracts(monkeypatch):
     script = ScriptDirectory.from_config(_config())
     legacy = script.get_revision(LEGACY_REVISION)
-    successor = script.get_revision(HEAD_REVISION)
+    successor = script.get_revision(PHONE_DROP_REVISION)
 
+    # Exactly one head: a second head means two migrations claim the same
+    # parent and `upgrade head` becomes ambiguous.
     assert script.get_heads() == [HEAD_REVISION]
     assert legacy is not None and legacy.down_revision == "e1f2a3b4c5d6"
     assert successor is not None and successor.down_revision == LEGACY_REVISION

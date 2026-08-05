@@ -30,7 +30,7 @@ class SalesTransaction(Base):
         UUID(as_uuid=True), ForeignKey("members.id"), nullable=False, index=True
     )
     membership_id = Column(
-        UUID(as_uuid=True), ForeignKey("memberships.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("memberships.id"), nullable=True, index=True
     )
 
     amount = Column(Numeric(10, 2), nullable=False)
