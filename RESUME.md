@@ -3,7 +3,54 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## Production upgraded to `b3017c0` (2026-08-12, latest)
+## DEV brought online and upgraded to `feca985` (2026-08-12, latest)
+
+**DEVFaceApp (LXC 124) was powered off**, not merely unreachable — no reply at
+`.52`, `.101` or `.105` from this workstation *or from production on the same
+subnet*. The Proxmox task log showed a clean `vzshutdown` by `root@pam`: a
+deliberate shutdown, not a crash or OOM (host had 51G RAM and 22G disk free).
+
+**`onboot: 0` — DEV does NOT restart with the Proxmox host.** After any
+hypervisor reboot it must be started explicitly:
+
+```bash
+# Proxmox host credentials live in the gitignored produccion.env
+export SSHPASS=$(grep '^password=' produccion.env | cut -d= -f2-)
+sshpass -e ssh root@10.162.36.254 'pct start 124'
+```
+
+DHCP returned the reserved `10.162.36.52`, so that reservation is holding —
+the historical `.101`/`.105` addresses are dead and should not be retried.
+
+The upgrade itself (`c9a6212` → `feca985`) was the docs + backup delta only:
+**no frontend source changed**, so `frontend/dist` was deliberately EXCLUDED
+from the sync rather than running the usual pass-1 `--delete` — a stale or
+absent `dist` in the clone would otherwise have wiped the live bundle. (They
+turned out byte-identical, but the exclusion is the safe default whenever the
+delta touches no frontend source.) No new migrations, no dependency changes.
+
+Row census identical before and after: `969 members / 2735 memberships /
+510 biometric / 2754 sales`. Pre-upgrade dump + sha256 in
+`/var/backups/powerhouse-deploy/`, rollback tree at
+`/opt/deploy-rollbacks/c9a6212-20260812T224559Z` (145 files).
+
+Two DEV-specific findings:
+- **DEV had never archived a single member photo.** No face archive existed at
+  all before this deploy. First run afterwards: **485 photos**, matching disk.
+- **DEV's backend lacked `EnvironmentFile=-/etc/faceapp/backup-db.env`.** Its
+  scheduled backups were healthy while its Export DB button still produced
+  RLS-truncated archives — proof that provisioning the role and wiring the
+  backup timer is NOT sufficient; the backend unit needs it separately.
+  Its `powerhouse-backup.service.d/override.conf` RESETS `EnvironmentFile`, so
+  the new unit's `backup-db.env` line had to be re-added inside the override.
+
+Retention capped at 2 days here as well; applying it reclaimed ~5G (84% → 67%).
+
+**DEV still has no off-host backup copy:** SMB replication has failed every run
+for weeks against `//10.166.32.105/...`, which is on a different subnet from the
+LAN (`10.162.36.x`). Warn-only by design, so local backups are intact.
+
+## Production upgraded to `b3017c0` (2026-08-12)
 
 Production LXC 114 went from `0ca361d` to `b3017c0` — **15 commits**, covering
 membership payment enforcement, RBAC page-permission capabilities, the
