@@ -35,12 +35,33 @@ button returned a 56,941-byte RLS-truncated archive as HTTP 200. Now fixed and
 verified; see [RESUME.md](./RESUME.md). Local retention is capped at **2 days**
 by a disk guard — backups share a 20G volume (~4G free) with the database.
 
-✅ **DEV is in sync with `main` too.** DEVFaceApp was deployed to `970148d` on
-2026-08-12 and runtime-verified (bundle `index-CHo24Ijd.js`, previous
-`index-DagbKDRJ.js`; `/` 200, `/api/health` 200, backend+cv+nginx active;
-alembic already at head `7c6d5e4f3a2b` — PR #68 ships no migration). Rollback
-target is the previous deployed SHA `ea3e394`; because no DDL ran, rolling back
-is a plain redeploy of that SHA with no database restore.
+✅ **DEV is in sync with `main` too** — brought to `feca985` on 2026-08-12,
+after being found **powered off**. The container had been cleanly shut down
+(`vzshutdown` by `root@pam`, not a crash or OOM) and `onboot: 0` means it does
+NOT come back with the host. Started via `pct start 124`; DHCP handed back the
+reserved `10.162.36.52`, confirming that reservation holds.
+
+The upgrade from `c9a6212` was a docs+backup delta only: no frontend source
+changed (bundle `index-CHo24Ijd.js` left untouched — the clone's copy was
+byte-identical anyway), no new migrations (already at head `7c6d5e4f3a2b`), no
+dependency changes. Row census identical before and after
+(969 members / 2735 memberships / 510 biometric / 2754 sales). Rollback tree at
+`/opt/deploy-rollbacks/c9a6212-20260812T224559Z` plus a verified pre-upgrade
+dump; since no DDL ran, rolling back is a plain redeploy with no DB restore.
+
+⚠️ **DEV had never backed up a single member photo.** Before this deploy *no
+face archive existed at all* — `backup.sh` looked for `biometric_data`, which
+no host has. The first run afterwards archived **485 photos**, matching the 485
+on disk. DEV's backend also never had `EnvironmentFile=-/etc/faceapp/backup-db.env`,
+so its Export DB button produced RLS-truncated archives even while its
+scheduled backups were healthy; the drop-in is now installed. Retention is
+capped at **2 days** here too (30G volume shared with the database) — applying
+it reclaimed ~5G, taking the volume from 84% to 67%.
+
+⚠️ **DEV's remote SMB replication has been failing on every run for weeks**,
+and still is: target `//10.166.32.105/...` is on a different subnet from the
+LAN (`10.162.36.x`) and never answers. Local backups are retained (warn-only,
+by design), but DEV has no off-host copy. Looks like a typo'd octet.
 
 The RBAC boundary was probed against the running DEV API with throwaway staff
 tokens (both probe users deleted afterwards, verified 0 remaining):
