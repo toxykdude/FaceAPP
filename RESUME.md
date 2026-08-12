@@ -30,7 +30,8 @@ already merged, so no terminal receipt governs the deployed candidate). NOT a
 PASS. The maintainer authorized deployment explicitly after being shown the gate
 requirement; the exception is scoped to this candidate and LXC 114 only.
 
-**DEV (DEVFaceApp, `10.162.36.105`, LXC 124) is also on `8651568`**, deployed
+**DEV (DEVFaceApp, LXC 124 — reach it as `ssh faceapp`; the address of record is
+the STATUS.md host table) is also on `8651568`**, deployed
 the same way and verified identically (health 200s, authenticated CV 200,
 services active, zero error-level journal lines, new bundle served with the PR
 #29 strings in it). Rollback `/opt/deploy-rollbacks/873e51b-20260730T182450Z`,
@@ -41,6 +42,14 @@ purely the PR #29 bugs, not missing tooling.
 The `ssh faceapp` alias had vanished from `~/.ssh/config` and its address was
 recorded nowhere; both hosts are now in the STATUS.md host table and the alias
 is restored locally.
+
+**DEV addressing is settled as of 2026-08-12.** A DHCP reservation pins
+DEVFaceApp to `10.162.36.52`, ending the `.101`/`.105` churn that had this file
+and STATUS.md contradicting each other. `~/.ssh/config` points `faceapp`,
+`faceapp-dev` and the historical `faceapp-dev-105` at `.52`, all verified
+answering `hostname` = `DEVFaceApp`. Prefer the alias over any literal IP in
+these docs — earlier sections quote the address that was live when they were
+written, and only the STATUS.md host table is maintained.
 
 ## Previous production deployment (2026-07-30, `873e51b`)
 
@@ -317,7 +326,7 @@ gh pr checks <PR> --watch                            # wait for CI
 gh pr merge <PR> --merge                             # merge-commit style
 
 # --- Deploy (canonical clone -> flat app copy) ---
-# prod: ssh faceapp-prod-114   |   dev: alias 'faceapp' currently does NOT resolve
+# prod: ssh faceapp-prod-114   |   dev: ssh faceapp  (DHCP-reserved .52 since 2026-08-12)
 cd /opt/faceapp && git fetch --all && git merge --ff-only origin/main   # clone is detached HEAD
 cd frontend && npm ci && npm run build
 grep -o 'assets/index-[A-Za-z0-9_-]*\.js' dist/index.html               # note the new hash

@@ -7,7 +7,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-12 (PR #68 merged and SHA `970148d` deployed + runtime-verified on DEV LXC 124) |
+| **Last updated** | 2026-08-12 (PR #68 merged and deployed + runtime-verified on DEV LXC 124; DEV then DHCP-reserved to `10.162.36.52` and all host records corrected) |
 | **Current HEAD** | `970148d` — Merge PR #68 `feat/staff-page-permission-capabilities` |
 | **Commits on main** | 218 |
 | **PRs merged to date** | through #68 (numbers contain gaps) |
@@ -39,30 +39,35 @@ tokens (both probe users deleted afterwards, verified 0 remaining):
   (create/read/edit/delete, `/photo`, `/biometric-status`) while
   `GET /members` still answers 200 for the Memberships member picker.
 
-📌 **Host addresses** (the `ssh faceapp` alias had gone missing from
-`~/.ssh/config`; recorded here so it can be rebuilt):
+📌 **Host addresses** — both environments are now on DHCP reservations, so these
+addresses are stable and the aliases are the supported way in:
 
 | Env | Host | IP | SSH alias | Key |
 |-----|------|----|-----------|-----|
 | Production | `FaceAPP` (LXC 114) | `10.162.36.16` | `faceapp-prod-114` | `~/.ssh/faceapp-prod-lxc114_ed25519` |
-| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.105` (flaps — see below) | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
+| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.52` | `faceapp`, `faceapp-dev`, `faceapp-dev-105` | `~/.ssh/faceapp` |
 
-⚠️ **The DEV IP FLAPS between `.101` and `.105`. Probe, do not trust this
-table.** On 2026-08-05 `.105` had no route and `.101` answered, so this table
-was "corrected" to `.101`. On 2026-08-12 the reverse was true: `.101` had no
-route and `.105` answered with `hostname` → `DEVFaceApp`. Both readings were
-accurate when taken — the container's address is not stable, so the useful
-procedure is:
+✅ **The DEV address was pinned by DHCP reservation to `10.162.36.52` on
+2026-08-12, ending the `.101`/`.105` flapping.** Verified the same day:
+`ssh faceapp` → `hostname` = `DEVFaceApp`, `hostname -I` = `10.162.36.52`, and
+both former addresses now answer "No route to host". `~/.ssh/config` points all
+three DEV aliases at `.52`.
+
+Two naming leftovers, deliberately kept so older notes stay usable:
+
+- **`faceapp-dev-105` no longer describes the address.** It is a historical
+  alias name, not `10.162.36.105`. Prefer `faceapp` or `faceapp-dev`.
+- Earlier revisions of this file recorded `.105` and then `.101` as
+  authoritative. Both were accurate when taken — the container really did move.
+  History for that churn is in the git log of this file; it is no longer an
+  operational concern.
+
+If a DEV connection ever fails again, confirm identity before assuming the
+address moved — the reservation should hold:
 
 ```bash
-for ip in 10.162.36.105 10.162.36.101; do ping -c1 -W2 $ip >/dev/null 2>&1 && \
-  ssh -i ~/.ssh/faceapp root@$ip hostname; done   # expect DEVFaceApp
+ssh faceapp hostname          # expect DEVFaceApp
 ```
-
-`~/.ssh/config` currently pins `faceapp`/`faceapp-dev-105` to `.101`, so as of
-2026-08-12 **`ssh faceapp` fails** and the literal IP is the only way in.
-Repointing the alias just moves the staleness; a static lease or a DNS record
-for DEVFaceApp is the actual fix. Production (`.16`) has been stable throughout.
 
 `known_hosts` uses `HashKnownHosts`, so hostnames cannot be read back out of it
 — this table is the only record.
@@ -108,9 +113,22 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 | #2 | `2213bee` | fix(kiosk): stuck-verifying, camera-restart freeze, denial masking + retry overlay, start race, name leak |
 | #1 | `114d0ee` | feat(kiosk): premium redesign + display/access split + 3-path CV invalidation + custom date-range reports |
 
-## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.101`)
+## Last recorded DEV state (`ssh faceapp` / DEVFaceApp, `10.162.36.52`)
 
 - **Latest DEV deployment (current)**: exact SHA
+  `9b03d799a7a0667ef7e2f71871aba3dea6419c13` — `main` at Merge PR #69
+  (docs) on top of PR #68 `feat/staff-page-permission-capabilities`, deployed
+  2026-08-12. Bundle `index-DagbKDRJ.js` → `index-CHo24Ijd.js`. Alembic already
+  at head `7c6d5e4f3a2b` (PR #68 ships no migration), so **no DDL ran and
+  rollback needs no database restore** — redeploying the rollback SHA
+  `ea3e3943aa0d72bb4796cb9fd3f01ff04ad7aafa` is sufficient. Verified: `/` 200,
+  `/api/health` 200, hashed bundle 200, `nginx -t` valid, backend + cv + nginx
+  active, and the RBAC boundary probed in both directions against the running
+  API with throwaway staff tokens (all 18 checks as intended; both probe users
+  deleted, 0 remaining). Docs-only commits merged after this point are rsynced
+  to DEV without a rebuild or service restart, so `.deployed-sha` there can read
+  a later docs SHA than the code SHA above — that is expected, not drift.
+- **Preceding DEV deployment (2026-08-05)**: exact SHA
   `c2397106d841e4f605ea22f3a28b80dbd579709e` — `main` at Merge PR #64
   (membership payment balance + unpaid-entry gate), deployed 2026-08-05. DEV is
   back to tracking `main`. PR #64 passed all three CI jobs before merge —
@@ -122,7 +140,7 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
   Rollback code SHA `b41954ff43f10f59772c8fcc97782330d25c1aa8`; verified
   14-table-data-entry dump
   `/var/backups/powerhouse-deploy/membership_db_predeploy_20260805T173206Z.dump`.
-- **Preceding DEV deployment (branch validation)**: exact SHA
+- **Earlier DEV deployment (branch validation)**: exact SHA
   `b41954ff43f10f59772c8fcc97782330d25c1aa8` — branch
   `feat/membership-payment-enforcement`, deployed 2026-08-05 **from a BRANCH,
   before CI had ever run on it**, to measure the unpaid-gate blast radius before
