@@ -480,6 +480,14 @@ export const Kiosk: React.FC = () => {
     // WebSocket + running capture interval + live camera stream. Make a second
     // concurrent call a no-op instead.
     const startingUsbCameraRef = useRef(false);
+    // Nobody is standing at an unattended kiosk to click "Reconnect", so a
+    // dropped WebSocket used to leave the terminal dead until staff noticed
+    // and reloaded the page. These drive an automatic, backed-off recovery.
+    const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const reconnectAttemptsRef = useRef(0);
+    // startUsbCamera and scheduleReconnect call each other; the ref breaks the
+    // cycle without making either callback depend on the other's identity.
+    const startUsbCameraRef = useRef<((cameraId: string) => void) | null>(null);
 
     useEffect(() => {
         const interval = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -628,14 +636,42 @@ export const Kiosk: React.FC = () => {
     // USB Camera Lifecycle
     // -----------------------------------------------------------------------
 
+    const cancelReconnect = useCallback(() => {
+        if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+        }
+    }, []);
+
+    const scheduleReconnect = useCallback((cameraId: string) => {
+        // One pending attempt at a time: onclose and the getUserMedia catch
+        // can both fire for the same failure.
+        if (reconnectTimerRef.current) return;
+        reconnectAttemptsRef.current += 1;
+        // Exponential backoff capped at 10s. The kiosk must keep trying
+        // indefinitely — a drop it cannot recover from is an outage nobody
+        // is watching — without hammering a service that is down.
+        const delay = Math.min(1000 * 2 ** (reconnectAttemptsRef.current - 1), 10000);
+        reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = null;
+            startUsbCameraRef.current?.(cameraId);
+        }, delay);
+    }, []);
+
     const stopUsbCamera = useCallback(() => {
+        cancelReconnect();
         if (captureIntervalRef.current) {
             clearInterval(captureIntervalRef.current);
             captureIntervalRef.current = null;
         }
         if (wsRef.current) {
-            wsRef.current.close();
+            // Clear the ref BEFORE close(): onclose fires synchronously, and
+            // it treats "still the live socket" as the signal to reconnect.
+            // Closing first would make every deliberate teardown look like a
+            // drop and immediately resurrect the camera.
+            const closing = wsRef.current;
             wsRef.current = null;
+            closing.close();
         }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((t) => t.stop());
@@ -650,7 +686,7 @@ export const Kiosk: React.FC = () => {
         }
         setConnectionStatus('disconnected');
         setLatestRecognition(null);
-    }, []);
+    }, [cancelReconnect]);
 
     const startUsbCamera = useCallback(async (cameraId: string) => {
         // A previous call is still awaiting getUserMedia — do nothing rather
@@ -677,7 +713,10 @@ export const Kiosk: React.FC = () => {
             ws.binaryType = 'arraybuffer';
             wsRef.current = ws;
 
-            ws.onopen = () => { setConnectionStatus('connected'); };
+            ws.onopen = () => {
+                setConnectionStatus('connected');
+                reconnectAttemptsRef.current = 0;
+            };
 
             ws.onmessage = (event) => {
                 if (typeof event.data === 'string') {
@@ -705,7 +744,15 @@ export const Kiosk: React.FC = () => {
             };
 
             ws.onerror = () => { setConnectionStatus('error'); };
-            ws.onclose = () => { setConnectionStatus('disconnected'); };
+            ws.onclose = () => {
+                setConnectionStatus('disconnected');
+                // Recover only if this is still the live socket. stopUsbCamera
+                // nulls wsRef and a restart assigns a new one, so an
+                // intentional teardown or a superseded socket stays silent
+                // instead of resurrecting a camera the user turned off.
+                if (wsRef.current !== ws) return;
+                scheduleReconnect(cameraId);
+            };
 
             captureIntervalRef.current = setInterval(() => {
                 if (ws.readyState !== WebSocket.OPEN) return;
@@ -734,10 +781,18 @@ export const Kiosk: React.FC = () => {
         } catch (err) {
             console.error('USB camera error:', err);
             setConnectionStatus('error');
+            // The camera is often still busy for a moment after a drop, so a
+            // failed restart must queue another attempt rather than give up.
+            scheduleReconnect(cameraId);
         } finally {
             startingUsbCameraRef.current = false;
         }
-    }, [stopUsbCamera]);
+    }, [stopUsbCamera, scheduleReconnect]);
+
+    // Published for scheduleReconnect (declared above startUsbCamera).
+    useEffect(() => {
+        startUsbCameraRef.current = startUsbCamera;
+    }, [startUsbCamera]);
 
     useEffect(() => {
         const canvas = overlayCanvasRef.current;
