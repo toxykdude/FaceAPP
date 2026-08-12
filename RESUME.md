@@ -3,7 +3,73 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## Production backup provisioning (2026-08-12, latest)
+## Production upgraded to `b3017c0` (2026-08-12, latest)
+
+Production LXC 114 went from `0ca361d` to `b3017c0` — **15 commits**, covering
+membership payment enforcement, RBAC page-permission capabilities, the
+migration-role work, and the backup fixes (#71/#72).
+
+**Database was preserved and proven so.** Pre-upgrade dump
+`/var/backups/powerhouse-deploy/membership_db_PREUPGRADE_20260812T212611Z.dump`
+(10,647,181 bytes, `pg_restore -f /dev/null` rc=0, 14 `TABLE DATA` entries,
+sha256 recorded alongside it). Row census identical before and after:
+
+```
+members=1004 memberships=2862 biometric=540 sales=2887 users=3
+```
+
+Rollback tree: `/opt/deploy-rollbacks/0ca361d-20260812T212611Z` (1.8M — tracked
+files plus the previous `dist`, deliberately excluding the 7.2G of venvs and
+`node_modules`). It holds the old bundle `index-B2CpWa1v.js`.
+
+What made this deploy low-risk, established before touching anything:
+- **No dependency changes.** `backend/requirements.txt`, `cv_service/requirements.txt`,
+  `frontend/package.json` and the lockfile are all byte-identical across the
+  delta, so no pip/npm install was needed and `node_modules` stayed valid.
+- **One migration**, `7c6d5e4f3a2b`, a single `CREATE INDEX` on
+  `sales_transactions(membership_id)`. No data modified, and its
+  `down_revision` matched the deployed revision exactly.
+- **The clone's 3 "dirty" files were already upstream.** `/opt/faceapp` had
+  local modifications to `backend/schemas/sale.py`,
+  `frontend/src/utils/dateTime.ts` and `frontend/src/pages/Reports/Reports.tsx`
+  — timezone hotfixes applied to the host and later committed. All three were
+  verified **byte-identical to `main`** (md5) before `git reset --hard`, so the
+  reset discarded nothing. **Always check this before resetting that clone.**
+
+**Migrations ran as `membership`, NOT as `powerhouse_migrator`, on purpose.**
+Prod's 14 tables are owned by `membership`, which is the role **cv_service**
+connects as (`cv_service/.env`). Running `002_migration_role.sql` would have
+reassigned every table away from it, and 002 re-grants DML to `backend_app` and
+`backend_readonly` but **not** to `membership` — which would have broken
+cv_service. So DDL was run as the existing owner via
+`MIGRATE_DATABASE_URL=<cv_service DATABASE_URL>`; ownership is unchanged
+(`membership owns 14`) and cv `/health` returned 200 afterwards.
+**Consequence: prod still has no migrator role.** The next DDL migration needs
+that decision made deliberately — either grant `membership` back its DML inside
+a modified 002, or keep using the owner role.
+
+Deploy mechanics (trap 14, followed exactly):
+1. `rsync -a --delete /opt/faceapp/frontend/dist/ …/frontend/dist/` — scoped so
+   the stale hashed asset is removed. Dry-run showed exactly one deletion.
+2. `rsync -a --exclude '.env*' --exclude '.git' --exclude 'node_modules'
+   --exclude 'venv' --exclude '__pycache__' /opt/faceapp/ /opt/powerhouse-membership/`
+   — **no `--delete`**. Dry-run confirmed 0 deletions, no venv/`node_modules`/`.env`
+   touched. `biometric*` is NOT excluded, deliberately.
+
+Post-deploy verification: all five units active; `/api/health`, `/api/health/db`
+and `/` all 200; `db-export` unauthenticated 401; the **served** HTML references
+`index-CHo24Ijd.js` and that bundle contains `Saldo pendiente` /
+`el miembro NO podrá entrar` which the old bundle did **not** (`new=1 old=0`) —
+the staleness protocol in `docs/deployed-build-diagnosis.md`; `require_any_page`
+present in `deps.py` and used by members/membership_plans/memberships/sales;
+zero error-level journal lines; and a full backup run afterwards produced a
+verified 10,647,656-byte dump plus 529 photos.
+
+**`.env` is still unquoted on prod (trap 13/22).** `set -a; . ./.env` aborts on
+line 17 (`usmm: command not found`). Alembic does not need it — pydantic-settings
+parses the file itself; only `MIGRATE_DATABASE_URL` must be exported.
+
+## Production backup provisioning (2026-08-12)
 
 **Production LXC 114 now takes real, verified backups every 30 minutes.** It
 never did before this date: no `powerhouse_backup` role, no

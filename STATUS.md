@@ -7,18 +7,33 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-12 (PR #68 merged and deployed + runtime-verified on DEV LXC 124; DEV then DHCP-reserved to `10.162.36.52` and all host records corrected) |
-| **Current HEAD** | `970148d` — Merge PR #68 `feat/staff-page-permission-capabilities` |
-| **Commits on main** | 218 |
-| **PRs merged to date** | through #68 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — PR #68 passed backend (328 tests), frontend (82 tests / 13 suites), and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-08-12 (PRs #71+#72 merged; **production LXC 114 upgraded 15 commits to `b3017c0`** and runtime-verified, after being provisioned for backups for the first time) |
+| **Current HEAD** | `b3017c0` — Merge PR #72 `fix/backup-role-inherit` |
+| **Commits on main** | 230 |
+| **PRs merged to date** | through #72 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — #71 and #72 both passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `970148da057e04af1115ddf1074506aab1c0888d` (main).
+`git rev-parse HEAD` → `b3017c01110ff626bf3bc918159a0d3cf6155f53` (main).
 Remote is clean and in sync.
 
-✅ **Production is in sync with `main`.** LXC 114 was deployed to `946c605` on
-2026-07-30 and runtime-verified (see below). The `sshpass`/`smbclient` packages
-were installed directly on the host earlier the same day.
+✅ **Production is in sync with `main`** — as of 2026-08-12, and genuinely this
+time. LXC 114 was upgraded from `0ca361d` to `b3017c0` (15 commits) and
+runtime-verified: bundle `index-CHo24Ijd.js` (previous `index-B2CpWa1v.js`)
+carrying the payment-enforcement strings the old bundle did not, alembic moved
+`6b5c4d3e2f1a` → `7c6d5e4f3a2b` and confirmed with `alembic current`, and the
+row census was identical before and after (1004 members / 2862 memberships /
+540 biometric templates / 2887 sales / 3 users).
+
+⚠️ **This entry previously claimed production was in sync at `946c605`. It was
+not** — the host was running `0ca361d`, and `.deployed-sha` said so all along.
+The claim was never checked against the host. Verify `.deployed-sha` on LXC 114
+before asserting parity here.
+
+⚠️ **Production had never taken a single backup before 2026-08-12.** No
+`powerhouse_backup` role, no timer, no `/etc/faceapp/`. The admin Export DB
+button returned a 56,941-byte RLS-truncated archive as HTTP 200. Now fixed and
+verified; see [RESUME.md](./RESUME.md). Local retention is capped at **2 days**
+by a disk guard — backups share a 20G volume (~4G free) with the database.
 
 ✅ **DEV is in sync with `main` too.** DEVFaceApp was deployed to `970148d` on
 2026-08-12 and runtime-verified (bundle `index-CHo24Ijd.js`, previous
