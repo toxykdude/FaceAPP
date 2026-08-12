@@ -12,7 +12,7 @@ from decimal import Decimal
 import csv
 import io
 
-from api.deps import get_db, require_page
+from api.deps import get_db, require_page, require_any_page
 from core.csv_safety import sanitize_csv_cell
 from models.user import User
 from models.member import Member
@@ -150,12 +150,15 @@ def list_transactions(
 def create_transaction(
     transaction: SalesTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("sales")),
+    current_user: User = Depends(require_any_page("sales", "members")),
 ):
     """
     Create a new sales transaction.
 
-    Requires staff or admin role.
+    Reachable with the Members page too: collecting the payment is part of
+    assigning or renewing a membership, and a membership created without its
+    transaction would silently read as unpaid at the kiosk. Reading the ledger
+    (list, dashboard, summary, CSV export) still requires the Sales page.
     """
     # Verify member exists
     member = db.query(Member).filter(Member.id == transaction.member_id).first()

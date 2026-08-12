@@ -229,21 +229,52 @@ def get_portal_session(
         db.close()
 
 
+def user_has_page(user: User, page: str) -> bool:
+    """Whether ``user`` may reach ``page``. Admins always may.
+
+    Exposed so a handler can branch on a second page grant it does not depend
+    on — see ``list_memberships``, which narrows its result set for a caller
+    who reaches it from Members rather than from Memberships.
+    """
+    if user.role.upper() == UserRole.ADMIN.value.upper():
+        return True
+
+    perms = user.permissions or {}
+    pages = perms.get("pages", [])
+    return "all" in pages or page in pages
+
+
 def require_page(page: str):
     """Check if current user has access to a specific page."""
 
     async def _check(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role.upper() == UserRole.ADMIN.value.upper():
-            return current_user  # Admins always have access
-
-        perms = current_user.permissions or {}
-        pages = perms.get("pages", [])
-
-        if "all" in pages or page in pages:
+        if user_has_page(current_user, page):
             return current_user
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to {page}"
+        )
+
+    return _check
+
+
+def require_any_page(*pages: str):
+    """Allow the caller through when they hold ANY of ``pages``.
+
+    A few actions are reachable from more than one page: reception assigns a
+    membership and takes the payment for it from the Members page, so those
+    routes accept ``members`` alongside the page that owns the resource. The
+    owning page still gates its own browse/report routes on its own — this
+    grants the write, not the ledger.
+    """
+
+    async def _check(current_user: User = Depends(get_current_user)) -> User:
+        if any(user_has_page(current_user, page) for page in pages):
+            return current_user
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to {' or '.join(pages)}",
         )
 
     return _check

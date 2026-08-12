@@ -317,7 +317,35 @@ CI-placeholder env vars (see the workflow file). Locally, run
     see through them), and **new tables do not get RLS automatically** — default
     privileges cover grants, not row security, so any migration adding
     member-scoped data must `ENABLE ROW LEVEL SECURITY` and add policies itself.
-21. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
+21. **A page permission is not the same thing as a capability.** Reception staff
+    get `permissions.pages = ["dashboard", "members"]`: enrol a face, assign or
+    renew a membership, take the payment — with no Memberships and no Sales page.
+    Those three actions cross page boundaries, so the write routes they need use
+    `require_any_page("<owner page>", "members")` (`backend/api/deps.py`) instead
+    of `require_page`:
+    `POST /memberships`, `GET /membership-plans` (read-only catalogue), and
+    `POST /sales`. Everything that *reads* a ledger stays on its own page:
+    `GET /sales*`, plan create/update/delete, `PUT /memberships/{id}`, and
+    `GET /memberships` without a `member_id` (the unfiltered listing 403s for a
+    members-only caller — see the explicit scope check in `list_memberships`).
+    Two traps here:
+    - **`POST /sales` must travel with `POST /memberships`.** The assign flow in
+      `MemberForm.tsx` creates the membership and *then* posts the transaction.
+      Gate one without the other and reception creates memberships that read as
+      unpaid, which makes the kiosk deny the member at the door.
+    - **`list_memberships` takes a `status` query parameter, which shadows
+      fastapi's `status` module inside that function.** `status.HTTP_403_FORBIDDEN`
+      there raises `AttributeError` and returns 500. Use the literal code.
+    The members router is page-gated too — it used to be `require_staff`, so the
+    `members` grant was UI-only there and any staff token could read, edit and
+    delete member records regardless of what Settings unchecked. Now: every
+    member-record route (`POST`, `GET/PUT/DELETE /{id}`, `/{id}/photo`,
+    `/{id}/biometric-status`) needs `members`, while `GET /members` — the
+    directory behind three different pickers — takes
+    `require_any_page("members", "memberships", "reports")`. If you add a member
+    picker to another page, that page goes in that list; do not fall back to
+    `require_staff`.
+22. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
     `usmm: command not found` / `Gym: command not found` (lines 17 and 24) —
     trap 13 live on DEV: anything after a bad line may never get set. Quote
     those values before trusting any script that sources `.env`.

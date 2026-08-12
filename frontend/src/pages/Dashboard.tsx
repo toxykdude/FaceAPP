@@ -56,20 +56,35 @@ export const Dashboard: React.FC = () => {
     const { user } = useAuth();
     const { t } = useLanguage();
 
+    // Page grants decide which of this page's widgets may even ask the server.
+    // Declared first: the query options below read it during render.
+    const canAccess = (page: string) =>
+        user?.role === 'admin' ||
+        !!user?.permissions?.pages?.includes('all') ||
+        !!user?.permissions?.pages?.includes(page);
+    const hasSalesAccess = canAccess('sales');
+
     const { data: recentEvents } = useQuery({
         queryKey: ["recent-events"],
         queryFn: () => eventsApi.getRecentEvents(5),
         retry: false,
     });
 
+    // Only feeds the Reports-gated stats block below, and `GET /members` now
+    // requires one of members/memberships/reports — so don't ask without it.
     const { data: membersData } = useQuery({
         queryKey: ["members-stats"],
         queryFn: () => membersApi.getMembers({ limit: 1 }),
+        enabled: canAccess('reports') || canAccess('members'),
     });
 
+    // The revenue summary is a Sales-page read. Reception staff (Members page
+    // only) are denied it server-side, so firing it would only produce a 403
+    // and a revenue tile reading $0 — which looks like real data.
     const { data: salesReport } = useQuery({
         queryKey: ['sales-report-summary'],
         queryFn: () => salesApi.getReportSummary(),
+        enabled: hasSalesAccess,
     });
 
     const { data: expiringTodayData } = useQuery({
@@ -80,7 +95,7 @@ export const Dashboard: React.FC = () => {
     });
     const expiringToday = expiringTodayData?.expiring || [];
 
-    const hasReportsAccess = user?.role === 'admin' || user?.permissions?.pages?.includes('all') || user?.permissions?.pages?.includes('reports');
+    const hasReportsAccess = canAccess('reports');
 
     const { data: recognizedData } = useQuery({
         queryKey: ["today-recognized"],
@@ -528,7 +543,10 @@ export const Dashboard: React.FC = () => {
                             {[
                                 { label: t.dashboard.activeMembers, value: stats.activeMembers },
                                 { label: t.dashboard.todayCheckins, value: stats.todayCheckIns },
-                                { label: t.dashboard.monthlyRevenue, value: `$${stats.monthlyRevenue.toLocaleString()}` },
+                                // Revenue needs the Sales page, not just Reports.
+                                ...(hasSalesAccess
+                                    ? [{ label: t.dashboard.monthlyRevenue, value: `$${stats.monthlyRevenue.toLocaleString()}` }]
+                                    : []),
                             ].map((stat, i) => (
                                 <Box key={i} sx={{ mb: 2 }}>
                                     <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>{stat.label}</Typography>
