@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import secrets
 import sys
+import threading
 import time
 import cv2
 import numpy as np
@@ -179,43 +180,66 @@ class CVService:
             logger.warning("Redis not available — skipping template sync")
             return
 
-        # Atomic reload: increment version first
-        cache.increment_version()
+        # Build the replacement in a staged version and publish it only once
+        # it is COMPLETE. Publishing first pointed every reader at an empty
+        # namespace for the whole sync: recognition logged "No templates in
+        # cache" and denied every member until the store loop finished.
+        cache.begin_reload()
+        try:
+            templates = await self.api_client.sync_templates()
 
-        templates = await self.api_client.sync_templates()
-
-        loaded = 0
-        for t in templates:
-            import numpy as np
-
-            # Skip members revoked during the reload window (see
-            # TemplateCache.revoke_member): the snapshot may predate a
-            # delete that already committed on the backend.
-            if cache.is_revoked(t["member_id"]):
-                logger.debug(
-                    f"Skipping revoked member {t['member_id']} during reload"
+            # sync_templates() returns [] on a transient backend/network
+            # error, so publishing an empty set would turn one blip into a
+            # total access outage until the next successful refresh. Keep
+            # serving what we have; individual revocations still arrive
+            # through /invalidate, which deletes templates directly.
+            if not templates and cache.published_template_count() > 0:
+                cache.abort_reload()
+                logger.error(
+                    "Template sync returned no templates — keeping the "
+                    "previously published cache version"
                 )
-                continue
+                return
 
-            embedding = np.array(t["embedding"])
-            member_data = {
-                "name": t["name"],
-                "status": t["status"],
-                "membership_status": t.get("membership_status"),
-                "membership_end_date": t.get("membership_end_date"),
-            }
+            loaded = 0
+            for t in templates:
+                import numpy as np
 
-            cache.store_template(t["member_id"], embedding, member_data)
-            loaded += 1
+                # Skip members revoked during the reload window (see
+                # TemplateCache.revoke_member): the snapshot may predate a
+                # delete that already committed on the backend.
+                if cache.is_revoked(t["member_id"]):
+                    logger.debug(
+                        f"Skipping revoked member {t['member_id']} during reload"
+                    )
+                    continue
 
+                embedding = np.array(t["embedding"])
+                member_data = {
+                    "name": t["name"],
+                    "status": t["status"],
+                    "membership_status": t.get("membership_status"),
+                    "membership_end_date": t.get("membership_end_date"),
+                }
+
+                cache.store_template(t["member_id"], embedding, member_data)
+                loaded += 1
+        except Exception:
+            cache.abort_reload()
+            logger.error(
+                "Template reload failed — keeping the previously published "
+                "cache version"
+            )
+            raise
+
+        published = cache.publish_reload()
         logger.info(
-            f"Loaded {loaded} templates into Redis cache (version {cache._version})"
+            f"Loaded {loaded} templates into Redis cache (version {published})"
         )
 
         # Clean old version keys to prevent unbounded Redis growth
         try:
-            current_v = cache._version
-            for v in range(max(0, current_v - 2), current_v):  # Keep last 2 versions
+            for v in range(max(0, published - 2), published):  # Keep last 2
                 pattern = f"member:template:v{v}:*"
                 keys = cache._scan_keys(pattern)
                 if keys:
@@ -625,46 +649,94 @@ def ws_liveness_blocks(mode: LivenessMode, outcome: str) -> bool:
     raise ValueError(f"Unsupported WebSocket liveness mode: {mode!r}")
 
 
+_shared_models_lock = threading.Lock()
+_shared_models: Optional[Dict] = None
+
+
+def _get_shared_models() -> Dict:
+    """Load the stateless recognition models ONCE per process.
+
+    They used to be constructed per WebSocket connection: MTCNN plus TWO
+    FaceNet copies (one for ``recognizer``, another inside TemplateMatcher),
+    loaded synchronously on the event loop. With the kiosk reconnecting about
+    once a minute that blocked the loop for seconds on every reconnect, which
+    is why the CV service logged "connection open" 5-7 seconds after Nginx
+    had already completed the handshake.
+
+    Only LivenessDetector stays per connection — it holds blink/EAR state.
+    """
+    global _shared_models
+    if _shared_models is None:
+        with _shared_models_lock:
+            if _shared_models is None:
+                from detection.face_detector import FaceDetector
+                from detection.quality_assessor import FaceQualityAssessor
+                from recognition.face_recognizer import FaceRecognizer
+                from recognition.template_matcher import TemplateMatcher
+
+                logger.info("Loading shared recognition models...")
+                _shared_models = {
+                    # Torch models are inference-only and safe to call from
+                    # several connection threads. The "haar" detector is a
+                    # cv2.CascadeClassifier, which is NOT re-entrant, so it
+                    # stays per connection — and is cheap to build anyway.
+                    "detector": (
+                        FaceDetector()
+                        if settings.FACE_DETECTION_MODEL == "mtcnn"
+                        else None
+                    ),
+                    "quality_assessor": FaceQualityAssessor(),
+                    "recognizer": FaceRecognizer(),
+                    "matcher": TemplateMatcher(),
+                }
+                logger.info("Shared recognition models ready")
+    return _shared_models
+
+
 def build_ws_pipeline_components() -> WsPipelineComponents:
-    """Load the recognition models for one WebSocket connection."""
+    """Assemble the recognition pipeline for one WebSocket connection."""
     from detection.face_detector import FaceDetector
-    from detection.quality_assessor import FaceQualityAssessor
     from detection.liveness_detector import LivenessDetector
-    from recognition.face_recognizer import FaceRecognizer
-    from recognition.template_matcher import TemplateMatcher
+
+    shared = _get_shared_models()
 
     return WsPipelineComponents(
-        detector=FaceDetector(),
-        quality_assessor=FaceQualityAssessor(),
+        detector=shared["detector"] or FaceDetector(),
+        quality_assessor=shared["quality_assessor"],
         # Fresh per connection: blink/EAR state must never carry across
         # kiosk sessions (a blink witnessed on one connection must not
         # unlock another).
         liveness_detector=LivenessDetector(),
-        recognizer=FaceRecognizer(),
-        matcher=TemplateMatcher(),
+        recognizer=shared["recognizer"],
+        matcher=shared["matcher"],
     )
 
 
-async def process_ws_frame(
+def analyze_ws_frame(
     frame: "np.ndarray",
-    camera_id: str,
     components: WsPipelineComponents,
     frame_count: int,
     fps: Optional[float],
     attempt_state: WsAttemptState,
-) -> Optional[Dict]:
-    """
-    Run the recognition pipeline over a single browser-pushed frame.
+):
+    """CPU-bound half of the kiosk pipeline — detection through matching.
 
-    Mirrors RTSPStreamProcessor._process_frame. Returns the message to send
-    back to the kiosk, or None when the frame yielded nothing worth reporting
-    (too blurry to trust, or a suspected spoof).
+    Split out so it can run OFF the asyncio event loop. Every step here
+    (MTCNN, alignment, quality, blink liveness, FaceNet, matching) is
+    blocking CPU work; running it inline pegged the loop, which then missed
+    the WebSocket ping deadline and dropped the kiosk connection at random.
+
+    Returns ``(kind, value)`` where kind is:
+      ``"status"`` — send ``value`` and stop (no face in frame)
+      ``"drop"``   — nothing worth reporting (too blurry, or blocked)
+      ``"match"``  — ``value`` is
+                     ``(member_id, confidence, member_data, largest_face)``
     """
     # Detect faces with landmarks for alignment
     faces_with_lm = components.detector.detect_faces_with_landmarks(frame)
     if not faces_with_lm:
         attempt_state.note_no_face(components.liveness_detector)
-        return {
+        return "status", {
             "type": "status",
             "fps": fps,
             "frames_processed": frame_count,
@@ -682,7 +754,7 @@ async def process_ws_frame(
     # Quality check
     quality_score, _ = components.quality_assessor.assess_quality(face_roi)
     if quality_score < 0.5:
-        return None
+        return "drop", None
 
     mode = settings.WS_LIVENESS_MODE
     if not (mode is LivenessMode.OBSERVE and attempt_state.observation_complete):
@@ -703,11 +775,43 @@ async def process_ws_frame(
         if mode is LivenessMode.OBSERVE and outcome == "pass":
             attempt_state.complete_observation(components.liveness_detector)
         if blocked:
-            return None
+            return "drop", None
 
     # Generate embedding and match
     embedding = components.recognizer.generate_embedding(face_roi)
     member_id, confidence, member_data = components.matcher.find_match(embedding)
+    # largest_face travels with the result: the caller draws the kiosk bbox
+    # and crops the saved member photo from it.
+    return "match", (member_id, confidence, member_data, largest_face)
+
+
+async def process_ws_frame(
+    frame: "np.ndarray",
+    camera_id: str,
+    components: WsPipelineComponents,
+    frame_count: int,
+    fps: Optional[float],
+    attempt_state: WsAttemptState,
+) -> Optional[Dict]:
+    """
+    Run the recognition pipeline over a single browser-pushed frame.
+
+    Mirrors RTSPStreamProcessor._process_frame. Returns the message to send
+    back to the kiosk, or None when the frame yielded nothing worth reporting
+    (too blurry to trust, or a suspected spoof).
+    """
+    # Off the event loop: see analyze_ws_frame. Only one frame per connection
+    # is ever in flight, so the per-connection components need no locking.
+    kind, value = await asyncio.to_thread(
+        analyze_ws_frame, frame, components, frame_count, fps, attempt_state
+    )
+    if kind == "status":
+        return value
+    if kind == "drop":
+        return None
+
+    member_id, confidence, member_data, largest_face = value
+    mode = settings.WS_LIVENESS_MODE
 
     # Validate access
     access_granted, denial_reason, days_remaining, amount_due = (

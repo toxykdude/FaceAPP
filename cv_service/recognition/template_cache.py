@@ -37,24 +37,92 @@ class TemplateCache:
             )
         self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=False)
         self.ttl = settings.CACHE_TTL
+        # Set only between begin_reload() and publish_reload(), and only on
+        # the instance performing the reload. Readers are unaffected.
+        self._staged_version: Optional[int] = None
+
+    VERSION_KEY = "template_cache:version"
+    GENERATION_KEY = "template_cache:generation"
 
     @property
     def _version(self):
-        """Read current cache version from Redis on every access.
+        """Read current PUBLISHED cache version from Redis on every access.
 
         This ensures all TemplateCache instances (including long-lived ones
         in RTSPStreamProcessor threads) always read the latest version,
         preventing stale version references after periodic refreshes.
         """
-        return int(self.redis_client.get("template_cache:version") or 0)
-    
+        return int(self.redis_client.get(self.VERSION_KEY) or 0)
+
+    @property
+    def _write_version(self) -> int:
+        """Version that keys are built against.
+
+        The staged version during a reload, the published one otherwise, so
+        a reload writes into a namespace no reader is looking at yet.
+        """
+        if self._staged_version is not None:
+            return self._staged_version
+        return self._version
+
     def increment_version(self):
         """Increment cache version for atomic reloads."""
-        self.redis_client.incr("template_cache:version")
-    
+        self.redis_client.incr(self.VERSION_KEY)
+
+    def begin_reload(self) -> int:
+        """Stage the next cache version WITHOUT publishing it.
+
+        Publishing first (the original behaviour) pointed every reader at an
+        empty namespace for the entire sync — recognition logged "No
+        templates in cache" and denied every member at the door until the
+        store loop finished. Staging keeps the previous version live until a
+        COMPLETE replacement exists.
+        """
+        self._staged_version = self._version + 1
+        return self._staged_version
+
+    def publish_reload(self) -> int:
+        """Make the staged version the one readers see, in one atomic SET."""
+        if self._staged_version is None:
+            raise RuntimeError("publish_reload() called without begin_reload()")
+        version = self._staged_version
+        self.redis_client.set(self.VERSION_KEY, version)
+        self._staged_version = None
+        return version
+
+    def abort_reload(self):
+        """Discard the staged version; readers stay on the published one."""
+        self._staged_version = None
+
+    def bump_generation(self):
+        """Signal in-process snapshots that the template SET changed.
+
+        The version only moves on a full reload, so a single-member removal
+        would otherwise stay invisible to a memoized matcher until the next
+        refresh — letting a revoked member keep opening the door for up to
+        10 minutes.
+        """
+        self.redis_client.incr(self.GENERATION_KEY)
+
+    def snapshot_token(self) -> tuple:
+        """``(version, generation)`` in ONE round trip.
+
+        TemplateMatcher memoizes its decrypted template matrix against this
+        token, so the per-frame cost is a single MGET instead of re-reading
+        and re-decrypting every template.
+        """
+        version, generation = self.redis_client.mget(
+            self.VERSION_KEY, self.GENERATION_KEY
+        )
+        return int(version or 0), int(generation or 0)
+
+    def published_template_count(self) -> int:
+        """How many templates the currently published version holds."""
+        return len(self._scan_keys(f"member:template:v{self._version}:*"))
+
     def _make_key(self, member_id: str) -> str:
         """Build versioned cache key."""
-        return f"member:template:v{self._version}:{member_id}"
+        return f"member:template:v{self._write_version}:{member_id}"
     
     def _scan_keys(self, pattern: str) -> list:
         """SCAN-based key retrieval (non-blocking alternative to KEYS)."""
@@ -216,6 +284,9 @@ class TemplateCache:
         """
         key = self._make_key(member_id)
         self.redis_client.delete(key)
+        # Drop any memoized in-process snapshot that still holds this member
+        # (see bump_generation): a revoked member must stop matching NOW.
+        self.bump_generation()
         logger.debug(f"Removed template for member {member_id}")
 
     REVOKED_SET_KEY = "cv:revoked"

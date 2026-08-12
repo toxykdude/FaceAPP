@@ -15,9 +15,9 @@ import fnmatch
 class FakeRedis:
     """Minimal in-memory stand-in for the redis client API TemplateCache uses.
 
-    Supports: ping, get, setex, incr, scan, delete, sadd, sismember, expire,
-    ttl. ``expire`` records the requested TTL so ``ttl`` can report it
-    (0 < ttl <= 60 assertions).
+    Supports: ping, get, mget, set, setex, incr, scan, delete, sadd,
+    sismember, expire, ttl. ``expire`` records the requested TTL so ``ttl``
+    can report it (0 < ttl <= 60 assertions).
     """
 
     def __init__(self):
@@ -29,6 +29,16 @@ class FakeRedis:
 
     def get(self, key):
         return self._data.get(key)
+
+    def mget(self, *keys):
+        # redis-py accepts either mget(a, b) or mget([a, b]).
+        if len(keys) == 1 and isinstance(keys[0], (list, tuple)):
+            keys = keys[0]
+        return [self._data.get(k) for k in keys]
+
+    def set(self, key, value):
+        self._data[key] = value
+        return True
 
     def setex(self, key, ttl, value):
         self._data[key] = value
