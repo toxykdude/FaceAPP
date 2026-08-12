@@ -170,6 +170,12 @@ ExecStart=${APP_DIR}/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 800
 Restart=always
 RestartSec=5
 Environment=PATH=${APP_DIR}/backend/venv/bin:/usr/bin
+# BACKUP_DATABASE_URL for the admin DB-export endpoint. Without it the export
+# runs as the runtime role, which RLS makes abort mid-dump — producing a
+# truncated archive the UI would otherwise present as a successful backup.
+# Leading '-' keeps the unit valid on hosts that have not provisioned the
+# backup role yet (see scripts/migrations/003_backup_role.sql).
+EnvironmentFile=-/etc/faceapp/backup-db.env
 
 [Install]
 WantedBy=multi-user.target

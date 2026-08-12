@@ -65,6 +65,9 @@ printf 'PGDMP mock-dump-body' > "$f"
 """,
     )
 
+    # Mock pg_restore: backup.sh verifies the dump's TOC before accepting it.
+    _write_exec(bin_dir / "pg_restore", _MOCK_PG_RESTORE_OK)
+
     # Mock rsync: simulate an UNREACHABLE remote (exit non-zero, message on
     # stderr). The real script must treat this as a warn-only failure.
     _write_exec(
@@ -208,6 +211,23 @@ done
 printf 'PGDMP mock-dump-body' > "$f"
 """
 
+# backup.sh verifies the dump before accepting it as a backup: it reads the TOC
+# (`-l`) for TABLE DATA entries and then reads the archive through (`-f`). The
+# mock dumps above are not real archives, so this stand-in reports both as
+# healthy — verification itself is asserted in test_backup_completeness.py;
+# here we only need it to pass so the remote-transport behaviour under test is
+# actually reached.
+_MOCK_PG_RESTORE_OK = """#!/usr/bin/env bash
+if [ "$1" = "-l" ]; then
+cat <<'TOC'
+3402; 0 25741 TABLE DATA public members membership
+3403; 0 25747 TABLE DATA public memberships membership
+3404; 0 25755 TABLE DATA public biometric_templates membership
+TOC
+fi
+exit 0
+"""
+
 _MOCK_RSYNC_FAIL = """#!/usr/bin/env bash
 echo 'rsync: failed to connect (Name or service not known)' >&2
 exit 23
@@ -287,6 +307,7 @@ def make_env(tmp_path):
         marker_dir.mkdir()
 
         _write_exec(bin_dir / "pg_dump", _MOCK_PG_DUMP)
+        _write_exec(bin_dir / "pg_restore", _MOCK_PG_RESTORE_OK)
         _write_exec(bin_dir / "rsync", _MOCK_RSYNC_FAIL)
         _write_exec(bin_dir / "sshpass", _MOCK_SSHPASS)
         _write_exec(

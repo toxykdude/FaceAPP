@@ -206,14 +206,33 @@ CI-placeholder env vars (see the workflow file). Locally, run
 11. **Biometric data is legally sensitive** (Colombia Ley 1581/2012). Read
     [SECURITY.md §4](./SECURITY.md) before touching anything in the enrollment,
     template, or biometric-data path.
-12. **Row-Level Security blocks `pg_dump` for the runtime role.**
-    `backend_app` (the app DB role) can NEVER produce a full dump — RLS on 9+
-    tables silently filters rows (portal security). Backups and the admin
-    `/api/system/db-export` endpoint need `BACKUP_DATABASE_URL` pointing at the
-    dedicated `powerhouse_backup` role (`BYPASSRLS` + `pg_read_all_data`;
-    credentials root-only at `/etc/faceapp/backup-db.env` 0600). Both
-    `scripts/backup.sh` and the export endpoint prefer `BACKUP_DATABASE_URL`
-    over `DATABASE_URL` (PR #15).
+12. **Row-Level Security ABORTS `pg_dump` for the runtime role — it does not
+    filter.** `backend_app` (the app DB role) can NEVER produce a full dump.
+    pg_dump runs every COPY with `row_security = off` and PostgreSQL *refuses*
+    rather than silently filtering, so the dump dies at the first RLS table:
+    `ERROR: query would be affected by row-level security policy for table
+    "access_events"`. What lands on disk is a **truncated archive that still
+    starts with the `PGDMP` magic bytes** — it looks like a dump and restores
+    like nothing.
+    Backups and the admin `/api/system/db-export` endpoint need
+    `BACKUP_DATABASE_URL` pointing at the dedicated `powerhouse_backup` role
+    (`BYPASSRLS` + `pg_read_all_data`), provisioned by
+    [`scripts/migrations/003_backup_role.sql`](./scripts/migrations/003_backup_role.sql)
+    with credentials root-only at `/etc/faceapp/backup-db.env` (0600).
+    **The endpoint reads that variable from its own process environment**, so
+    the *backend* unit needs `EnvironmentFile=-/etc/faceapp/backup-db.env` too —
+    provisioning the role but wiring only the backup timer leaves Settings →
+    Export DB still producing truncated archives (this was DEV's exact state).
+    Measured on production LXC 114 on 2026-08-12 before the fix: **56,941 bytes,
+    rc=1**, with 1004 members / 2859 memberships / 540 biometric templates
+    entirely absent — served to the admin as HTTP 200.
+    Both consumers now **verify instead of trusting the exit code**: the
+    endpoint stages the dump to a temp file and 500s unless it completes and
+    starts with `PGDMP`, and `backup.sh` reads the TOC back with `pg_restore -l`
+    and fails unless `members`, `memberships` and `biometric_templates` are all
+    present. Never reintroduce a code path that streams pg_dump's stdout
+    straight to a client — once headers are sent, a mid-run abort is
+    indistinguishable from success.
 13. **`backup.sh` chokes on `.env` values with unquoted spaces.**
     `backup.sh` sources `.env` via `set -a; . file; set +a` — a bare
     `KEY=value with spaces` line aborts sourcing (or shifts parsing). Always
@@ -345,7 +364,25 @@ CI-placeholder env vars (see the workflow file). Locally, run
     `require_any_page("members", "memberships", "reports")`. If you add a member
     picker to another page, that page goes in that list; do not fall back to
     `require_staff`.
-22. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
+22. **`$DATA_DIR/biometric_data` does not exist on any deployed host.**
+    `backup.sh` used to archive only that directory, so it logged
+    `WARNING: directory not found, skipping`, exited 0, and every backup ever
+    taken omitted the on-disk face data. The real directories under
+    `/var/lib/powerhouse/` are **`member-photos`** (9.4M prod / 6.4M DEV — the
+    images `/api/members/{id}/photo` serves) and **`snapshots`** (958M prod —
+    access-event camera frames). `backup.sh` now archives `member-photos` plus
+    `biometric_data` *where it exists*, and deliberately **excludes
+    `snapshots`**: it is disposable evidence with its own retention
+    (`SNAPSHOT_RETENTION_DAYS`), not state a migration needs.
+    The bug survived for months because
+    `test_remote_backup_isolation.py`'s fixture **created `biometric_data`**
+    before each run — the harness asserted a layout no host has. When you write
+    a fixture for an ops script, model the real host or the test proves nothing.
+    `restore.sh` extracts whichever directories the archive holds; it used to
+    `chmod 700 biometric_data` unconditionally, which under `set -euo pipefail`
+    aborts the whole restore on an archive that has only photos.
+
+23. **DEV's `.env` has unquoted values containing spaces.** Sourcing it emits
     `usmm: command not found` / `Gym: command not found` (lines 17 and 24) —
     trap 13 live on DEV: anything after a bad line may never get set. Quote
     those values before trusting any script that sources `.env`.

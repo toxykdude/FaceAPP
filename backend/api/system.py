@@ -14,8 +14,10 @@ Security notes (see SECURITY.md sec 2/4 and the admin-data-tools threat matrix):
 - Every successful export is recorded in the audit log (``action='db_export'``).
 """
 
+import logging
 import os
 import subprocess
+import tempfile
 import time
 from urllib.parse import urlparse
 
@@ -33,6 +35,8 @@ from models.user import User
 from services import backup_config as backup_config_service
 
 router = APIRouter(prefix="/system", tags=["System"])
+
+logger = logging.getLogger(__name__)
 
 _CHUNK_SIZE = 64 * 1024  # 64 KiB streaming chunks
 
@@ -89,8 +93,13 @@ def _parse_db_url(url: str) -> dict:
     }
 
 
-def _build_pg_dump_argv(conn: dict) -> list:
+def _build_pg_dump_argv(conn: dict, target: str) -> list:
     """Build the pg_dump argv as a plain list of string tokens.
+
+    ``target`` is the server-generated staging path pg_dump writes to (``-f``).
+    Dumping to a file rather than a stdout pipe is what lets the endpoint learn
+    the exit status BEFORE choosing an HTTP status code — see
+    ``export_database``.
 
     The password is intentionally NOT included here; it is delivered via the
     PGPASSWORD environment variable (see ``_pg_env``). No user-controlled value
@@ -108,6 +117,8 @@ def _build_pg_dump_argv(conn: dict) -> list:
         conn["dbname"],
         "-F",
         "c",
+        "-f",
+        target,
     ]
 
 
@@ -118,53 +129,129 @@ def _pg_env(conn: dict) -> dict:
     return env
 
 
+# A pg_dump custom-format archive always starts with these 5 bytes. Checking
+# them catches the "rc=0 but nothing usable was produced" case.
+_PGDUMP_MAGIC = b"PGDMP"
+
+# pg_dump's wording when a role without BYPASSRLS dumps an RLS-enforced table.
+# This is THE failure mode on this platform (see CLAUDE.md trap 12), so it
+# earns a remedy in the error rather than a generic 500.
+_RLS_ABORT_MARKER = "row-level security policy"
+
+
+def _sanitize_pg_dump_error(stderr: str, conn: dict) -> str:
+    """Turn pg_dump stderr into an operator-facing message with no secrets.
+
+    pg_dump can echo a connection string, so the password is redacted before
+    anything is returned or logged. Only the first few lines are kept — the
+    abort reason is always at the top.
+    """
+    password = conn.get("password") or ""
+    cleaned = stderr.strip()
+    if password:
+        cleaned = cleaned.replace(password, "***")
+    lines = [ln for ln in cleaned.splitlines() if ln.strip()][:3]
+    return " | ".join(lines)
+
+
 @router.get("/db-export")
 def export_database(
     request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Stream a fresh custom-format database dump to the administrator.
+    """Return a fresh, VERIFIED custom-format database dump to the administrator.
 
     Generates the dump on demand via ``pg_dump -F c`` (custom archive format,
     restorable with ``pg_restore``). The full database — including encrypted
     biometric templates — is included; access is admin-only and audit-logged
     (SECURITY.md sec 4, Ley 1581/2012).
+
+    The dump is staged to a temporary file and its exit status checked BEFORE
+    the response begins. That ordering is the whole point: piping pg_dump's
+    stdout straight into the response makes a mid-run abort indistinguishable
+    from success (headers are already sent), which is how an RLS-truncated
+    ~57 KB archive was served as a 200 on production. A failed dump now yields
+    a 500 with the reason, no body, and no audit record.
     """
     conn = _parse_db_url(_resolve_pg_dump_url())
-    argv = _build_pg_dump_argv(conn)
-    env = _pg_env(conn)
 
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, env=env)
-    client_host = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
-    admin_id = str(admin.id)
-    admin_username = admin.username
+    fd, staging_path = tempfile.mkstemp(prefix="powerhouse_db_", suffix=".dump")
+    os.close(fd)
+
+    try:
+        argv = _build_pg_dump_argv(conn, staging_path)
+        env = _pg_env(conn)
+
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+        )
+        _, stderr = proc.communicate()
+
+        if proc.returncode != 0:
+            detail = _sanitize_pg_dump_error(
+                stderr.decode("utf-8", "replace") if stderr else "", conn
+            )
+            if _RLS_ABORT_MARKER in detail:
+                detail = (
+                    f"{detail}. The database enforces row-level security and the "
+                    "connecting role cannot read every row, so pg_dump aborted "
+                    "and produced an INCOMPLETE archive. Point "
+                    "BACKUP_DATABASE_URL at a dedicated backup role with "
+                    "BYPASSRLS and pg_read_all_data."
+                )
+            logger.error("database export failed (rc=%s): %s", proc.returncode, detail)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"database export failed: {detail}",
+            )
+
+        size = os.path.getsize(staging_path)
+        with open(staging_path, "rb") as fh:
+            magic = fh.read(len(_PGDUMP_MAGIC))
+        if size == 0 or magic != _PGDUMP_MAGIC:
+            logger.error(
+                "database export produced an unusable archive (%d bytes)", size
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "database export failed: pg_dump reported success but did "
+                    "not produce a valid custom-format archive"
+                ),
+            )
+
+        # Spec: "Successful export is audited". The dump is complete and
+        # verified at this point, so the record cannot describe a failed run.
+        log_action(
+            db,
+            action="db_export",
+            resource_type="system",
+            user_id=str(admin.id),
+            username=admin.username,
+            details={"format": "pg_dump -F c", "bytes": size},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.commit()
+    except Exception:
+        os.unlink(staging_path)
+        raise
 
     def _stream():
+        # The staging copy holds encrypted biometric templates, so it is
+        # removed as soon as the body has been handed to the client — success
+        # or client disconnect alike.
         try:
-            while True:
-                chunk = proc.stdout.read(_CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
+            with open(staging_path, "rb") as fh:
+                while True:
+                    chunk = fh.read(_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    yield chunk
         finally:
-            proc.stdout.close()
-            returncode = proc.wait()
-            if returncode == 0:
-                # Spec: "Successful export is audited". Audit only on success,
-                # after the dump has fully streamed. Never log credentials.
-                log_action(
-                    db,
-                    action="db_export",
-                    resource_type="system",
-                    user_id=admin_id,
-                    username=admin_username,
-                    details={"format": "pg_dump -F c"},
-                    ip_address=client_host,
-                    user_agent=user_agent,
-                )
-                db.commit()
+            if os.path.exists(staging_path):
+                os.unlink(staging_path)
 
     timestamp = int(time.time())
     filename = f"powerhouse_db_{timestamp}.dump"
@@ -172,7 +259,10 @@ def export_database(
     return StreamingResponse(
         _stream(),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
     )
 
 
