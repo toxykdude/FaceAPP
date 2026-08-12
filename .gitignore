@@ -2,6 +2,13 @@
 .env
 .env.*
 !.env.example
+# Any *.env at any depth. The rules above only covered files literally named
+# .env or .env.*, so host-credential notes such as produccion.env / pihole.env
+# sat untracked but NOT ignored — one `git add -A` from publishing plaintext
+# root passwords. No *.env file has ever been tracked, so widening this cannot
+# orphan anything; .env.example does not match and stays tracked.
+*.env
+!*.env.example
 gh.env
 *.gh.env
 *.token
