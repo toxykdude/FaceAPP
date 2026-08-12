@@ -123,22 +123,48 @@ PGPASSWORD="$DB_PASS" pg_restore \
 
 log "Database restored successfully"
 
-# 2. Restore biometric data
+# 2. Restore face data (member-photos and/or the legacy biometric_data dir)
+#
+# The archive carries whichever of these directories existed on the source
+# host, so every step below is per-directory and conditional. Assuming a fixed
+# layout here is what broke this path before: the old code chmod'ed
+# biometric_data unconditionally, which under `set -e` aborts the entire
+# restore on any host whose archive holds only member-photos.
+FACE_DIRS="member-photos biometric_data"
+
 if [ -f "$BIO_BACKUP" ]; then
-    log "Restoring biometric data..."
-    
-    # Backup current data
+    log "Restoring face data..."
+
+    # Move the current copies aside so a bad restore is reversible.
+    STAMP=$(date +%s)
+    for d in $FACE_DIRS; do
+        if [ -d "$DATA_DIR/$d" ]; then
+            mv "$DATA_DIR/$d" "$DATA_DIR/${d}.old.${STAMP}"
+            log "Existing $d moved aside to ${d}.old.${STAMP}"
+        fi
+    done
+
+    tar -xzf "$BIO_BACKUP" -C "$DATA_DIR" || error "Face data restore failed"
+
+    # biometric_data holds raw templates -> owner-only.
+    # member-photos is served through the API (/api/members/{id}/photo) and
+    # must stay readable by the backend service account, so it keeps 0750.
     if [ -d "$DATA_DIR/biometric_data" ]; then
-        mv "$DATA_DIR/biometric_data" "$DATA_DIR/biometric_data.old.$(date +%s)"
+        chmod 700 "$DATA_DIR/biometric_data"
     fi
-    
-    # Extract backup
-    tar -xzf "$BIO_BACKUP" -C "$DATA_DIR" || error "Biometric data restore failed"
-    chmod 700 "$DATA_DIR/biometric_data"
-    
-    log "Biometric data restored successfully"
+    if [ -d "$DATA_DIR/member-photos" ]; then
+        chmod 750 "$DATA_DIR/member-photos"
+    fi
+
+    RESTORED=""
+    for d in $FACE_DIRS; do
+        if [ -d "$DATA_DIR/$d" ]; then
+            RESTORED="${RESTORED} ${d}"
+        fi
+    done
+    log "Face data restored successfully:${RESTORED:- (archive contained none)}"
 else
-    warn "Biometric backup not found, skipping"
+    warn "Face data backup not found, skipping"
 fi
 
 # 3. Restore configuration (optional)
