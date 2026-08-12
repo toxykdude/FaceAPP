@@ -696,3 +696,42 @@ describe('Kiosk recognition state machine (USB mode)', () => {
     await waitFor(() => expect(screen.getByText(/Known Member/)).toBeInTheDocument());
   });
 });
+
+// ---------------------------------------------------------------------------
+// Connection recovery
+//
+// The kiosk is unattended: nobody is standing there to click "Reconnect".
+// A dropped WebSocket used to leave the terminal dead until staff noticed and
+// reloaded the page, which is how a momentary blip became an access outage.
+// ---------------------------------------------------------------------------
+
+describe('Kiosk connection recovery', () => {
+  it('reopens the socket by itself after an unexpected drop', async () => {
+    renderKiosk();
+    const ws = await awaitAutoStartedCamera();
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // The CV service restarts, or the network blips.
+    act(() => {
+      ws.readyState = MockWebSocket.CLOSED;
+      ws.onclose?.();
+    });
+
+    await waitFor(() => expect(MockWebSocket.instances.length).toBe(2), {
+      timeout: 5000,
+    });
+  }, 10000);
+
+  it('stays down once the kiosk is torn down', async () => {
+    const view = renderKiosk();
+    await awaitAutoStartedCamera();
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // Unmount closes the socket deliberately — that must not be mistaken for
+    // a drop and resurrect a camera nobody is using.
+    view.unmount();
+    await wait(1500);
+
+    expect(MockWebSocket.instances.length).toBe(1);
+  }, 10000);
+});
