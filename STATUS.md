@@ -7,21 +7,37 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-05 (PR #64 merged and SHA `c239710` deployed + runtime-verified on DEV LXC 124) |
-| **Current HEAD** | `c239710` — Merge PR #64 `feat/membership-payment-enforcement` |
-| **Commits on main** | 212 |
-| **PRs merged to date** | through #64 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — PR #64 passed backend (288 tests), frontend (82 tests / 13 suites), and cv_service (142 tests) before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-08-12 (PR #68 merged and SHA `970148d` deployed + runtime-verified on DEV LXC 124) |
+| **Current HEAD** | `970148d` — Merge PR #68 `feat/staff-page-permission-capabilities` |
+| **Commits on main** | 218 |
+| **PRs merged to date** | through #68 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — PR #68 passed backend (328 tests), frontend (82 tests / 13 suites), and cv_service before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `c2397106d841e4f605ea22f3a28b80dbd579709e` (main).
+`git rev-parse HEAD` → `970148da057e04af1115ddf1074506aab1c0888d` (main).
 Remote is clean and in sync.
 
 ✅ **Production is in sync with `main`.** LXC 114 was deployed to `946c605` on
 2026-07-30 and runtime-verified (see below). The `sshpass`/`smbclient` packages
 were installed directly on the host earlier the same day.
 
-✅ **DEV is in sync with `main` too.** DEVFaceApp was deployed to `8651568` on
-2026-07-30 and runtime-verified.
+✅ **DEV is in sync with `main` too.** DEVFaceApp was deployed to `970148d` on
+2026-08-12 and runtime-verified (bundle `index-CHo24Ijd.js`, previous
+`index-DagbKDRJ.js`; `/` 200, `/api/health` 200, backend+cv+nginx active;
+alembic already at head `7c6d5e4f3a2b` — PR #68 ships no migration). Rollback
+target is the previous deployed SHA `ea3e394`; because no DDL ran, rolling back
+is a plain redeploy of that SHA with no database restore.
+
+The RBAC boundary was probed against the running DEV API with throwaway staff
+tokens (both probe users deleted afterwards, verified 0 remaining):
+
+- `pages: ["dashboard","members"]` — reaches `GET /members`,
+  `GET /membership-plans`, `GET /memberships?member_id=…`, `POST /memberships`,
+  `POST /sales`; denied 403 on unfiltered `GET /memberships`, `GET /sales`,
+  `GET /sales/dashboard`, `GET /sales/report/export`, `POST /membership-plans`,
+  `PUT /memberships/{id}`.
+- everything **except** `members` — denied 403 on all member-record routes
+  (create/read/edit/delete, `/photo`, `/biometric-status`) while
+  `GET /members` still answers 200 for the Memberships member picker.
 
 📌 **Host addresses** (the `ssh faceapp` alias had gone missing from
 `~/.ssh/config`; recorded here so it can be rebuilt):
@@ -29,15 +45,24 @@ were installed directly on the host earlier the same day.
 | Env | Host | IP | SSH alias | Key |
 |-----|------|----|-----------|-----|
 | Production | `FaceAPP` (LXC 114) | `10.162.36.16` | `faceapp-prod-114` | `~/.ssh/faceapp-prod-lxc114_ed25519` |
-| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.101` | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
+| DEV | `DEVFaceApp` (LXC 124) | `10.162.36.105` (flaps — see below) | `faceapp`, `faceapp-dev-105` | `~/.ssh/faceapp` |
 
-⚠️ **The DEV IP in this table was wrong until 2026-08-05.** It read
-`10.162.36.105`, which has **no route to host**. The correct address is
-`10.162.36.101` — verified by SSH (`hostname` → `DEVFaceApp`) and consistent
-with `~/.ssh/config`, which had it right all along. The `faceapp` /
-`faceapp-dev-105` aliases both resolve correctly, so prefer the alias over a
-literal IP. (RESUME.md's note that the `faceapp` alias "does NOT resolve" is
-also stale — it resolves.)
+⚠️ **The DEV IP FLAPS between `.101` and `.105`. Probe, do not trust this
+table.** On 2026-08-05 `.105` had no route and `.101` answered, so this table
+was "corrected" to `.101`. On 2026-08-12 the reverse was true: `.101` had no
+route and `.105` answered with `hostname` → `DEVFaceApp`. Both readings were
+accurate when taken — the container's address is not stable, so the useful
+procedure is:
+
+```bash
+for ip in 10.162.36.105 10.162.36.101; do ping -c1 -W2 $ip >/dev/null 2>&1 && \
+  ssh -i ~/.ssh/faceapp root@$ip hostname; done   # expect DEVFaceApp
+```
+
+`~/.ssh/config` currently pins `faceapp`/`faceapp-dev-105` to `.101`, so as of
+2026-08-12 **`ssh faceapp` fails** and the literal IP is the only way in.
+Repointing the alias just moves the staleness; a static lease or a DNS record
+for DEVFaceApp is the actual fix. Production (`.16`) has been stable throughout.
 
 `known_hosts` uses `HashKnownHosts`, so hostnames cannot be read back out of it
 — this table is the only record.
