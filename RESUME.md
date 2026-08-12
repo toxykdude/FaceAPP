@@ -3,7 +3,66 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## Production deployment handoff (2026-07-30, latest)
+## Production backup provisioning (2026-08-12, latest)
+
+**Production LXC 114 now takes real, verified backups every 30 minutes.** It
+never did before this date: no `powerhouse_backup` role, no
+`powerhouse-backup.timer`, no `/etc/faceapp/`, no `/var/backups/powerhouse`.
+
+This was a **targeted backup deployment, NOT a full application deploy.** Only
+these were changed on the host — the application otherwise still runs the code
+it ran before:
+
+| Changed on LXC 114 | |
+|---|---|
+| `scripts/backup.sh`, `scripts/restore.sh`, `scripts/migrations/003_backup_role.sql` | copied from main |
+| `backend/api/system.py` | copied from main (was byte-identical to the pre-change baseline, so a clean drop-in) |
+| `/etc/systemd/system/powerhouse-backup.{service,timer}` | installed |
+| `powerhouse-backup.service.d/override.conf` | `EnvironmentFile` → `backend/.env` (prod has no `/opt/powerhouse-membership/.env`) + `-/etc/faceapp/backup-db.env` |
+| `facegym-backend.service.d/backup-db-env.conf` | `EnvironmentFile=-/etc/faceapp/backup-db.env` |
+| Postgres | `powerhouse_backup` role created |
+| `/etc/faceapp/backup-db.env` | written 0600 root:root |
+
+**`/opt/faceapp` (the canonical clone) was NOT touched and is still stale/dirty
+at `e43f243` with 3 modified files.** `.deployed-sha` still reads `0ca361d`,
+which remains accurate for the application — do not treat this entry as an app
+deploy.
+
+Verified after deployment:
+- backup role: `rolinherit=t`, `rolbypassrls=t`, `rolsuper=f`, member of
+  `pg_read_all_data` with `inherit_option=true`;
+- read-only proven live: `DELETE` / `INSERT` / `TRUNCATE` → permission denied,
+  `DROP` and `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` → must be owner;
+- first scheduled run: dump **10,645,292 bytes**, `pg_restore -f /dev/null`
+  rc=0, 14 `TABLE DATA` entries; face archive **529 photos**, matching the 529
+  files on disk; `snapshots/` correctly excluded;
+- timer enabled and armed; `facegym-backend` restarted, `/api/health` 200,
+  `BACKUP_DATABASE_URL` present in the service process environment.
+
+Pre-deploy safety artifacts on the host (`/var/backups/powerhouse-deploy/`,
+0700 root): `membership_db_predeploy_20260812T204257Z.dump` (10,644,828 bytes,
+read-through verified) plus `.bak` copies of the previous
+`facegym-backend.service`, `backup.sh`, and `api/system.py`.
+
+**Still unverified:** an authenticated round trip through
+`/api/system/db-export`. Prod enforces session-bound tokens, so a synthetically
+minted admin JWT is rejected with `Session has been revoked`, and no admin
+password was used. The underlying mechanism is proven (the same role, same
+binary, produces a complete 10.6 MB archive) and the env var is in the process,
+but **click Export DB once in the UI to close the loop** — a successful export
+now writes an `audit_logs` row with `action='db_export'`, so
+`select * from audit_logs where action='db_export' order by created_at desc limit 1`
+confirms it.
+
+**Remote replication is OFF on prod** (`BACKUP_REMOTE_TYPE=none`): backups are
+local-only, on the same host as the database. Configure a remote target in
+Settings → Backup before treating this as disaster recovery.
+
+Production is **15 commits behind `main`**, including RBAC page-permission and
+membership-payment-enforcement work. That is a separate deployment decision and
+was deliberately not taken here.
+
+## Production deployment handoff (2026-07-30, earlier)
 
 Production LXC 114 is running exact SHA
 `946c605cf0ca1dcd2ec4b123a8043993a12345a5` (PRs #29+#30 — the remote-backup

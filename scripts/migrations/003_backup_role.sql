@@ -57,7 +57,19 @@ BEGIN;
 -- 1. CREATE THE BACKUP ROLE
 -- ============================================================
 -- BYPASSRLS is the whole point of this role. NOSUPERUSER / NOCREATEDB /
--- NOCREATEROLE / NOINHERIT are explicit so the grant cannot quietly widen.
+-- NOCREATEROLE are explicit so the grant cannot quietly widen.
+--
+-- INHERIT is REQUIRED and is not a stylistic choice. This role's read
+-- privileges come from MEMBERSHIP in pg_read_all_data (step 2), and a
+-- NOINHERIT member holds nothing until it runs SET ROLE — which pg_dump never
+-- does. Provisioned with NOINHERIT on production 2026-08-12, the role failed
+-- immediately with:
+--
+--   pg_dump: error: query failed: ERROR: permission denied for table access_events
+--
+-- producing a ZERO-byte dump. Note the contrast with 002_migration_role.sql,
+-- where NOINHERIT is correct: the migrator's authority comes from table
+-- OWNERSHIP, which is a direct attribute rather than an inherited membership.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'powerhouse_backup') THEN
@@ -66,15 +78,15 @@ BEGIN
             NOSUPERUSER
             NOCREATEDB
             NOCREATEROLE
-            NOINHERIT
+            INHERIT
             BYPASSRLS
             PASSWORD '<SET_BACKUP_PASSWORD>';
     ELSE
-        -- Re-run on a host where the role predates this script: make sure the
-        -- attribute that matters is actually set. A powerhouse_backup created
-        -- by hand without BYPASSRLS produces exactly the truncated dump this
-        -- script exists to prevent.
-        ALTER ROLE powerhouse_backup BYPASSRLS;
+        -- Re-run on a host where the role predates this script, or was created
+        -- by an earlier revision of it: repair the two attributes without which
+        -- the role produces a truncated or empty dump. Neither ALTER touches
+        -- the existing password.
+        ALTER ROLE powerhouse_backup BYPASSRLS INHERIT;
     END IF;
 END
 $$;
@@ -89,6 +101,20 @@ GRANT USAGE ON SCHEMA public TO powerhouse_backup;
 -- sequence, including ones added by FUTURE migrations. Granting per-table
 -- instead would silently miss any new table and truncate a later dump — the
 -- same class of failure, arriving months later.
+--
+-- REVOKE before GRANT is deliberate and load-bearing on PostgreSQL 16+. A
+-- membership records its inherit option AT GRANT TIME from the member's
+-- rolinherit; `ALTER ROLE ... INHERIT` afterwards does NOT retroactively
+-- update it (see pg_auth_members.inherit_option). A role first granted while
+-- NOINHERIT therefore keeps inherit_option = false forever and stays unable to
+-- read anything, even after the role itself reports rolinherit = t. That is
+-- the exact state production landed in on 2026-08-12: rolinherit = t,
+-- inherit_option = f, and pg_dump still failing with "permission denied for
+-- table access_events" and a zero-byte dump.
+--
+-- Re-granting after INHERIT is guaranteed set re-records the option correctly,
+-- and stays portable to PostgreSQL 14/15 which have no WITH INHERIT clause.
+REVOKE pg_read_all_data FROM powerhouse_backup;
 GRANT pg_read_all_data TO powerhouse_backup;
 
 -- No INSERT/UPDATE/DELETE, no ownership, no DDL: this role exists to read.
