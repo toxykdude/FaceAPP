@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import io
 
-from api.deps import get_db, require_staff
+from api.deps import get_db, require_page, require_any_page
 from core.config import settings
 from core.path_validation import validate_path
 from models.user import User
@@ -52,10 +52,16 @@ def list_members(
     status: Optional[MemberStatus] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_any_page("members", "memberships", "reports")),
 ):
     """
     List all members with pagination and filtering.
+
+    The member directory backs a picker on more than one page: the Memberships
+    page selects a member to assign to, and the Dashboard's active-member count
+    is part of the Reports-gated stats block (a Reports holder can already
+    export this data via `GET /members/export`). Reading one member, and every
+    write, belongs to the Members page alone.
 
     - **skip**: Number of records to skip (default: 0)
     - **limit**: Maximum number of records to return (default: 100)
@@ -180,12 +186,12 @@ def list_members(
 def create_member(
     member: MemberCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """
     Create a new member.
 
-    Requires staff or admin role.
+    Requires the Members page.
     """
     # Check if email already exists
     if member.email:
@@ -236,7 +242,7 @@ def create_member(
 def get_member_photo(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """Get member photo from latest access event snapshot or generated initials avatar."""
     import os
@@ -339,7 +345,7 @@ def get_member_photo(
 def get_member(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """
     Get member by ID.
@@ -359,7 +365,7 @@ async def update_member(
     member_id: str,
     member_update: MemberUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """
     Update member information.
@@ -421,7 +427,7 @@ async def update_member(
 async def delete_member(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """
     Delete a member.
@@ -460,7 +466,7 @@ async def delete_member(
 def get_biometric_status(
     member_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_page("members")),
 ):
     """
     Get biometric enrollment status for a member.

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-from api.deps import get_db, require_page
+from api.deps import get_db, require_page, require_any_page
 from models.user import User
 from models.membership import MembershipPlan
 from schemas.membership_plan import (
@@ -26,10 +26,13 @@ def list_membership_plans(
     limit: int = Query(100, ge=1, le=1000),
     active_only: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("memberships")),
+    current_user: User = Depends(require_any_page("memberships", "members")),
 ):
     """
     List membership plans.
+
+    Read-only, and reachable with the Members page too — assigning a membership
+    means picking a plan from this catalog. Managing plans stays on Memberships.
     """
     query = db.query(MembershipPlan)
 

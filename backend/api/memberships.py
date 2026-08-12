@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload, selectinload
 from datetime import datetime, date, timedelta, timezone
 
-from api.deps import get_db, require_page, require_admin
+from api.deps import (
+    get_db,
+    require_page,
+    require_any_page,
+    require_admin,
+    user_has_page,
+)
 from models.user import User
 from models.member import Member
 from models.membership import Membership, MembershipStatus, MembershipPlan
@@ -29,7 +35,7 @@ def list_memberships(
     member_id: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("memberships")),
+    current_user: User = Depends(require_any_page("memberships", "members")),
 ):
     """
     List all memberships with pagination and filtering.
@@ -38,7 +44,17 @@ def list_memberships(
     - **limit**: Maximum number of records to return
     - **member_id**: Filter by member ID
     - **status**: Filter by membership status (active, expired, suspended)
+
+    A caller who only holds the Members page must pass **member_id**: the
+    Members page reads one member's history, it does not browse the ledger.
     """
+    # Prices and balances live on these rows, so an unfiltered listing is the
+    # Memberships page's own data — not something the Members grant carries.
+    # Literal 403: this route takes a `status` query parameter, which shadows
+    # fastapi's `status` module inside this function body.
+    if not member_id and not user_has_page(current_user, "memberships"):
+        raise HTTPException(status_code=403, detail="Access denied to memberships")
+
     query = db.query(Membership)
 
     # Filter by member
@@ -103,12 +119,13 @@ def list_memberships(
 def create_membership(
     membership: MembershipCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("memberships")),
+    current_user: User = Depends(require_any_page("memberships", "members")),
 ):
     """
     Create a new membership for a member.
 
-    Requires staff or admin role.
+    Reachable with either the Memberships page or the Members page: reception
+    assigns and renews memberships from the member record.
     """
     # Verify member exists
     member = db.query(Member).filter(Member.id == membership.member_id).first()
