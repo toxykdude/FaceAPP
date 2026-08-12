@@ -237,9 +237,15 @@ class CVService:
             f"Loaded {loaded} templates into Redis cache (version {published})"
         )
 
-        # Clean old version keys to prevent unbounded Redis growth
+        # Clean old version keys to prevent unbounded Redis growth.
+        # Keep the version we just replaced: a reader resolves the version and
+        # THEN scans and fetches, so deleting the just-superseded version can
+        # empty the keys out from under an in-flight read. That surfaced on
+        # production as a reader seeing 254 of 540 templates during a reload.
+        # It stays until the next reload — orders of magnitude longer than the
+        # ~250 ms a read takes.
         try:
-            for v in range(max(0, published - 2), published):  # Keep last 2
+            for v in range(max(0, published - 3), published - 1):
                 pattern = f"member:template:v{v}:*"
                 keys = cache._scan_keys(pattern)
                 if keys:

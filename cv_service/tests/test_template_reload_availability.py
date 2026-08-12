@@ -120,6 +120,23 @@ async def test_readers_keep_previous_templates_during_reload(
 
 
 @pytest.mark.asyncio
+async def test_superseded_version_survives_the_cleanup(fake_redis, monkeypatch):
+    """The just-replaced version must outlive the reload that replaced it.
+
+    A reader resolves the version and THEN scans and fetches its keys, so
+    deleting the version it just resolved empties the keys mid-read. On
+    production that showed up as a reader seeing 254 of 540 templates.
+    """
+    await _seed(monkeypatch, _original_set())
+    superseded = TemplateCache()._version
+
+    await _seed(monkeypatch, _replacement_set())
+
+    survivors = TemplateCache()._scan_keys(f"member:template:v{superseded}:*")
+    assert len(survivors) == 2
+
+
+@pytest.mark.asyncio
 async def test_failed_sync_keeps_the_previous_templates(fake_redis, monkeypatch):
     """A backend blip returns [] — that must not wipe a populated cache."""
     await _seed(monkeypatch, _original_set())
