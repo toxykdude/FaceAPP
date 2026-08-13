@@ -133,12 +133,24 @@ export const MemberForm: React.FC = () => {
     const effectiveMemberId = id || createdMemberId;
     const showSubSections = isEdit || !!createdMemberId;
 
+    // Withdrawing consent deletes the enrolled face server-side, so an
+    // accidental click on the checkbox must not be enough to destroy it. Only
+    // an actual enrollment is at stake — revoking consent for a member who was
+    // never enrolled is trivially undone by ticking the box again.
+    const [pendingRevocation, setPendingRevocation] = React.useState<MemberFormData | null>(null);
+
     const onSubmit = (data: MemberFormData) => {
-        if (isEdit) {
-            updateMutation.mutate(data);
-        } else {
+        if (!isEdit) {
             createMutation.mutate(data as MemberCreate);
+            return;
         }
+        const revokesEnrolledConsent =
+            member?.consent_given && !data.consent_given && member?.facial_data_enrolled;
+        if (revokesEnrolledConsent) {
+            setPendingRevocation(data);
+            return;
+        }
+        updateMutation.mutate(data);
     };
 
     return (
@@ -318,6 +330,29 @@ export const MemberForm: React.FC = () => {
                     <Button sx={{ mt: 1 }} onClick={() => navigate('/members')}>{t.members.skipToMembers}</Button>
                 </Paper>
             )}
+
+            <Dialog open={!!pendingRevocation} onClose={() => setPendingRevocation(null)}>
+                <DialogTitle>{t.members.revokeConsentTitle}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>{t.members.revokeConsentWarning}</DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPendingRevocation(null)}>
+                        {t.members.cancel}
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        data-testid="confirm-revoke-consent"
+                        onClick={() => {
+                            if (pendingRevocation) updateMutation.mutate(pendingRevocation);
+                            setPendingRevocation(null);
+                        }}
+                    >
+                        {t.members.revokeConsentConfirm}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {showSubSections && effectiveMemberId && <MembershipSection memberId={effectiveMemberId} />}
             {showSubSections && effectiveMemberId && <FaceEnrollmentSection memberId={effectiveMemberId} />}
