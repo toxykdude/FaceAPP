@@ -73,3 +73,15 @@ class Member(Base):
     def full_name(self):
         """Get full name."""
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def consent_given(self) -> bool:
+        """Whether biometric consent is currently on record.
+
+        `consent_given_at` is the legal evidence (Ley 1581) and stays the
+        source of truth; this is the boolean the admin form's checkbox binds
+        to. Read-only on purpose — granting and withdrawing consent go
+        through `PUT /members/{id}`, which also destroys the derived
+        biometric data on withdrawal.
+        """
+        return self.consent_given_at is not None

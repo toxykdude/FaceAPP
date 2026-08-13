@@ -41,6 +41,9 @@ export interface MemberUpdate {
     date_of_birth?: string;
     address?: string;
     status?: 'active' | 'inactive' | 'suspended';
+    // Grant (true) or withdraw (false) biometric consent. Withdrawing also
+    // deletes the member's enrolled face server-side. Omit to leave unchanged.
+    consent_given?: boolean;
 }
 
 export interface MembersListParams {

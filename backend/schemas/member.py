@@ -36,6 +36,14 @@ class MemberUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=20)
     id_number: Optional[str] = Field(None, max_length=20)
     status: Optional[MemberStatus] = None
+    consent_given: Optional[bool] = Field(
+        None,
+        description=(
+            "Grant (true) or withdraw (false) consent for biometric data. "
+            "Withdrawing also deletes the member's biometric template. "
+            "Omit to leave consent unchanged."
+        ),
+    )
 
 
 class MemberResponse(MemberBase):
@@ -45,6 +53,10 @@ class MemberResponse(MemberBase):
     status: str
     facial_data_enrolled: bool
     consent_given_at: Optional[datetime] = None
+    # Derived from consent_given_at (Member.consent_given). The admin form
+    # binds its checkbox to this; without it the box rendered unchecked for
+    # members who did have consent on record.
+    consent_given: bool = False
     id_number: Optional[str] = None
     created_at: datetime
     updated_at: datetime

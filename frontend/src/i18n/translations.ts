@@ -142,6 +142,10 @@ export const translations = {
       emailOptional: 'Correo (opcional)',
       update: 'Actualizar',
       consentLabel: 'Consentimiento otorgado para recolección de datos biométricos',
+      revokeConsentTitle: '¿Revocar el consentimiento biométrico?',
+      revokeConsentWarning:
+        'Este miembro tiene un rostro enrolado. Al revocar el consentimiento se eliminará su plantilla biométrica de forma permanente y dejará de ser reconocido en el kiosco. Para volver a usar el acceso facial habrá que otorgar el consentimiento y enrolarlo de nuevo.',
+      revokeConsentConfirm: 'Revocar y eliminar',
       noMembershipsMsg: 'No se encontraron membresías.',
       faceEnrollmentTitle: 'Enrolamiento Facial: {first} {last}',
       currentStatus: 'Estado Actual',
@@ -639,6 +643,10 @@ export const translations = {
       emailOptional: 'Email (optional)',
       update: 'Update',
       consentLabel: 'Consent given for biometric data collection',
+      revokeConsentTitle: 'Withdraw biometric consent?',
+      revokeConsentWarning:
+        'This member has an enrolled face. Withdrawing consent permanently deletes their biometric template and they will no longer be recognised at the kiosk. Restoring face access requires granting consent and enrolling them again.',
+      revokeConsentConfirm: 'Withdraw and delete',
       noMembershipsMsg: 'No memberships found.',
       faceEnrollmentTitle: 'Face Enrollment: {first} {last}',
       currentStatus: 'Current Status',

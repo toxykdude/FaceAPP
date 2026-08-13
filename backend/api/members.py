@@ -388,6 +388,26 @@ async def update_member(
 
     # Update fields
     update_data = member_update.model_dump(exclude_unset=True)
+
+    # Consent is not a plain column: `consent_given` is a read-only property
+    # over the `consent_given_at` timestamp, so it never reaches the setattr
+    # loop below. Granting keeps any existing timestamp (consent is dated
+    # evidence — re-saving the form must not re-date it); withdrawing also
+    # destroys the derived biometric data, because leaving the template behind
+    # would keep the kiosk recognising a member whose consent is recorded as
+    # withdrawn (Ley 1581 withdrawal right).
+    consent_given = update_data.pop("consent_given", None)
+    consent_revoked = False
+    if consent_given is True and member.consent_given_at is None:
+        member.consent_given_at = datetime.now(timezone.utc)
+    elif consent_given is False and member.consent_given_at is not None:
+        member.consent_given_at = None
+        member.facial_data_enrolled = False
+        db.query(BiometricTemplate).filter(
+            BiometricTemplate.member_id == str(member.id)
+        ).delete(synchronize_session=False)
+        consent_revoked = True
+
     for field, value in update_data.items():
         if field == "status" and value:
             setattr(member, field, value.value)
@@ -410,14 +430,27 @@ async def update_member(
             username=current_user.username,
             details={"updated_fields": list(update_data.keys())},
         )
+        if consent_revoked:
+            # Destroying biometric data is its own auditable act, logged in the
+            # same transaction as the deletion so one can never outlive the other.
+            log_action(
+                db,
+                action="biometric_consent_revoked",
+                resource_type="member",
+                resource_id=str(member.id),
+                user_id=str(current_user.id),
+                username=current_user.username,
+                details={"biometric_template_deleted": True},
+            )
         db.commit()
     except IntegrityError as error:
         db.rollback()
         raise _member_integrity_conflict(error) from None
     db.refresh(member)
 
-    # Invalidate CV cache if member status changed
-    if "status" in update_data:
+    # Invalidate CV cache on status change, and on revocation — a stale cache
+    # would keep granting entry with a template the database no longer has.
+    if "status" in update_data or consent_revoked:
         await notify_cv_invalidation(str(member.id))
 
     return member
