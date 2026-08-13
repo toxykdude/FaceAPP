@@ -7,22 +7,46 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-12 (PRs #71+#72 merged; **production LXC 114 upgraded 15 commits to `b3017c0`** and runtime-verified, after being provisioned for backups for the first time) |
-| **Current HEAD** | `b3017c0` — Merge PR #72 `fix/backup-role-inherit` |
-| **Commits on main** | 230 |
-| **PRs merged to date** | through #72 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — #71 and #72 both passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-08-12 (PRs #75+#76+#77 merged; **production LXC 114 deployed to `9445a70`** — the kiosk disconnect/no-recognition incident) |
+| **Current HEAD** | `9445a70` — Merge PR #77 `fix/kiosk-auto-reconnect` |
+| **Commits on main** | 239 |
+| **PRs merged to date** | through #77 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — #75, #76 and #77 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `b3017c01110ff626bf3bc918159a0d3cf6155f53` (main).
+`git rev-parse HEAD` → `9445a70d213e8530633e627cd68a3b51930a9b07` (main).
 Remote is clean and in sync.
 
-✅ **Production is in sync with `main`** — as of 2026-08-12, and genuinely this
-time. LXC 114 was upgraded from `0ca361d` to `b3017c0` (15 commits) and
-runtime-verified: bundle `index-CHo24Ijd.js` (previous `index-B2CpWa1v.js`)
-carrying the payment-enforcement strings the old bundle did not, alembic moved
-`6b5c4d3e2f1a` → `7c6d5e4f3a2b` and confirmed with `alembic current`, and the
-row census was identical before and after (1004 members / 2862 memberships /
-540 biometric templates / 2887 sales / 3 users).
+✅ **Production is in sync with `main`** — LXC 114 at `9445a70`, verified on the
+host: `.deployed-sha` matches, bundle `index-BJMMnsQD.js` (previous
+`index-CHo24Ijd.js`, deleted from `assets/`), all three services active, Nginx
+config valid, frontend/kiosk/backend-health/CV-health all 200, and zero
+error-level journal lines since the deploy. No migration was required. Row
+census after: 1006 members / 2864 memberships / 542 biometric templates.
+
+🔧 **The kiosk incident (2026-08-12).** "Random disconnects, and right now it
+recognizes nobody" was FOUR defects — see
+[SKILL.md](./SKILL.md) and the memorable-bugs notes:
+
+1. `_load_templates()` published the new cache version BEFORE fetching, so the
+   whole sync window served an empty cache and denied every member. A 33s
+   outage was observed, and 21 `No templates in cache` hits in 24h. A
+   transient backend error (`sync_templates()` returns `[]`) wiped the cache
+   until the next refresh. Now staged and published only when complete.
+2. The reload cleanup deleted the just-superseded version out from under
+   in-flight readers — partial reads of 254/540. Now retired one reload later.
+3. `find_match` re-read and re-decrypted every template per frame: **208 ms**,
+   on the event loop. Memoized + vectorized to **0.45 ms**.
+4. The kiosk never reconnected on its own, so any drop needed a human.
+
+Post-deploy measurements on LXC 114: a reader polling across three live
+reloads saw **540/540 templates on every one of 113 samples** (previously
+0 during a reload), a 60s synthetic kiosk at 5fps held **1 ms ping RTT**
+(previously the loop thread sat at 99.9%), and load average fell from
+**9.91 to 2.44** with resident memory down from 1.2G to ~916M.
+
+⚠️ Left alone deliberately: `CONFIDENCE_THRESHOLD` is `0.85` and the logs show
+frequent near-misses at 0.79–0.85. That is a recognition-tuning decision, not
+part of this incident.
 
 ⚠️ **This entry previously claimed production was in sync at `946c605`. It was
 not** — the host was running `0ca361d`, and `.deployed-sha` said so all along.
