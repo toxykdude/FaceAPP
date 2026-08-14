@@ -7,21 +7,44 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-12 (PRs #75+#76+#77 merged; **production LXC 114 deployed to `9445a70`** — the kiosk disconnect/no-recognition incident) |
-| **Current HEAD** | `9445a70` — Merge PR #77 `fix/kiosk-auto-reconnect` |
-| **Commits on main** | 239 |
-| **PRs merged to date** | through #77 (numbers contain gaps) |
+| **Last updated** | 2026-08-14 (verified production LXC 114 actually at `db64b31` — the consent fix, deployed 2026-08-13 01:53 UTC but left unrecorded; see below) |
+| **Current HEAD** | `db64b31` — Merge PR #79 `fix/member-consent-update` |
+| **Commits on main** | 244 |
+| **PRs merged to date** | through #79 (numbers contain gaps) |
 | **CI workflow** | `.github/workflows/ci.yml` — #75, #76 and #77 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `9445a70d213e8530633e627cd68a3b51930a9b07` (main).
+`git rev-parse HEAD` → `db64b3166e2a72a251f3bcef41f922ef53897bc3` (main).
 Remote is clean and in sync.
 
-✅ **Production is in sync with `main`** — LXC 114 at `9445a70`, verified on the
-host: `.deployed-sha` matches, bundle `index-BJMMnsQD.js` (previous
-`index-CHo24Ijd.js`, deleted from `assets/`), all three services active, Nginx
-config valid, frontend/kiosk/backend-health/CV-health all 200, and zero
-error-level journal lines since the deploy. No migration was required. Row
-census after: 1006 members / 2864 memberships / 542 biometric templates.
+✅ **Production is in sync with `main`** — LXC 114 at `db64b31`, verified on the
+host on 2026-08-14: `.deployed-sha` matches, clone clean at the same SHA,
+served bundle `index-xUBVs7xT.js` contains the PR #79 strings, all services
+active, backend health 200, CV health 200 (548 templates cached, camera
+connected), zero error-level journal lines since the 2026-08-13 01:54 restart.
+No migration and no dependency changes in `9445a70..db64b31` (docs + PR #79
+only). Functional proof, not just bytes: **6 consented enrollments landed
+after the deploy** (2026-08-13 22:33 through 2026-08-14 12:51).
+
+🔧 **Consent-fix deploy was live but unrecorded (found 2026-08-14).** The
+`db64b31` deploy happened at 01:53 UTC on 2026-08-13 and was never written
+here — this file claimed `9445a70` in the meantime, the exact drift failure
+the warning below describes. Reported symptom ("member created without consent,
+checkbox ticked later, enrollment proceeds, kiosk never recognizes") matched
+the pre-#79 bug because the customer was enrolled before the deploy window or
+without re-granting consent. Resolution per member: refresh the admin tab
+(stale pre-01:53 bundles serve from open tabs), tick consent → save (now
+persists), enroll the face.
+
+⚠️ **307 members are enrolled with NO consent on record** (legacy, predating
+the consent gate): `facial_data_enrolled=true`, `consent_given_at=NULL`, live
+templates still matching at the kiosk. A Ley 1581 compliance decision for the
+maintainer — re-consent campaign or formal withdrawal. Do NOT bulk-delete:
+that locks 307 paying members out. No action taken.
+
+⚠️ **7 members await consent re-grant + enrollment** (created consent-less
+under the pre-#79 bug; all with active memberships and no template): the
+edit-panel checkbox now persists — each needs tick → save → enroll at the
+desk.
 
 🔧 **The kiosk incident (2026-08-12).** "Random disconnects, and right now it
 recognizes nobody" was FOUR defects — see
