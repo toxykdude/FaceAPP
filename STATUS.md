@@ -7,23 +7,45 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-14 (verified production LXC 114 actually at `db64b31` — the consent fix, deployed 2026-08-13 01:53 UTC but left unrecorded; see below) |
-| **Current HEAD** | `db64b31` — Merge PR #79 `fix/member-consent-update` |
-| **Commits on main** | 244 |
+| **Last updated** | 2026-08-17 (deployed `5fdc2bf` — the consent-grant/CV-invalidation race fix; see below) |
+| **Current HEAD** | `5fdc2bf` — fix(members): stop CV invalidation racing the enrollment after a consent grant |
+| **Commits on main** | 246 |
 | **PRs merged to date** | through #79 (numbers contain gaps) |
 | **CI workflow** | `.github/workflows/ci.yml` — #75, #76 and #77 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `db64b3166e2a72a251f3bcef41f922ef53897bc3` (main).
+`git rev-parse HEAD` → `5fdc2bfe68f2e463ce481c5bde345a792c8cfb3e` (main).
 Remote is clean and in sync.
 
-✅ **Production is in sync with `main`** — LXC 114 at `db64b31`, verified on the
-host on 2026-08-14: `.deployed-sha` matches, clone clean at the same SHA,
-served bundle `index-xUBVs7xT.js` contains the PR #79 strings, all services
-active, backend health 200, CV health 200 (548 templates cached, camera
-connected), zero error-level journal lines since the 2026-08-13 01:54 restart.
-No migration and no dependency changes in `9445a70..db64b31` (docs + PR #79
-only). Functional proof, not just bytes: **6 consented enrollments landed
-after the deploy** (2026-08-13 22:33 through 2026-08-14 12:51).
+✅ **Production is in sync with `main`** — LXC 114 at `5fdc2bf` (backend
+`api/members.py` rsynced + backend restarted 2026-08-17, health 200, zero
+journal errors; no migration, no frontend change). Prior state `db64b31`
+verified in sync on 2026-08-14 with post-deploy functional proof.
+
+🔧 **The edit→enroll race (found 2026-08-17).** "Enrollment successful but the
+kiosk shows unrecognized" was TWO failure modes:
+
+1. **Cache race (fixed in `5fdc2bf`)**: the edit form sends `status` on every
+   save, and `update_member` keyed CV invalidation on payload PRESENCE — so
+   every consent grant removed the member's cached template and set a 60s
+   revocation marker, and the enrollment that followed (seconds later) had its
+   template reload SKIPPED by that marker. Live evidence: María José
+   Aristizabal — edit 16:26:35 → enroll 16:26:48 → her 0.97-confidence face
+   denied at 16:26:50. Fix: invalidate only when the status value actually
+   changed. Regression-tested both directions.
+2. **Enrollment-photo domain gap (desk procedure, not a bug)**: Daniela
+   Potosí's uploaded photo scores 0.42–0.62 against her own kiosk frames
+   (ranks 124–525 of 564) — the template cannot match her at the door. 10 of
+   12 same-day upload enrollments DID work, so uploads are permitted but
+   risky; anyone who bounces right after a good enrollment should be
+   re-enrolled **at the kiosk terminal via the Webcam tab** (same camera that
+   recognizes them).
+
+A remote template-recovery script (rebuild from denied kiosk snapshots with
+strict attribution + held-out verification + impostor margin) was built and
+run: it correctly refused to write for both candidates (María José failed
+held-out verification because her first two frames were the only truly hers;
+Daniela had zero attributable frames). No biometric data was modified; old
+templates intact; the script is reproducible from session notes.
 
 🔧 **Consent-fix deploy was live but unrecorded (found 2026-08-14).** The
 `db64b31` deploy happened at 01:53 UTC on 2026-08-13 and was never written
