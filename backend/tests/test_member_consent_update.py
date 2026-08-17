@@ -238,3 +238,75 @@ class TestConsentRevocation:
             .count()
             == 0
         )
+
+
+class TestCVInvalidationOnUpdate:
+    """The edit-form → enroll race.
+
+    The admin edit form sends `status` on every save, even unchanged. Keying
+    CV invalidation on payload PRESENCE put a 60-second revocation marker on
+    the member (TemplateCache.revoke_member); the enrollment that follows a
+    consent grant then has its own template reload SKIPPED by that marker,
+    so the freshly enrolled member is invisible to the kiosk for up to 10
+    minutes. Observed live: a 0.97-confidence face denied seconds after a
+    successful enrollment.
+    """
+
+    def test_consent_grant_with_unchanged_status_does_not_invalidate(
+        self, auth_client, db_session, no_cv_notify
+    ):
+        """The reported flow (tick consent on an active member, save, enroll)
+        must not poison the CV cache for the enrollment that follows."""
+        member = _member(db_session, consented=False)
+
+        resp = auth_client.put(
+            f"/api/members/{member.id}",
+            json={"consent_given": True, "status": "active"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        no_cv_notify.assert_not_awaited()
+
+    def test_status_sent_unchanged_with_other_fields_does_not_invalidate(
+        self, auth_client, db_session, no_cv_notify
+    ):
+        """The exact edit-form payload shape: status present but identical."""
+        member = _member(db_session, consented=True)
+
+        resp = auth_client.put(
+            f"/api/members/{member.id}",
+            json={
+                "first_name": "Consent",
+                "last_name": "Tester",
+                "phone": "555-0301",
+                "status": "active",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        no_cv_notify.assert_not_awaited()
+
+    def test_actual_status_change_still_invalidates(
+        self, auth_client, db_session, no_cv_notify
+    ):
+        """Suspending a member must keep pulling their template from the
+        kiosk cache immediately — that safety property is load-bearing."""
+        member = _member(db_session, consented=True, enrolled=True)
+
+        resp = auth_client.put(
+            f"/api/members/{member.id}", json={"status": "suspended"}
+        )
+
+        assert resp.status_code == 200, resp.text
+        no_cv_notify.assert_awaited_once_with(str(member.id))
+
+    def test_reactivation_invalidates_too(self, auth_client, db_session, no_cv_notify):
+        """Suspended -> active must restore recognition eligibility promptly."""
+        member = _member(db_session, consented=True, enrolled=True)
+        member.status = "suspended"
+        db_session.commit()
+
+        resp = auth_client.put(f"/api/members/{member.id}", json={"status": "active"})
+
+        assert resp.status_code == 200, resp.text
+        no_cv_notify.assert_awaited_once_with(str(member.id))

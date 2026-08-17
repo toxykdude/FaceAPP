@@ -388,6 +388,7 @@ async def update_member(
 
     # Update fields
     update_data = member_update.model_dump(exclude_unset=True)
+    old_status = member.status
 
     # Consent is not a plain column: `consent_given` is a read-only property
     # over the `consent_given_at` timestamp, so it never reaches the setattr
@@ -448,9 +449,19 @@ async def update_member(
         raise _member_integrity_conflict(error) from None
     db.refresh(member)
 
-    # Invalidate CV cache on status change, and on revocation — a stale cache
-    # would keep granting entry with a template the database no longer has.
-    if "status" in update_data or consent_revoked:
+    # Invalidate CV cache on an ACTUAL status change, and on revocation — a
+    # stale cache would keep granting entry to a member the database no
+    # longer considers active. Presence of "status" in the payload is NOT
+    # enough: the edit form sends status on every save, so keying on
+    # presence invalidated (and 60s-revoked, see TemplateCache.revoke_member)
+    # the member's cached template on a mere consent grant — and the
+    # enrollment that immediately followed had its template reload SKIPPED
+    # by the revocation marker, leaving the freshly enrolled member
+    # invisible to the kiosk until the next periodic refresh (up to 10
+    # minutes). Observed live: edit-save 16:26:35 -> enroll 16:26:48 ->
+    # kiosk denied a 0.97-confidence face because the reload skipped the
+    # just-committed template.
+    if member.status != old_status or consent_revoked:
         await notify_cv_invalidation(str(member.id))
 
     return member
