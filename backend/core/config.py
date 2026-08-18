@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     # limit is configurable without touching code.
     MEMBER_AUTH_RATE_LIMIT: str = "10/minute"
 
+    # Rate limiting — per-route slowapi limit for the public guest checkout
+    # pending endpoint (/api/portal/pending-payment/guest, no JWT — design
+    # D10). Same pattern as MEMBER_AUTH_RATE_LIMIT: guest checkout is the
+    # other internet-exposed portal write, and the cap bounds Redis
+    # stuffing through reference/phone spam.
+    GUEST_CHECKOUT_RATE_LIMIT: str = "10/minute"
+
     # Monitoring
     LOG_LEVEL: str = "INFO"
 

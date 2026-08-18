@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Optional, List, Any
 from datetime import date, datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator, field_serializer
+from pydantic import BaseModel, EmailStr, Field, field_validator, field_serializer
 
 
 class MemberLoginRequest(BaseModel):
@@ -164,6 +164,36 @@ class PortalPendingPaymentRequest(BaseModel):
     member_id: Optional[str] = None
     wompi_transaction_id: Optional[str] = None
     amount: Optional[Decimal] = None
+
+
+class PortalGuestPendingPaymentRequest(BaseModel):
+    """Guest checkout pending record (no JWT — design D10).
+
+    The guest path carries identity instead of a member binding: the
+    webhook's guest branch later resolves or creates the member from
+    ``guest_phone`` (canonical 57+10). The ``wompi_reference`` pattern is
+    the Pages signature format — anything else is reference stuffing and
+    is rejected before touching Redis. There is no ``amount`` field at
+    all: the server resolves the plan price from the database.
+    """
+
+    guest_name: str = Field(..., min_length=2, max_length=200)
+    guest_phone: str = Field(..., min_length=7, max_length=30)
+    guest_email: EmailStr
+    plan_id: str
+    wompi_reference: str = Field(
+        ...,
+        pattern=r"^PH-[a-z0-9-]+-\d{10}-[a-f0-9]{6}$",
+    )
+
+    @field_validator("guest_name")
+    @classmethod
+    def normalize_guest_name(cls, v: str) -> str:
+        """Collapse whitespace runs; a name must survive stripping."""
+        name = " ".join(v.split())
+        if len(name) < 2:
+            raise ValueError("guest_name must contain at least 2 letters")
+        return name
 
 
 class PortalWebhookRenewRequest(BaseModel):
