@@ -62,13 +62,36 @@ def sample_plan(db_session):
 
 
 def _webhook_body(member_id, plan_id, reference):
+    """v2 webhook-renew body (change portal-secure-restore): the required
+    transport is {wompi_reference, wompi_transaction_id, amount_in_cents};
+    plan_id/member_id ride along ignored (the Redis pending record is
+    authoritative)."""
     return {
-        "plan_id": str(plan_id),
-        "member_id": str(member_id),
         "wompi_reference": reference,
         "wompi_transaction_id": "tx-security",
-        "amount": "50000",
+        "amount_in_cents": 5000000,  # 50000.00 COP in cents — matches plan
+        "plan_id": str(plan_id),
+        "member_id": str(member_id),
     }
+
+
+def _store_pending_record(plan, member, reference):
+    """Seed the Redis pending record the webhook must consume (D9)."""
+    client = redis_lib.from_url(app_settings.REDIS_URL, decode_responses=True)
+    key = f"pending-payment:{reference}"
+    client.setex(
+        key,
+        86400,
+        json.dumps(
+            {
+                "plan_id": str(plan.id),
+                "member_id": str(member.id),
+                "amount": str(plan.price),
+                "wompi_reference": reference,
+            }
+        ),
+    )
+    return key
 
 
 def _sign(secret: str, raw: bytes) -> str:
@@ -176,10 +199,10 @@ class TestWebhookSignatureEnforcement:
             app_settings, "WOMPI_INTEGRITY_SECRET", "security-suite-secret"
         )
         monkeypatch.setattr(portal_module, "notify_cv_invalidation", AsyncMock())
+        reference = f"ref-{uuid.uuid4().hex[:8]}"
+        pending_key = _store_pending_record(sample_plan, sample_member, reference)
         raw = json.dumps(
-            _webhook_body(
-                sample_member.id, sample_plan.id, f"ref-{uuid.uuid4().hex[:8]}"
-            )
+            _webhook_body(sample_member.id, sample_plan.id, reference)
         ).encode()
 
         before = self._row_counts(db_session, sample_member.id)
@@ -195,6 +218,13 @@ class TestWebhookSignatureEnforcement:
         after = self._row_counts(db_session, sample_member.id)
         assert after[0] == before[0] + 1  # membership created
         assert after[1] == before[1] + 1  # transaction created
+        # Key consumed strictly after the commit (D1).
+        assert (
+            redis_lib.from_url(app_settings.REDIS_URL, decode_responses=True).get(
+                pending_key
+            )
+            is None
+        )
 
 
 def _cors_middleware_kwargs():

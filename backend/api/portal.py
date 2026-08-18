@@ -4,19 +4,23 @@ Member Portal endpoints — member self-service.
 
 import hashlib
 import hmac
+import json
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_member, get_portal_session
 from models.member import Member
 from models.membership import Membership, MembershipPlan
 from models.sale import SalesTransaction
+from pydantic import ValidationError
 from schemas.portal import (
     PortalMeResponse,
     PortalPlanResponse,
+    PortalPendingPaymentRequest,
     PortalRenewRequest,
     PortalRenewResponse,
     PortalWebhookRenewRequest,
@@ -186,6 +190,7 @@ def verify_wompi_signature(request_body: bytes, signature_header: str) -> bool:
     Verify Wompi webhook HMAC-SHA256 signature.
     The signature is computed from the raw request body using the integrity secret.
     """
+
     from core.config import settings
 
     if not settings.WOMPI_INTEGRITY_SECRET:
@@ -205,6 +210,49 @@ def verify_wompi_signature(request_body: bytes, signature_header: str) -> bool:
     return hmac.compare_digest(expected, signature_header)
 
 
+def _pending_key(reference: str) -> str:
+    return f"pending-payment:{reference}"
+
+
+def _load_pending_payment(reference: str):
+    """Load the Redis pending record for a Wompi reference.
+
+    Returns ``(redis_client, record_or_None)``. The record is server-authored
+    (written by a JWT-authed or internal-keyed endpoint) and is the ONLY
+    authoritative source of plan, member and amount for reconciliation.
+    """
+    import redis
+    from core.config import settings
+
+    client = redis.from_url(settings.REDIS_URL)
+    raw = client.get(_pending_key(reference))
+    return client, (json.loads(raw) if raw else None)
+
+
+def _resolve_member_from_pending(db: Session, pending: dict):
+    """Resolve which member a pending record provisions (design D5/D9 seam).
+
+    The Redis ``member_id`` is authoritative — the webhook body's member_id
+    is ignored (a signed relay forward must not choose the member). Returns
+    None when the record carries no member_id: that is the guest-purchase
+    branch, provisioned by the guest provisioning path (Unit 2) which plugs
+    in exactly here.
+    """
+    member_id = pending.get("member_id")
+    if not member_id:
+        return None
+    return db.query(Member).filter(Member.id == member_id).first()
+
+
+def _already_processed(db: Session, reference: str):
+    """Find an existing sale by Wompi reference (exact idempotency lookup)."""
+    return (
+        db.query(SalesTransaction)
+        .filter(SalesTransaction.wompi_reference == reference)
+        .first()
+    )
+
+
 @router.post("/webhook-renew")
 async def portal_webhook_renew(
     request: Request,
@@ -212,18 +260,37 @@ async def portal_webhook_renew(
 ):
     """
     Renew membership from Wompi webhook — no JWT required.
-    Called server-to-server by the Cloudflare Pages Function webhook.
-    Verified via HMAC-SHA256 signature from Wompi.
 
-    Uses plan_id + member_id from the request (stored in Redis by the
-    pending-payment endpoint and passed through by the webhook handler).
+    Called server-to-server by the Cloudflare Pages relay. Reconciliation
+    order (design D9, spec payment-integrity "Webhook Re-Verification and
+    Atomic Pending Consumption"):
+
+    1. HMAC-SHA256 signature (401 before ANY lookup — forged webhooks
+       change no state).
+    2. Parse the v2 body: ``wompi_reference``, ``wompi_transaction_id`` and
+       ``amount_in_cents`` are all required (422 otherwise).
+    3. Load the Redis pending record by reference. Missing key + existing
+       sale = replay → ``already_processed``; missing both = 404 + staff
+       alert (covers TTL-expired legit payments — the relay alerts staff).
+    4. Amount gates (D4): the pending record must equal the DB plan price
+       (it is server-authored — any deviation is tampering or staleness)
+       AND the Wompi ``amount_in_cents/100`` must be >= the plan price
+       (overpayment accepted, underpayment never). Violation → 400 + alert,
+       pending key retained.
+    5. Resolve the member from the pending record (body member_id ignored;
+       guest records without member_id are provisioned by Unit 2).
+    6. Membership + SalesTransaction (+ ``wompi_reference``) in a single
+       commit — the UNIQUE index makes a same-reference race abort the
+       loser as ``already_processed``.
+    7. Post-commit only: delete the Redis key strictly AFTER the commit
+       (D1 — the key is never consumed unless provisioning committed),
+       then notify CV (failure logged; the sale stays intact).
     """
     import logging
-    import json
 
     logger = logging.getLogger(__name__)
 
-    # Verify Wompi signature
+    # 1. Verify Wompi signature — pre-lookup, no state change on failure.
     signature = request.headers.get("X-Signature", "")
     body = await request.body()
 
@@ -234,7 +301,7 @@ async def portal_webhook_renew(
             detail="Invalid webhook signature",
         )
 
-    # Parse the body as the expected schema
+    # 2. Parse the body as the v2 schema.
     try:
         body_data = json.loads(body)
     except json.JSONDecodeError:
@@ -243,50 +310,93 @@ async def portal_webhook_renew(
             detail="Invalid JSON body",
         )
 
-    request_data = PortalWebhookRenewRequest(**body_data)
+    try:
+        request_data = PortalWebhookRenewRequest(**body_data)
+    except ValidationError as exc:
+        logger.warning(
+            "Webhook renew: rejected malformed body (missing or invalid "
+            f"required fields): {exc.errors()}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid webhook payload",
+        )
 
-    # Verify plan exists and is active
+    reference = request_data.wompi_reference
+
+    # 3. Redis pending load (authoritative) with DB idempotency fallback.
+    r, pending = _load_pending_payment(reference)
+    if pending is None:
+        existing_tx = _already_processed(db, reference)
+        if existing_tx:
+            logger.info(
+                f"Webhook renew: reference {reference} already processed, skipping"
+            )
+            return {
+                "status": "already_processed",
+                "membership_id": (
+                    str(existing_tx.membership_id)
+                    if existing_tx.membership_id
+                    else None
+                ),
+            }
+        logger.error(
+            f"Webhook renew ALERT: no pending record and no prior sale for "
+            f"reference {reference} — refusing to provision (TTL expiry or "
+            "unverified request; staff should reconcile this payment)"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Referencia de pago no encontrada",
+        )
+
+    # 4. Amount gates (D4) — plan resolved from the pending record.
     plan = (
         db.query(MembershipPlan)
         .filter(
-            MembershipPlan.id == request_data.plan_id,
+            MembershipPlan.id == pending.get("plan_id"),
             MembershipPlan.is_active == True,
         )
         .first()
     )
-
     if not plan:
         logger.error(
-            f"Webhook renew: plan {request_data.plan_id} not found or inactive"
+            f"Webhook renew ALERT: pending record {reference} references "
+            f"unknown or inactive plan {pending.get('plan_id')} — refusing to "
+            "provision, key retained"
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado o inactivo",
         )
 
-    # Verify member exists
-    member = db.query(Member).filter(Member.id == request_data.member_id).first()
-    if not member:
-        logger.error(f"Webhook renew: member {request_data.member_id} not found")
+    pending_amount = Decimal(str(pending.get("amount", "")))
+    wompi_amount = Decimal(request_data.amount_in_cents) / Decimal(100)
+    if pending_amount != plan.price or wompi_amount < plan.price:
+        logger.error(
+            f"Webhook renew ALERT: amount mismatch for reference {reference} "
+            f"(pending={pending_amount}, wompi={wompi_amount}, "
+            f"plan_price={plan.price}) — no provisioning, pending key retained"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Monto del pago no coincide con el plan",
+        )
+
+    # 5. Resolve the member — Redis pending record authoritative (D9).
+    member = _resolve_member_from_pending(db, pending)
+    if member is None:
+        # Guest branch (no member_id in the pending record) is provisioned by
+        # the guest provisioning path — refusing here keeps Unit 1 closed.
+        logger.error(
+            f"Webhook renew ALERT: pending record {reference} carries no "
+            "resolvable member_id — guest provisioning is not enabled, "
+            "refusing to provision"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Miembro no encontrado",
         )
-
-    # Idempotency check: avoid duplicate memberships for the same Wompi reference
-    existing_tx = (
-        db.query(SalesTransaction)
-        .filter(SalesTransaction.notes.like(f"%{request_data.wompi_reference}%"))
-        .first()
-    )
-    if existing_tx:
-        logger.info(
-            f"Webhook renew: already processed reference {request_data.wompi_reference}, skipping"
-        )
-        return {
-            "status": "already_processed",
-            "membership_id": str(existing_tx.membership_id),
-        }
 
     today = date.today()
 
@@ -309,7 +419,11 @@ async def portal_webhook_renew(
 
     end_date = start_date + timedelta(days=plan.duration_days)
 
-    # Create membership
+    # 6. Membership + Sale (+ wompi_reference idempotency key) single commit.
+    # A SAVEPOINT scopes the attempt: when the UNIQUE index aborts a
+    # same-reference race loser, only the loser's rows are discarded —
+    # never anything committed by another transaction.
+    nested = db.begin_nested()
     new_membership = Membership(
         member_id=str(member.id),
         plan_id=plan.id,
@@ -322,10 +436,8 @@ async def portal_webhook_renew(
     db.add(new_membership)
     db.flush()
 
-    # Generate invoice number
     invoice_number = f"WOM-{today.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
 
-    # Create sales transaction
     transaction = SalesTransaction(
         member_id=str(member.id),
         membership_id=new_membership.id,
@@ -333,14 +445,51 @@ async def portal_webhook_renew(
         payment_method="card",
         invoice_number=invoice_number,
         notes=f"Wompi ref: {request_data.wompi_reference} | Wompi tx: {request_data.wompi_transaction_id}",
+        wompi_reference=request_data.wompi_reference,
     )
     db.add(transaction)
-    db.commit()
+
+    try:
+        db.flush()
+        db.commit()
+    except IntegrityError:
+        # Same-reference race: the UNIQUE index aborted this transaction —
+        # the winner's commit is the authoritative provisioning.
+        nested.rollback()
+        winner = _already_processed(db, reference)
+        logger.info(
+            f"Webhook renew: unique wompi_reference race on {reference}; "
+            "loser aborted, winner's provisioning stands"
+        )
+        return {
+            "status": "already_processed",
+            "membership_id": (
+                str(winner.membership_id) if winner and winner.membership_id else None
+            ),
+        }
+
     db.refresh(new_membership)
     db.refresh(transaction)
 
-    # Post-commit only — never on a failed/rolled-back write
-    await notify_cv_invalidation(str(member.id))
+    # 7. Post-commit only — never on a failed/rolled-back write. The Redis
+    # key is deleted strictly AFTER the commit: if this delete fails the DB
+    # idempotency still guards replays (already_processed), so a Redis hiccup
+    # never loses money but also never double-provisions.
+    try:
+        r.delete(_pending_key(reference))
+    except Exception as exc:  # pragma: no cover — Redis availability edge
+        logger.warning(
+            f"Webhook renew: failed to delete pending key for {reference} "
+            f"({exc}); DB idempotency still guards replays"
+        )
+
+    try:
+        await notify_cv_invalidation(str(member.id))
+    except Exception as exc:
+        logger.error(
+            f"Webhook renew: CV invalidation failed for member {member.id} "
+            f"after committed provisioning ({exc}) — sale stays intact"
+        )
 
     logger.info(
         f"Webhook renew: created membership {new_membership.id} for member {member.id}, "
@@ -358,7 +507,7 @@ async def portal_webhook_renew(
 
 @router.post("/pending-payment")
 def portal_pending_payment(
-    request: PortalWebhookRenewRequest,
+    request: PortalPendingPaymentRequest,
     member: Member = Depends(get_current_member),
     db: Session = Depends(get_db),
 ):
@@ -412,21 +561,32 @@ def get_pending_payment(
     x_api_key: str = Header(None, alias="X-API-Key"),
 ):
     """
-    Look up pending payment by Wompi reference.
-    Requires internal API key for access.
+    Look up pending payment by Wompi reference (relay-only, WS-1).
+
+    Authenticates with the dedicated PORTAL_INTERNAL_API_KEY shared between
+    the Pages relay and the backend. Fail closed: unset/empty key denies
+    every read. The global SECRET_KEY is deliberately NOT accepted (a
+    SECRET_KEY leak must not expose payment references), and denials are
+    uniform 401s raised BEFORE any Redis access — a caller cannot probe
+    whether a reference exists.
     """
+    import redis
+    import json
+
     from core.config import settings
 
-    # Require internal API key
-    internal_key = settings.SECRET_KEY
-    if not x_api_key or x_api_key != internal_key:
+    internal_key = settings.PORTAL_INTERNAL_API_KEY
+    if (
+        not internal_key
+        or not x_api_key
+        or not hmac.compare_digest(
+            x_api_key.encode("utf-8"), internal_key.encode("utf-8")
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
-
-    import redis
-    import json
 
     r = redis.from_url(settings.REDIS_URL)
     key = f"pending-payment:{reference}"

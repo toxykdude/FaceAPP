@@ -41,6 +41,13 @@ class Settings(BaseSettings):
         ""  # Shared secret for backend ↔ CV service communication
     )
 
+    # Dedicated internal key for the portal relay ↔ backend channel (WS-1).
+    # Authenticates GET /portal/pending-payment/{reference} ONLY. Unset or
+    # empty denies every read (fail closed). Deliberately separate from
+    # SECRET_KEY (must never authorize this route) and from
+    # INTERNAL_API_SECRET (a Pages-side leak must not expose CV auth).
+    PORTAL_INTERNAL_API_KEY: str = ""
+
     # Admin User
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = ""  # REQUIRED: Set in .env with strong password

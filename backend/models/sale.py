@@ -40,6 +40,11 @@ class SalesTransaction(Base):
     )
     invoice_number = Column(String(50), unique=True, nullable=False, index=True)
     notes = Column(Text, nullable=True)
+    # Wompi payment reference — the webhook idempotency key (design D1/D6).
+    # NULL for non-Wompi sales (cash/transfer); UNIQUE so a replayed or
+    # racing webhook aborts at the database instead of provisioning twice.
+    # Backfilled from notes and indexed by migration 8d7e6f5a4b3c.
+    wompi_reference = Column(String(100), nullable=True, index=True, unique=True)
 
     created_at = Column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
