@@ -15,6 +15,7 @@ from sqlalchemy import (
     Enum,
     Integer,
     Boolean,
+    CheckConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -59,6 +60,12 @@ class MembershipPlan(Base):
     """Membership Plan model for reusable templates."""
 
     __tablename__ = "membership_plans"
+    # DB-level price floor (spec: Positive-Price Plan Constraint). Mirrored by
+    # migration 8d7e6f5a4b3c so both create_all test DBs and migrated
+    # databases enforce the same contract.
+    __table_args__ = (
+        CheckConstraint("price > 0", name="ck_membership_plans_price_positive"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
