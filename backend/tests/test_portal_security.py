@@ -24,6 +24,7 @@ from decimal import Decimal
 import pytest
 import redis as redis_lib
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from unittest.mock import AsyncMock
 
 import api.portal as portal_module
@@ -340,3 +341,231 @@ class TestMemberAuthRateLimits:
         )
         assert resp.status_code == 429, (resp.status_code, resp.text)
         assert "Rate limit exceeded" in resp.json()["error"]
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3 — cross-member isolation under RLS (member_portal, SELECT-only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def portal_rls_ready():
+    """Skip (with the recorded reason) unless tests/portal_rls_bootstrap.py
+    provisioned the member_portal role and MEMBER_PORTAL_DATABASE_URL."""
+    from core import database as core_database
+    from tests.portal_rls_bootstrap import provisioning_error
+
+    if core_database.PortalSessionLocal is None:
+        pytest.skip(
+            "member_portal RLS role not provisioned: "
+            f"{provisioning_error() or 'unknown reason'}"
+        )
+    return True
+
+
+@pytest.fixture
+def rls_members(engine, portal_rls_ready):
+    """Two committed members (A and B), each with an active membership and a
+    payment. Committed — NOT on the rollback-isolated db_session — because the
+    member_portal RLS session reads through a separate connection that can
+    only see committed rows. Everything is deleted on teardown."""
+    from sqlalchemy.orm import Session as OrmSession
+
+    db = OrmSession(bind=engine)
+    created = {"transactions": [], "memberships": [], "members": [], "plans": []}
+    try:
+        plan = MembershipPlan(
+            name=f"RLS plan {uuid.uuid4().hex[:8]}",
+            duration_days=30,
+            price=Decimal("50000"),
+            is_active=True,
+        )
+        db.add(plan)
+        db.flush()
+        created["plans"].append(plan.id)
+
+        out = []
+        for first_name in ("Alicia", "Bruno"):
+            member = Member(
+                first_name=first_name,
+                last_name="Rlstest",
+                email=f"rls-{uuid.uuid4().hex}@example.com",
+                phone=_fresh_phone(),
+                status="active",
+            )
+            db.add(member)
+            db.flush()
+            created["members"].append(member.id)
+
+            membership = Membership(
+                member_id=member.id,
+                plan_id=plan.id,
+                type=plan.name,
+                start_date=date.today(),
+                end_date=date.today() + timedelta(days=30),
+                price=plan.price,
+                status="active",
+            )
+            db.add(membership)
+            db.flush()
+            created["memberships"].append(membership.id)
+
+            transaction = SalesTransaction(
+                member_id=member.id,
+                membership_id=membership.id,
+                amount=plan.price,
+                payment_method="card",
+                invoice_number=f"RLS-{uuid.uuid4().hex[:12].upper()}",
+                notes="rls isolation fixture",
+            )
+            db.add(transaction)
+            db.flush()
+            created["transactions"].append(transaction.id)
+
+            out.append(
+                {
+                    "member_id": member.id,
+                    "membership_id": membership.id,
+                    "transaction_id": transaction.id,
+                    "invoice": transaction.invoice_number,
+                }
+            )
+        db.commit()
+        yield {"a": out[0], "b": out[1], "plan_id": plan.id}
+    finally:
+        for tx_id in created["transactions"]:
+            db.query(SalesTransaction).filter_by(id=tx_id).delete(
+                synchronize_session=False
+            )
+        for ms_id in created["memberships"]:
+            db.query(Membership).filter_by(id=ms_id).delete(synchronize_session=False)
+        for m_id in created["members"]:
+            db.query(Member).filter_by(id=m_id).delete(synchronize_session=False)
+        for p_id in created["plans"]:
+            db.query(MembershipPlan).filter_by(id=p_id).delete(
+                synchronize_session=False
+            )
+        db.commit()
+        db.close()
+
+
+def _portal_session_for(member_id):
+    """A real member_portal session (RLS-enforced) scoped to member_id —
+    exactly what api.deps.get_portal_session yields in production."""
+    from core.database import PortalSessionLocal
+
+    db = PortalSessionLocal()
+    db.execute(text("SET LOCAL app.member_id = :mid"), {"mid": str(member_id)})
+    return db
+
+
+class TestPortalRlsIsolation:
+    """Task 4.3 — the member_portal role is SELECT-only and row-scoped.
+
+    The API-level test locks the spec scenario (cross-member /portal/me
+    denied). The DB-level tests are the load-bearing RLS proofs: the route's
+    own WHERE clause would hide B's rows even without RLS, so only a raw
+    portal-role session demonstrates the database actually enforces the
+    boundary (fails if RLS/policies are missing or weakened).
+    """
+
+    def test_portal_me_returns_own_rows_only(self, client, rls_members):
+        a, b = rls_members["a"], rls_members["b"]
+        token = create_access_token(data={"sub": str(a["member_id"]), "type": "member"})
+
+        resp = client.get(
+            "/api/portal/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        data = resp.json()
+
+        # Positive control — A's own rows ARE visible (RLS allows own rows).
+        assert data["active_membership"]["id"] == str(a["membership_id"])
+        assert [t["id"] for t in data["recent_payments"]] == [str(a["transaction_id"])]
+
+        # Negative — none of B's identifiers may appear anywhere.
+        dumped = json.dumps(data)
+        for forbidden in (
+            str(b["membership_id"]),
+            str(b["transaction_id"]),
+            b["invoice"],
+        ):
+            assert forbidden not in dumped
+
+    def test_portal_me_other_member_sees_only_their_rows(self, client, rls_members):
+        """Triangulation: symmetric check from B's token."""
+        a, b = rls_members["a"], rls_members["b"]
+        token = create_access_token(data={"sub": str(b["member_id"]), "type": "member"})
+
+        resp = client.get(
+            "/api/portal/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        data = resp.json()
+        assert data["active_membership"]["id"] == str(b["membership_id"])
+        assert [t["id"] for t in data["recent_payments"]] == [str(b["transaction_id"])]
+        assert str(a["membership_id"]) not in json.dumps(data)
+
+    def test_portal_role_unfiltered_scan_sees_only_self(self, rls_members):
+        """The load-bearing RLS check: with NO query-level WHERE, the database
+        itself must filter members to the session's app.member_id."""
+        a, b = rls_members["a"], rls_members["b"]
+        db = _portal_session_for(a["member_id"])
+        try:
+            visible = db.query(Member).all()
+            assert [str(m.id) for m in visible] == [str(a["member_id"])]
+        finally:
+            db.rollback()
+            db.close()
+
+    def test_portal_role_cannot_read_other_members_membership(self, rls_members):
+        """A targeted read of B's membership under A's session returns
+        nothing — even when the attacker explicitly asks for B's row."""
+        a, b = rls_members["a"], rls_members["b"]
+        db = _portal_session_for(a["member_id"])
+        try:
+            rows = (
+                db.query(Membership).filter(Membership.id == b["membership_id"]).all()
+            )
+            assert rows == []  # empty by setup+RLS (companion test is non-empty)
+        finally:
+            db.rollback()
+            db.close()
+
+    def test_portal_role_without_member_context_sees_nothing(self, rls_members):
+        """No app.member_id set → policies compare against NULL → zero rows
+        (a portal session that skips the SET LOCAL leaks nothing)."""
+        from core.database import PortalSessionLocal
+
+        db = PortalSessionLocal()
+        try:
+            assert db.query(Member).count() == 0
+        finally:
+            db.rollback()
+            db.close()
+
+    def test_portal_role_cannot_insert(self, rls_members):
+        """member_portal is SELECT-only at the GRANT level: writes are denied
+        regardless of any policy (runtime complement to the structural
+        write-boundary test in test_portal.py)."""
+        from sqlalchemy.exc import ProgrammingError
+
+        a = rls_members["a"]
+        db = _portal_session_for(a["member_id"])
+        try:
+            db.add(
+                Membership(
+                    member_id=a["member_id"],
+                    plan_id=rls_members["plan_id"],
+                    type="forged",
+                    start_date=date.today(),
+                    end_date=date.today() + timedelta(days=30),
+                    price=Decimal("1"),
+                    status="active",
+                )
+            )
+            with pytest.raises(ProgrammingError, match="permission denied"):
+                db.flush()
+        finally:
+            db.rollback()
+            db.close()

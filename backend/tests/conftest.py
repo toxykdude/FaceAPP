@@ -3,23 +3,31 @@ Test configuration and fixtures for FaceGYM backend tests.
 Uses the real database with transaction rollback for isolation.
 """
 
-import uuid
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
+# The member_portal RLS bootstrap MUST run before `main` (and therefore
+# core.database) is imported: PortalSessionLocal is created at import time
+# from MEMBER_PORTAL_DATABASE_URL. Best-effort — on failure the env var stays
+# unset and the RLS tests skip with the recorded reason.
+from tests.portal_rls_bootstrap import ensure_member_portal_env
 
-from main import app
-from core.database import Base
+ensure_member_portal_env()
+
+import uuid  # noqa: E402
+import pytest  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from main import app  # noqa: E402
+from core.database import Base  # noqa: E402
 
 # Override api.deps.get_db since routers import from there
-from api.deps import get_db
-from core.security import create_access_token
-from models.user import User, UserRole
-from models.member import Member
-from models.membership import Membership, MembershipPlan, MembershipStatus
-from models.camera import Camera
-from core.encryption import encrypt_string
+from api.deps import get_db  # noqa: E402
+from core.security import create_access_token  # noqa: E402
+from models.user import User, UserRole  # noqa: E402
+from models.member import Member  # noqa: E402
+from models.membership import Membership, MembershipPlan, MembershipStatus  # noqa: E402
+from models.camera import Camera  # noqa: E402
+from core.encryption import encrypt_string  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
