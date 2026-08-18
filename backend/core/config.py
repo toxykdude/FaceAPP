@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost"
     CORS_ORIGINS: str = "http://localhost"  # Comma-separated list
 
+    # Rate limiting — per-route slowapi limit for the public member-portal
+    # auth routes (/api/auth/member-login|verify|resend). These are the only
+    # internet-exposed auth endpoints (Cloudflare Tunnel allowlist), so their
+    # limit is configurable without touching code.
+    MEMBER_AUTH_RATE_LIMIT: str = "10/minute"
+
     # Monitoring
     LOG_LEVEL: str = "INFO"
 

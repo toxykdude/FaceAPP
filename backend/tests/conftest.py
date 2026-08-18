@@ -22,6 +22,23 @@ from models.camera import Camera
 from core.encryption import encrypt_string
 
 
+@pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Reset the process-global slowapi storage before every test.
+
+    Per-route limits on /api/auth/member-* accumulate across tests in the
+    same process (in-memory storage); without a reset, later tests inherit
+    partially-consumed quotas and fail with 429s that have nothing to do
+    with what they are testing. Rate-limit tests themselves accumulate
+    deliberately WITHIN a test — the reset runs before, never during.
+    """
+    from core.rate_limiter import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture(scope="session")
 def engine():
     """Create engine using the app's database."""
