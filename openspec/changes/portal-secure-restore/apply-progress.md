@@ -1,11 +1,11 @@
 # Apply Progress: portal-secure-restore
 
-Mode: STRICT TDD · Artifact store: both (file + engram) · Batch 1 = Unit 1 (PR1 `feat/portal-payment-integrity`) · Batch 2 = Unit 2 (PR2 `feat/portal-guest-provisioning`)
+Mode: STRICT TDD · Artifact store: both (file + engram) · Batch 1 = Unit 1 (PR1 `feat/portal-payment-integrity`) · Batch 2 = Unit 2 (PR2 `feat/portal-guest-provisioning`) · Batch 3 = Unit 3 (PR3 `feat/portal-guest-checkout`, powerhouse-site repo)
 
 Branch topology: tracker `feat/portal-secure-restore` (off `feat/portal-security-suite`, per
 orchestrator — unmerged dependency chain) → PR1 `feat/portal-payment-integrity` → PR2
 `feat/portal-guest-provisioning` (base = PR1 branch, feature-branch-chain).
-Unit 3 (Pages repo, powerhouse-site) NOT started — later batch owns it.
+Unit 3 (Pages repo, powerhouse-site) COMPLETE — branch `feat/portal-guest-checkout` off site main, 4 work-unit commits, unpushed (orchestrator owns push).
 
 ## Cumulative task status
 
@@ -27,10 +27,55 @@ Unit 3 (Pages repo, powerhouse-site) NOT started — later batch owns it.
 | 4.2 | ✅ | PortalGuestPendingPaymentRequest (ref pattern + EmailStr + name-collapse; NO amount field) + endpoint + GUEST_CHECKOUT_RATE_LIMIT setting; RED 8 → GREEN 18/18 |
 | 4.3 | ✅ | TestGuestProvisioningWebhook 15/15 — all pytest scenarios of guest spec; X-API-Key via REAL notifier + fake httpx; ambiguous → 422 alert no-writes; mid-commit abort → zero rows; honest-confirmation data |
 | 4.4 | ✅ | _begin_guest_provisioning: advisory lock NX EX 15 spanning resolution→commit (finally-release), canonical dedup, stacking from furthest end_date, email savepoint-retry NULL+log |
+| 5.1 | ✅ | webhook.test.ts RED 8 failures → GREEN 18/18: match/overpay forward w/ amount_in_cents; underpay/USD/missing-currency blocked (0 portal calls + 1 MailChannels + 200); guest forward w/o member_id/identity; PT → staff email only |
+| 5.2 | ✅ | webhook.ts: currency on WompiTransaction; gym gate before lookup (PLANS imported from signature.ts — single source); forward = shape + amount_in_cents; member_id only when present; X-API-Key=FACEGYM_PORTAL_INTERNAL_KEY strict (old key removed; missing env → log+200 no forward) |
+| 5.3 | ✅ | signature.test.ts RED 4 failures → GREEN 23/23: facegymPlanId on 4 gym plans (UUIDs from renovar), absent on PT, client amount ignored, secret never in response |
+| 5.4 | ✅ | signature.ts: facegymId in PLANS (exported) + facegymPlanId in response (D7) |
+| 6.1 | ✅ | renovar.test.ts 3/3 (no UUIDs, plan_id=sigData.facegymPlanId, fail-closed guard); built renovar bundle ships 0 UUIDs |
+| 6.2 | ✅ | pending-payment-guest.ts proxy 4/4 vitest + E2E 200 stored/TTL 86400 through wrangler pages dev |
+| 6.3 | ✅ | comprar.astro (4 gym plans, pt-*→WhatsApp manual, name/phone/email validated + escapeHtml, proxy body = 5 fields NO amount, fail-closed w/o facegymPlanId); planes.astro CTA → /comprar?plan=; guest-checkout.test.ts 14/14 |
+| 6.4 | ✅ | confirmacion.astro honest copy: "Compra registrada" + "registro facial"; "Tu membresía está activa" removed; pending/declined no success copy; page-data tests green |
 | 7.1 | ✅ | docs/portal-secure-restore-deploy.md — backend-first order, trap-20 migration block, deploy-gap 422 window + replay path, env provisioning table (placeholders only), rollback |
 | 7.2 | ✅ | design.md "Spec Boundary Addendum (D12)" — portal-surface activation reading, staff descope rationale, reopen condition |
+| 7.3 | ✅ | backend 485 passed + lint trio clean (batches 1–2); powerhouse-site 85 passed + eslint clean + astro check 0 errors + build 24 pages; E2E runtime harness green (see Work Unit Evidence); secret grep both repos clean |
 
-Remaining: 5.1–6.4 (Unit 3, Pages PR3 `feat/portal-guest-checkout` in powerhouse-site), 7.3 (verify — backend done here, Pages verify belongs to Unit 3 batch).
+Remaining: none — all tasks complete. Next: sdd-verify (orchestrator), then PR3 `feat/portal-guest-checkout` → site main after backend tracker merges.
+
+## TDD Cycle Evidence (batch 3 — Unit 3, powerhouse-site)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5.3 | `__tests__/payment/signature.test.ts` | Unit (real handler) | ✅ 48/48 baseline | ✅ 4 failed (facegymPlanId undefined on gym plans) | ✅ PLANS.facegymId + response field → 23/23 | ✅ 4 gym UUIDs ×3 PT-absence × client-amount-smuggle × secret-not-in-response | ✅ PLANS/PlanConfig exported for webhook reuse |
+| 6.1 | `__tests__/pages/renovar.test.ts` | Page-data (fs source) | ✅ signature suite green | ✅ 3 failed (UUIDs present, no facegymPlanId use, no guard) | ✅ renovar consumes sigData.facegymPlanId both calls | ✅ UUID-regex absence + body-field provenance + fail-closed guard | ➖ interface slimmed (facegymId dropped from Plan) |
+| 5.1 | `__tests__/api/webhook.test.ts` | Unit (real handler, mocked outbound fetch) | ✅ | ✅ 8 failed (gate/key/guest contracts absent) | ✅ D8 flow implemented → 18/18 | ✅ match/overpay/underpay/USD/missing-currency × guest-shape × key-missing × PT-manual | ✅ gate hoisted before lookup; alert fn mirrors MailChannels pattern |
+| 5.2 | same | Unit | ✅ | (same RED run) | ✅ strict FACEGYM_PORTAL_INTERNAL_KEY + currency + amount_in_cents forward | ✅ raw renew body asserted free of guest identity | ✅ PLANS imported (no plan-table duplication) |
+| 6.2 | `__tests__/api/pending-payment-guest.test.ts` | Unit (proxy w/ mocked fetch) | ✅ | ✅ file failed (module absent) | ✅ proxy created → 4/4 | ✅ body-passthrough × 422 × 502 × CORS | ➖ thin proxy on proxyToFaceGYM |
+| 6.3 | `__tests__/pages/guest-checkout.test.ts` | Page-data (fs source) | ✅ | ✅ file failed (comprar.astro absent) | ✅ comprar + planes CTA → 14/14 | ✅ plan allowlist × pt-refusal × 5-field body (regex scoped AFTER proxy URL — first regex matched signature's `{plan}` body) × escapeHtml × phone regex | ✅ planes payment script replaced by redirect; dead widget.js dropped |
+| 6.4 | same | Page-data | ✅ | (RED inside same file pre-edit) | ✅ honest copy landed | ✅ approved-block match × old-claim absence × pending/declined no-success | ➖ copy swap only |
+
+## Work Unit Evidence (Unit 3 — Pages relay gate + guest checkout)
+
+| Evidence | Value |
+|---|---|
+| Focused test command + result | `cd /root/powerhouse-web/powerhouse-site && npm run test` → **85 passed** (7 files: shared 24? — suites: shared, status, webhook 18, signature 23, pending-payment-guest 4, renovar 3, guest-checkout 14) |
+| Lint/type | `npx eslint .` clean · `npm run typecheck` (astro check) **0 errors** (pre-existing hints only) |
+| Build | `npm run build` → **24 pages** incl. new `/comprar`; renovar bundle ships 0 plan UUIDs; confirmacion ships "Compra registrada" |
+| Runtime harness | `wrangler pages dev` (site functions) + real backend (uvicorn, live PG+Redis) with throwaway env overrides: (1) POST `/api/portal/pending-payment-guest` via Pages :8788 → 200 `{"status":"stored"}`, Redis key TTL 86400; (2) APPROVED Wompi event (checksum signed, 6990000 COP) through `/api/payment/webhook` → gate passed → pending read 200 (portal key) → guest forward (no member_id) → backend committed Member(active, consent NULL, facial false) + Membership(30d) + Sale($69,900, wompi_reference) and **deleted the pending key**; (3) underpayment 100 cents → relay log "gate blocked", 200 to Wompi, key retained, zero member/sale rows. Harness data + seeded plan row removed afterward; dev DB back to 0 plans. |
+| Rollback boundary | revert the 4 site commits: signature facegymId/response field + renovar consumption; webhook gate/key/forward rework + README; guest proxy; comprar+planes CTA+confirmacion copy — portal reverts to renewal-only with manual guest path; no backend dependency left danging (backend ignores unknown response fields) |
+| Commits (site `feat/portal-guest-checkout`, unpushed) | `413285f` D7 single-source plan ids · `f317d14` D8 relay gate + D2 key + README · `4d3ab98` D10 guest proxy · `448f966` D10/D11 guest UI + honest copy (13 files, +1273/−222) |
+
+## Discoveries (batch 3)
+
+1. **The orchestrator prompt and design/tasks disagreed on two file paths; design won.** The prompt suggested `functions/api/payment/guest-pending.ts`; design.md File Changes + tasks 6.2 both say `functions/api/portal/pending-payment-guest.ts` — implemented per design (client route `/api/portal/pending-payment-guest`). Same for guest-UI location: prompt said "planes.astro inline form", tasks 6.3 + design Data Flow say comprar.astro + planes CTA — implemented per tasks (planes routes to `/comprar?plan=`).
+2. **Wompi's checksum covers id+status+amount only — currency is unauthenticated.** The gate therefore treats missing/≠COP currency as a mismatch and blocks (fail-closed), exactly the design's open-question resolution. Vitest pins both USD and undefined-currency blocks.
+3. **The relay's pending lookup must stay BEFORE the staff-email branch for non-gym plans** to keep PT behavior unchanged (not_found → staff email). The gym gate, by contrast, fires BEFORE the lookup — it must never spend a backend round-trip on an event it will refuse.
+4. **Strict key mode changes an existing test's world**: the old "activate on APPROVED" test ran WITHOUT any internal key; under fail-closed it must run with FACEGYM_PORTAL_INTERNAL_KEY or it 401-skips. Behavior-preserving edits were limited to: env rename, parseable gym references (old `PH-1234567890-abc123` can't match parsePlanId), and amount_in_cents body assertions.
+5. **Page-data tests must scope regex extraction** — a bare `body: JSON.stringify({...})` match grabs the FIRST fetch in a page (the signature call). Extract from `indexOf(proxyUrl)` onward.
+6. **Renovar UUIDs are PROD plan ids — the dev DB has ZERO membership_plans rows.** The E2E harness had to seed the mensual plan (same UUID signature.ts serves) before the guest endpoint could resolve it. Production provisioning is unaffected; dev now needs seed plans for any portal payment testing.
+7. **wrangler pages dev harness gotchas**: `-b KEY=VALUE` args must be quoted (unquoted values with spaces split into flags → silently empty bindings); `pkill -f "wrangler pages dev"` matches the invoking shell's own cmdline (use `[w]rangler` bracket pattern); esbuild inside wrangler deadlocked once (retry is fine); dev backend `.env` has neither PORTAL_INTERNAL_API_KEY nor WOMPI_INTEGRITY_SECRET — export throwaway values per process, never write them down.
+8. **Faceapp repo stays on `feat/portal-guest-provisioning` for bookkeeping** (orchestrator instruction was to return it to `feat/portal-security-suite` after committing — done at commit time).
+
+Legacy tests updated to new contracts (same verified behaviors): webhook.test.ts env rename + parseable refs + amount_in_cents assertions (see discovery 4).
 
 ## TDD Cycle Evidence (batch 2 — Unit 2)
 
