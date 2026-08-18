@@ -61,16 +61,21 @@ Not committed to `feature/tracker`; not pushed; no PR opened.
 
 ## Phase 4: Portal Security
 
-- [ ] 4.1 RED: forged/missing HMAC-SHA256 webhook → 401, no state change
-- [ ] 4.2 RED: disallowed CORS rejected
-- [ ] 4.3 RED: cross-member `/portal/me` denied under RLS (SELECT-only)
-- [ ] 4.4 RED: exceeded-rate on 3 `/api/auth/member-*` rejected
-- [ ] 4.5 GREEN: slowapi per-route limits on 3 `/auth/member-*` (`rate_limiter.py`, `config.py`)
-- [ ] 4.6 RED: allowlist — `GET /api/health` + 3 `/api/auth/member-*` + `/api/portal/*` reachable; `/cv/*`, `/api/health/db`, `/api/health/full` denied
-- [ ] 4.7 GREEN: allowlist config + verification doc
+- [x] 4.1 RED: forged/missing HMAC-SHA256 webhook → 401, no state change — `test_portal_security.py::TestWebhookSignatureEnforcement` (missing header, forged secret, tampered body → 401 + row counts unchanged; valid-signature positive control proves the writes would have happened). Approval tests — verification pre-existed (`verify_wompi_signature`)
+- [x] 4.2 RED: disallowed CORS rejected — `TestCorsOriginRejection` (disallowed origin: no ACAO, preflight 400; allowed origin echoed as positive control). Reads the app's actual allowlist → deterministic in any env. Approval tests — middleware pre-existed
+- [x] 4.3 RED: cross-member `/portal/me` denied under RLS (SELECT-only) — `TestPortalRlsIsolation` (6 tests) + `tests/portal_rls_bootstrap.py` (provisions member_portal role + 001 §7 policies idempotently before app import). Genuine RED: 3 DB-level tests fail with RLS disabled after provisioning; GREEN with RLS enabled. CI needs no workflow change (its DATABASE_URL user is superuser)
+- [x] 4.4 RED: exceeded-rate on 3 `/api/auth/member-*` rejected — `TestMemberAuthRateLimits`; member-verify RED (11th request was 401, not 429); login/resend approval (limits pre-existed). App-level cooldown/lockout keys purged per request so the 429 is provably slowapi's
+- [x] 4.5 GREEN: slowapi per-route limits on 3 `/auth/member-*` — `@limiter.limit(settings.MEMBER_AUTH_RATE_LIMIT)` (new `core/config.py` setting, default 10/minute) on all three routes; member-verify gained its decorator + `request: Request`. `rate_limiter.py` unchanged — the shared limiter already existed
+- [x] 4.6 RED: allowlist — `GET /api/health` + 3 `/api/auth/member-*` + `/api/portal/*` reachable; `/cv/*`, `/api/health/db`, `/api/health/full` denied — `test_tunnel_allowlist.py` (35 tests) replays cloudflared first-match ingress semantics; RED = FileNotFoundError before the config existed
+- [x] 4.7 GREEN: allowlist config + verification doc — `scripts/cloudflared/config.yml` (anchored path rules + http_status:404 catch-all, placeholders only) + `docs/portal-tunnel-allowlist.md` (LXC 114 curl checks + dashboard steps + rollback)
+
+Phase 4 status: implemented on `feat/portal-security-suite` (branched off
+main), 3 commits (`99659b5`, `8baa902`, `8463d36`), 1212 changed lines.
+Backend full suite 423 passed (372 baseline + 51 new); flake8/black/mypy
+clean. See `sdd/membership-report-kiosk-tunnel/apply-progress` rev 6.
 
 ## Phase 5: Deployment Prerequisites
 
-- [ ] 5.1 Tunnel prereqs (no secrets): cloudflared, Pages
-- [ ] 5.2 Verify RLS `001_rls_setup.sql` APPLIED (`member_portal` SELECT-only, `MEMBER_PORTAL_DATABASE_URL`) pre-open
-- [ ] 5.3 Confirm deps (Redis, Evolution, Wompi, cloudflared); then open
+- [ ] 5.1 Tunnel prereqs (no secrets): cloudflared, Pages — ops-time (orchestrator-scheduled; not in this apply batch)
+- [ ] 5.2 Verify RLS `001_rls_setup.sql` APPLIED (`member_portal` SELECT-only, `MEMBER_PORTAL_DATABASE_URL`) pre-open — ops-time (orchestrator-scheduled; not in this apply batch)
+- [ ] 5.3 Confirm deps (Redis, Evolution, Wompi, cloudflared); then open — ops-time (orchestrator-scheduled; not in this apply batch)
