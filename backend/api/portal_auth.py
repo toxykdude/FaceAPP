@@ -11,7 +11,6 @@ import redis
 from typing import NoReturn
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from api.deps import get_db
@@ -25,6 +24,7 @@ from schemas.portal import (
     MemberPortalToken,
     MemberPortalResponse,
 )
+from services.canonical_phone import canonicalize_phone, resolve_member_by_phone
 
 router = APIRouter(prefix="/auth", tags=["Member Portal Auth"])
 
@@ -66,34 +66,15 @@ def _clear_failed_attempts(phone: str) -> None:
     r.delete(f"member-failed:{phone}")
 
 
-def _canonicalize_phone(phone: str) -> str:
-    digits = re.sub(r"[^0-9]", "", phone)
-    if len(digits) == 10 and digits.startswith("3"):
-        return f"57{digits}"
-    return digits
+# Canonicalization + member resolution live in services/canonical_phone.py
+# (shared with the guest provisioning path, design D5). Re-exported under
+# their historical names so the login/resend/verify flows read unchanged.
+_canonicalize_phone = canonicalize_phone
+_resolve_member = resolve_member_by_phone
 
 
 def _generate_pin() -> str:
     return str(random.randint(100000, 999999))
-
-
-def _resolve_member(db: Session, destination: str) -> Member | None:
-    """Return a member only for one unambiguous WhatsApp destination."""
-    if not destination:
-        return None
-
-    digits = func.regexp_replace(Member.phone, "[^0-9]", "", "g")
-    stored_destination = case(
-        (
-            and_(func.length(digits) == 10, digits.like("3%")),
-            func.concat("57", digits),
-        ),
-        else_=digits,
-    )
-    candidates = (
-        db.query(Member).filter(stored_destination == destination).limit(2).all()
-    )
-    return candidates[0] if len(candidates) == 1 else None
 
 
 def _ensure_country_code(phone: str) -> str:
