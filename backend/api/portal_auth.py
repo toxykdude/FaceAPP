@@ -162,7 +162,7 @@ async def _send_whatsapp_pin(phone: str, pin: str) -> None:
 
 
 @router.post("/member-login")
-@limiter.limit("10/minute")
+@limiter.limit(settings.MEMBER_AUTH_RATE_LIMIT)
 async def member_login(
     request: Request,
     body: MemberLoginRequest,
@@ -206,8 +206,10 @@ async def member_login(
 
 
 @router.post("/member-verify", response_model=MemberPortalToken)
+@limiter.limit(settings.MEMBER_AUTH_RATE_LIMIT)
 async def member_verify(
-    request: MemberVerifyRequest,
+    request: Request,
+    body: MemberVerifyRequest,
     db: Session = Depends(get_db),
 ):
     """
@@ -215,7 +217,7 @@ async def member_verify(
 
     Validates the PIN stored in Redis, then issues a member JWT.
     """
-    destination = _canonicalize_phone(request.phone)
+    destination = _canonicalize_phone(body.phone)
 
     # Check lockout before verifying
     _check_lockout(destination)
@@ -226,7 +228,7 @@ async def member_verify(
     if not challenge:
         _deny_pin(destination, discard_challenge=stored_challenge is not None)
     stored_pin, bound_member_id = challenge
-    if not hmac.compare_digest(stored_pin, request.pin):
+    if not hmac.compare_digest(stored_pin, body.pin):
         _deny_pin(destination)
 
     # PIN is valid — look up member. A valid PIN that resolves to no member
@@ -260,7 +262,7 @@ async def member_verify(
 
 
 @router.post("/member-resend")
-@limiter.limit("10/minute")
+@limiter.limit(settings.MEMBER_AUTH_RATE_LIMIT)
 async def member_resend(
     request: Request,
     body: MemberLoginRequest,
