@@ -72,3 +72,36 @@ faceapp: tracker `feat/portal-secure-restore` off main → PR1 `feat/portal-paym
 
 - [ ] Wompi event payload field name for currency in `data.transaction` (verify against live event docs during apply; relay treats missing currency as mismatch).
 - [ ] MailChannels still available on this Pages plan (staff alerts depend on it; fallback: log-only alert).
+
+## Spec Boundary Addendum (D12): sale-gated activation scope
+
+Recorded at apply time (Unit 2) as the durable reading of the
+payment-integrity spec's "any code path" requirement:
+
+**Payment-integrity sale-gated activation is enforced structurally on ALL
+public/portal surfaces via `/portal/webhook-renew` ONLY.** Both member
+renewals (JWT pending record) and guest purchases (v2 identity record)
+land in that single HMAC-verified endpoint, which alone creates
+memberships from Wompi payments.
+
+**Staff paths are intentionally descoped** from the same-commit sale
+requirement:
+
+- `POST /api/memberships` (memberships.py) and `POST /api/memberships/{id}/renew`
+  keep creating ACTIVE memberships without a same-commit sale.
+- Rationale (trap 21): reception intentionally creates the membership
+  first and takes the payment moments later via `POST /sales` — the
+  assign flow (`MemberForm.tsx`) depends on that ordering, and
+  `POST /sales` must travel with `POST /memberships` for exactly this
+  reason. Forcing a same-commit sale breaks the flow and leaves
+  memberships reading as unpaid at the kiosk.
+- The door is still guarded: the kiosk zero-paid gate
+  (`cv_service/validation/access_validator.py`, zero-paid DENY) already
+  refuses unpaid/pending memberships at entry and is regression-tested.
+  A membership without its payment never gets a member through the door.
+
+**Requirement reading:** "activation exists only via webhook-renew" is a
+*portal-surface* activation contract. Any future staff-surface change that
+lets a membership activate without either a committed sale or the kiosk
+gate MUST reopen this boundary — it is a deliberate scope line, not an
+oversight.
