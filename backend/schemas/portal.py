@@ -151,11 +151,37 @@ class PortalRenewResponse(BaseModel):
     transaction: PaymentHistoryItem
 
 
-class PortalWebhookRenewRequest(BaseModel):
-    """Schema for webhook-triggered renewal (no JWT, server-to-server)."""
+class PortalPendingPaymentRequest(BaseModel):
+    """Schema for storing a pending payment (JWT member path, pre-widget).
+
+    ``amount`` and ``member_id`` are accepted for backward compatibility with
+    the deployed relay but IGNORED: the member comes from the JWT and the
+    amount from the server-side plan price.
+    """
 
     plan_id: str
-    member_id: str
     wompi_reference: str
-    wompi_transaction_id: str
-    amount: Decimal
+    member_id: Optional[str] = None
+    wompi_transaction_id: Optional[str] = None
+    amount: Optional[Decimal] = None
+
+
+class PortalWebhookRenewRequest(BaseModel):
+    """Schema v2 for webhook-triggered renewal (design D4/D9).
+
+    Server-to-server only (HMAC-verified). ``wompi_reference``,
+    ``wompi_transaction_id`` and ``amount_in_cents`` are REQUIRED — the
+    deploy-gap contract: an old relay omitting ``amount_in_cents`` is
+    rejected loudly (422) instead of provisioning an unverified amount.
+
+    ``plan_id`` / ``member_id`` / ``amount`` are accepted but IGNORED: the
+    Redis pending record is the only authoritative source (it is written by
+    the server, never by the client).
+    """
+
+    wompi_reference: str = Field(..., min_length=1)
+    wompi_transaction_id: str = Field(..., min_length=1)
+    amount_in_cents: int
+    plan_id: Optional[str] = None
+    member_id: Optional[str] = None
+    amount: Optional[Decimal] = None

@@ -132,12 +132,26 @@ class TestPortalRenewInvalidation:
         monkeypatch.setattr(settings, "WOMPI_INTEGRITY_SECRET", "test-secret")
 
         reference = f"ref-{uuid.uuid4().hex[:8]}"
+        # Seed the Redis pending record the webhook consumes (D9 transport).
+        pending_key = f"pending-payment:{reference}"
+        portal_redis.setex(
+            pending_key,
+            86400,
+            json.dumps(
+                {
+                    "plan_id": str(sample_plan.id),
+                    "member_id": str(sample_member.id),
+                    "amount": str(sample_plan.price),
+                    "wompi_reference": reference,
+                }
+            ),
+        )
         body = {
-            "plan_id": str(sample_plan.id),
-            "member_id": str(sample_member.id),
             "wompi_reference": reference,
             "wompi_transaction_id": "tx-1",
-            "amount": "1",  # wrong amount — must be ignored (plan.price used)
+            "amount_in_cents": int(sample_plan.price * 100),
+            "plan_id": str(sample_plan.id),
+            "member_id": str(sample_member.id),
         }
         raw = json.dumps(body).encode("utf-8")
         signature = hmac.new(b"test-secret", raw, hashlib.sha256).hexdigest()
@@ -195,12 +209,26 @@ class TestPortalWebhookRenewInvalidation:
         monkeypatch.setattr(portal_module, "notify_cv_invalidation", mock_notify)
         monkeypatch.setattr(settings, "WOMPI_INTEGRITY_SECRET", "test-secret")
 
+        reference = f"ref-{uuid.uuid4().hex[:8]}"
+        # Seed the Redis pending record the webhook consumes (D9 transport).
+        portal_redis.setex(
+            f"pending-payment:{reference}",
+            86400,
+            json.dumps(
+                {
+                    "plan_id": str(sample_plan.id),
+                    "member_id": str(sample_member.id),
+                    "amount": str(sample_plan.price),
+                    "wompi_reference": reference,
+                }
+            ),
+        )
         body = {
+            "wompi_reference": reference,
+            "wompi_transaction_id": "tx-1",
+            "amount_in_cents": int(sample_plan.price * 100),
             "plan_id": str(sample_plan.id),
             "member_id": str(sample_member.id),
-            "wompi_reference": f"ref-{uuid.uuid4().hex[:8]}",
-            "wompi_transaction_id": "tx-1",
-            "amount": "50000",
         }
         raw, signature = self._signed_request(body)
 
