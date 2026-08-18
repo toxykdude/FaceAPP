@@ -461,3 +461,528 @@ class TestGuestPendingEndpoint:
         for resp in responses:
             for secret in secrets:
                 assert secret not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — webhook guest provisioning branch (tasks 4.3 / 4.4, design D5/D9)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCvResponse:
+    status_code = 200
+
+
+class _FakeCvClient:
+    """Captures CV invalidation calls instead of hitting a network."""
+
+    def __init__(self, captured):
+        self._captured = captured
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, headers=None):
+        self._captured["url"] = url
+        self._captured["headers"] = headers
+        return _FakeCvResponse()
+
+
+@pytest.fixture
+def real_cv_notify(monkeypatch):
+    """Let the REAL notify_cv_invalidation run against a fake httpx client,
+    with a test CV_API_KEY — proves the X-API-Key contract end-to-end.
+
+    Sets the integrity secret (like webhook_env) but deliberately does NOT
+    mock the notifier itself."""
+    import services.cv_notify as cv_notify_module
+
+    monkeypatch.setattr(app_settings, "WOMPI_INTEGRITY_SECRET", INTEGRITY_SECRET)
+    captured: dict = {}
+    monkeypatch.setattr(app_settings, "CV_API_KEY", CV_TEST_KEY)
+
+    def factory(*args, **kwargs):
+        return _FakeCvClient(captured)
+
+    monkeypatch.setattr(cv_notify_module.httpx, "AsyncClient", factory)
+    return captured
+
+
+class TestGuestProvisioningWebhook:
+    """Guest branch of /portal/webhook-renew: pending v2 record without
+    member_id provisions Member+Membership+Sale atomically (D5)."""
+
+    def _provision(
+        self,
+        client,
+        db_session,
+        gym_plan,
+        portal_redis,
+        *,
+        reference=None,
+        phone=GUEST_PHONE,
+        name=GUEST_NAME,
+        email=GUEST_EMAIL,
+    ):
+        """Seed a guest pending record and post the signed webhook."""
+        reference = reference or _guest_reference()
+        _store_guest_pending(
+            portal_redis,
+            plan=gym_plan,
+            reference=reference,
+            name=name,
+            phone=phone,
+            email=email,
+        )
+        resp = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+        return reference, resp
+
+    def test_guest_payment_provisions_all_records(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Scenario: Approved payment provisions all records [pytest] +
+        New phone creates a new member [pytest] — via the v2 guest record."""
+        before = _count_rows(db_session, Member)
+        reference, resp = self._provision(client, db_session, gym_plan, portal_redis)
+
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        assert resp.json()["status"] == "success"
+
+        members = _member_by_phone(db_session, GUEST_PHONE)
+        assert len(members) == 1, "exactly one new Member row"
+        member = members[0]
+        # D5 mapping: first token / remainder; no biometric consent implied.
+        assert member.first_name == "Maria"
+        assert member.last_name == "Fernanda Lopez"
+        assert member.email == GUEST_EMAIL
+        assert member.status == "active"
+        assert member.consent_given_at is None
+        assert member.facial_data_enrolled is False
+        assert _count_rows(db_session, Member) == before + 1
+
+        membership = (
+            db_session.query(Membership).filter_by(member_id=str(member.id)).one()
+        )
+        assert membership.status == "active"
+        assert membership.plan_id == gym_plan.id
+        assert membership.end_date == date.today() + timedelta(
+            days=gym_plan.duration_days
+        )
+
+        sale = (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .one()
+        )
+        assert Decimal(str(sale.amount)) == Decimal(str(gym_plan.price))
+        assert str(sale.membership_id) == str(membership.id)
+
+        # Key consumed strictly after commit.
+        assert portal_redis.get(f"pending-payment:{reference}") is None
+        webhook_env.assert_awaited_once_with(str(member.id))
+
+    def test_single_token_name_maps_to_empty_last_name(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """D5 edge: 'Cher' → first_name='Cher', last_name=''."""
+        _, resp = self._provision(
+            client, db_session, gym_plan, portal_redis, name="Cher"
+        )
+        assert resp.status_code == 200, resp.text
+        member = _member_by_phone(db_session, GUEST_PHONE)[0]
+        assert member.first_name == "Cher"
+        assert member.last_name == ""
+
+    def test_existing_phone_attaches_no_duplicate(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Scenario: Existing phone attaches to the existing member [pytest]
+        — stored in a legacy format, resolved through canonical SQL."""
+        existing = Member(
+            first_name="Ya",
+            last_name="Existe",
+            email=f"ya-{uuid.uuid4().hex[:8]}@example.com",
+            phone="300 111 2233",  # legacy formatted — same canonical
+            status="active",
+        )
+        db_session.add(existing)
+        db_session.flush()
+        before = _count_rows(db_session, Member)
+
+        _, resp = self._provision(client, db_session, gym_plan, portal_redis)
+
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        assert _count_rows(db_session, Member) == before, "no duplicate row"
+
+        sale = (
+            db_session.query(SalesTransaction)
+            .order_by(SalesTransaction.created_at.desc())
+            .first()
+        )
+        assert str(sale.member_id) == str(existing.id)
+        membership = (
+            db_session.query(Membership)
+            .filter_by(member_id=str(existing.id))
+            .order_by(Membership.created_at.desc())
+            .first()
+        )
+        assert membership is not None
+
+    def test_membership_stacks_from_furthest_end_date(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Task 4.4: attach on an active membership → start = end+1."""
+        existing = Member(
+            first_name="Activa",
+            last_name="Hasta",
+            email=f"activa-{uuid.uuid4().hex[:8]}@example.com",
+            phone="573001112233",
+            status="active",
+        )
+        db_session.add(existing)
+        db_session.flush()
+        running_end = date.today() + timedelta(days=10)
+        db_session.add(
+            Membership(
+                member_id=str(existing.id),
+                plan_id=gym_plan.id,
+                type=gym_plan.name,
+                start_date=date.today() - timedelta(days=20),
+                end_date=running_end,
+                price=Decimal("69900"),
+                status="active",
+            )
+        )
+        db_session.flush()
+
+        _, resp = self._provision(client, db_session, gym_plan, portal_redis)
+
+        assert resp.status_code == 200, resp.text
+        stacked = (
+            db_session.query(Membership)
+            .filter_by(member_id=str(existing.id))
+            .order_by(Membership.start_date.desc())
+            .first()
+        )
+        assert stacked.start_date == running_end + timedelta(days=1)
+        assert stacked.end_date == running_end + timedelta(
+            days=1 + gym_plan.duration_days
+        )
+
+    def test_failure_mid_commit_leaves_no_partial_records(
+        self,
+        client,
+        db_session,
+        gym_plan,
+        portal_redis,
+        webhook_env,
+        monkeypatch,
+    ):
+        """Scenario: Failure mid-commit leaves no partial records [pytest].
+
+        The Member insert happened (flushed) but the final commit fails —
+        the whole transaction must roll back: no Member, no Membership,
+        no Sale. Key retained."""
+        reference = _guest_reference()
+        _store_guest_pending(portal_redis, plan=gym_plan, reference=reference)
+
+        def _boom():
+            raise RuntimeError("simulated commit failure")
+
+        monkeypatch.setattr(db_session, "commit", _boom)
+        with pytest.raises(RuntimeError):
+            _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+
+        db_session.rollback()
+        assert _member_by_phone(db_session, GUEST_PHONE) == []
+        # No orphaned membership for the rolled-back member either.
+        assert (
+            db_session.query(Membership)
+            .filter(
+                Membership.member_id.in_(
+                    [
+                        str(m.id)
+                        for m in db_session.query(Member).filter_by(phone=GUEST_PHONE)
+                    ]
+                )
+            )
+            .count()
+            == 0
+        )
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 0
+        )
+        assert portal_redis.get(f"pending-payment:{reference}") is not None
+        webhook_env.assert_not_awaited()
+
+    def test_ambiguous_phone_is_refused_422_no_writes(
+        self, client, db_session, gym_plan, portal_redis, webhook_env, caplog
+    ):
+        """Task 4.3: legacy duplicates (>1 canonical match) → 422 + alert,
+        no writes, key retained — never a coin-flip member."""
+        db_session.add_all(
+            [
+                Member(
+                    first_name="Dup",
+                    last_name="Uno",
+                    email=f"dup1-{uuid.uuid4().hex[:8]}@example.com",
+                    phone="3001112233",
+                    status="active",
+                ),
+                Member(
+                    first_name="Dup",
+                    last_name="Dos",
+                    email=f"dup2-{uuid.uuid4().hex[:8]}@example.com",
+                    phone="+57 300 111 2233",
+                    status="active",
+                ),
+            ]
+        )
+        db_session.flush()
+        before = _count_rows(db_session, Member)
+
+        reference = _guest_reference()
+        with caplog.at_level(logging.ERROR, logger="api.portal"):
+            _store_guest_pending(portal_redis, plan=gym_plan, reference=reference)
+            resp = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+
+        assert resp.status_code == 422, (resp.status_code, resp.text)
+        assert GUEST_PHONE in caplog.text
+
+        assert _count_rows(db_session, Member) == before
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 0
+        )
+        assert portal_redis.get(f"pending-payment:{reference}") is not None
+        webhook_env.assert_not_awaited()
+
+    def test_email_collision_retries_null_and_logs(
+        self, client, db_session, gym_plan, portal_redis, webhook_env, caplog
+    ):
+        """Task 4.3/D5: guest email already owned by another member → the
+        new member is stored with email NULL + a warning, sale intact."""
+        db_session.add(
+            Member(
+                first_name="Dueno",
+                last_name="DelCorreo",
+                email=GUEST_EMAIL,  # collides with the guest's email
+                phone="573005554443",
+                status="active",
+            )
+        )
+        db_session.flush()
+
+        with caplog.at_level(logging.WARNING, logger="api.portal"):
+            reference, resp = self._provision(
+                client, db_session, gym_plan, portal_redis
+            )
+
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        member = _member_by_phone(db_session, GUEST_PHONE)[0]
+        assert member.email is None
+        assert GUEST_EMAIL in caplog.text
+
+        sale = (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .one()
+        )
+        assert sale is not None
+
+    def test_provisioning_lock_serializes_same_phone(
+        self, client, db_session, gym_plan, portal_redis, webhook_env, caplog
+    ):
+        """Task 4.4: Redis advisory lock member-provision:{phone} NX EX 15.
+
+        Harness limit: TestClient cannot run two webhooks in parallel, so
+        this proves the CONTRACT, not a true race — a held lock means a
+        concurrent provisioning is in flight: 409, zero writes, key
+        retained; once released, the replay succeeds."""
+        lock_key = f"member-provision:{GUEST_PHONE}"
+        portal_redis.setex(lock_key, 15, "1")
+        portal_redis._test_track(lock_key)  # type: ignore[attr-defined]
+
+        reference = _guest_reference()
+        _store_guest_pending(portal_redis, plan=gym_plan, reference=reference)
+        with caplog.at_level(logging.WARNING, logger="api.portal"):
+            resp = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+
+        assert resp.status_code == 409, (resp.status_code, resp.text)
+        assert GUEST_PHONE in caplog.text
+        assert _member_by_phone(db_session, GUEST_PHONE) == []
+        assert portal_redis.get(f"pending-payment:{reference}") is not None
+        webhook_env.assert_not_awaited()
+
+        # Lock released → the same webhook replays to success.
+        portal_redis.delete(lock_key)
+        replay = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+        assert replay.status_code == 200, (replay.status_code, replay.text)
+        assert len(_member_by_phone(db_session, GUEST_PHONE)) == 1
+
+    def test_guest_replay_reference_is_idempotent(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Scenario: Replayed reference provisions nothing new [pytest] —
+        guest variant: exactly one member/membership/sale survives a
+        replay of the same webhook."""
+        reference, first = self._provision(client, db_session, gym_plan, portal_redis)
+        assert first.status_code == 200
+
+        # Simulate the race window (winner's key not yet visible as gone):
+        # replay directly against the DB idempotency net.
+        replay = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+        assert replay.status_code == 200, (replay.status_code, replay.text)
+        assert replay.json()["status"] == "already_processed"
+
+        assert len(_member_by_phone(db_session, GUEST_PHONE)) == 1
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 1
+        )
+
+    def test_commit_triggers_cv_invalidation_with_api_key(
+        self, client, db_session, gym_plan, portal_redis, real_cv_notify
+    ):
+        """Scenario: Commit triggers CV invalidation with API key [pytest]
+        — the REAL notifier runs; the header must carry the CV API key."""
+        reference, resp = self._provision(client, db_session, gym_plan, portal_redis)
+        assert resp.status_code == 200, resp.text
+        member = _member_by_phone(db_session, GUEST_PHONE)[0]
+
+        assert real_cv_notify["headers"]["X-API-Key"] == CV_TEST_KEY
+        assert real_cv_notify["url"].endswith(f"/invalidate/{member.id}")
+
+    def test_cv_unreachable_leaves_the_sale_intact(
+        self, client, db_session, gym_plan, portal_redis, monkeypatch, caplog
+    ):
+        """Scenario: CV unreachable leaves the sale intact [pytest]."""
+        monkeypatch.setattr(app_settings, "WOMPI_INTEGRITY_SECRET", INTEGRITY_SECRET)
+        failing_notify = AsyncMock(side_effect=ConnectionError("cv down"))
+        monkeypatch.setattr(portal_module, "notify_cv_invalidation", failing_notify)
+
+        with caplog.at_level(logging.ERROR, logger="api.portal"):
+            reference, resp = self._provision(
+                client, db_session, gym_plan, portal_redis
+            )
+
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        # Rows remain committed; failure logged for retry.
+        assert len(_member_by_phone(db_session, GUEST_PHONE)) == 1
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 1
+        )
+        assert "CV invalidation failed" in caplog.text
+
+    def test_honest_confirmation_data_available(
+        self,
+        client,
+        db_session,
+        gym_plan,
+        portal_redis,
+        webhook_env,
+        monkeypatch,
+    ):
+        """Guest confirmation honesty (backend half): after provisioning,
+        the pending record is consumed (no stale 'pending' state) and the
+        committed sale carries the reference — everything an honest
+        confirmation page needs, and nothing that could claim enrollment."""
+        monkeypatch.setattr(app_settings, "PORTAL_INTERNAL_API_KEY", INTERNAL_KEY)
+        reference, resp = self._provision(client, db_session, gym_plan, portal_redis)
+        assert resp.status_code == 200, resp.text
+
+        pending = client.get(
+            f"/api/portal/pending-payment/{reference}",
+            headers={"X-API-Key": INTERNAL_KEY},
+        )
+        assert pending.status_code == 200
+        assert pending.json()["status"] == "not_found"
+
+        sale = (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .one()
+        )
+        member = _member_by_phone(db_session, GUEST_PHONE)[0]
+        assert str(sale.member_id) == str(member.id)
+        # The fresh member carries no biometric claim the UI could lean on.
+        assert member.facial_data_enrolled is False
+        assert member.consent_given_at is None
+
+    def test_member_id_pending_with_missing_member_still_404(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Guard: the guest branch triggers ONLY when member_id is absent —
+        a member-bound record whose member was deleted stays a 404."""
+        reference = _guest_reference()
+        data = _store_guest_pending(portal_redis, plan=gym_plan, reference=reference)
+        data["member_id"] = str(uuid.uuid4())  # nonexistent member
+        portal_redis.setex(f"pending-payment:{reference}", 86400, json.dumps(data))
+
+        resp = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+        assert resp.status_code == 404, (resp.status_code, resp.text)
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 0
+        )
+
+    def test_no_secret_reaches_guest_webhook_response(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        reference, resp = self._provision(client, db_session, gym_plan, portal_redis)
+        assert resp.status_code == 200
+        forged = _post_webhook(
+            client,
+            _webhook_body(_guest_reference(), _cents(gym_plan)),
+            signature="deadbeef",
+        )
+        secrets = (
+            INTEGRITY_SECRET,
+            INTERNAL_KEY,
+            app_settings.SECRET_KEY,
+            app_settings.ENCRYPTION_KEY,
+            CV_TEST_KEY,
+        )
+        for response in (resp, forged):
+            for secret in secrets:
+                assert secret not in response.text
+
+    def test_guest_endpoint_to_webhook_end_to_end(
+        self, client, db_session, gym_plan, portal_redis, webhook_env
+    ):
+        """Full flow: POST guest endpoint (no JWT) → signed webhook → all
+        three records committed — the exact production sequence."""
+        reference = _guest_reference()
+        stored = _post_guest(
+            client,
+            _guest_body(gym_plan, reference, phone="+57 (300) 111 2233"),
+        )
+        assert stored.status_code == 200, stored.text
+
+        resp = _post_webhook(client, _webhook_body(reference, _cents(gym_plan)))
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+
+        member = _member_by_phone(db_session, GUEST_PHONE)[0]
+        assert member.email == GUEST_EMAIL
+        assert (
+            db_session.query(SalesTransaction)
+            .filter_by(wompi_reference=reference)
+            .count()
+            == 1
+        )
+        assert portal_redis.get(f"pending-payment:{reference}") is None
+        webhook_env.assert_awaited_once_with(str(member.id))

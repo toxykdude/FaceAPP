@@ -31,7 +31,10 @@ from schemas.portal import (
     ActiveMembershipResponse,
     PaymentHistoryItem,
 )
-from services.canonical_phone import canonicalize_phone
+from services.canonical_phone import (
+    canonicalize_phone,
+    find_members_by_canonical_phone,
+)
 from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/portal", tags=["Member Portal"])
@@ -258,6 +261,114 @@ def _already_processed(db: Session, reference: str):
     )
 
 
+def _begin_guest_provisioning(db: Session, redis_client, pending: dict, logger):
+    """Guest branch (design D5): resolve or create the member a guest
+    pending record provisions, under a Redis advisory lock.
+
+    Dedup comes first — the canonical phone lookup is the SAME SQL the
+    login path uses (services/canonical_phone.py): an existing member
+    receives the purchase, an ambiguous legacy duplicate refuses (422,
+    staff must merge), and only a genuinely new phone creates a Member
+    (first token / remainder mapping, active, NO biometric consent).
+
+    Concurrency: ``SET member-provision:{phone} NX EX 15`` serializes
+    concurrent webhooks for one phone — the phone column is deliberately
+    non-unique, so nothing else stops two racing webhooks from each
+    creating a member. Returns ``(member, lock_key)``; the caller MUST
+    release the lock once the provisioning transaction concludes (commit
+    or rollback) — the EX 15 is only the crash safety net.
+    """
+    phone = pending.get("guest_phone") or ""
+    if not re.fullmatch(r"57\d{10}", phone):
+        logger.error(
+            f"Webhook renew ALERT: guest pending record "
+            f"{pending.get('wompi_reference')} carries invalid phone "
+            f"{phone!r} — refusing to provision, key retained"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Registro de invitado inválido",
+        )
+
+    lock_key = f"member-provision:{phone}"
+    if not redis_client.set(lock_key, "1", nx=True, ex=15):
+        logger.warning(
+            f"Webhook renew: guest provisioning for {phone} already in "
+            "progress (advisory lock held) — refusing concurrent attempt, "
+            "pending key retained for replay"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Provisioning in progress, retry shortly",
+        )
+
+    try:
+        candidates = find_members_by_canonical_phone(db, phone)
+        if len(candidates) > 1:
+            logger.error(
+                f"Webhook renew ALERT: canonical phone {phone} matches "
+                f"{len(candidates)} members (legacy duplicates) — refusing "
+                "guest provisioning, staff must merge; no writes, key retained"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El teléfono coincide con varios miembros",
+            )
+        if candidates:
+            logger.info(
+                f"Webhook renew: guest {phone} attaches to existing member "
+                f"{candidates[0].id}"
+            )
+            return candidates[0], lock_key
+
+        tokens = (pending.get("guest_name") or "").strip().split()
+        member = Member(
+            first_name=tokens[0] if tokens else "Invitado",
+            last_name=" ".join(tokens[1:]),
+            email=pending.get("guest_email") or None,
+            phone=phone,
+            status="active",
+            consent_given_at=None,  # a purchase is never biometric consent (D5)
+            facial_data_enrolled=False,
+        )
+
+        # Email is unique on members but NOT part of the guest contract —
+        # another household member may legitimately reuse an address. On a
+        # collision, store NULL and log for staff reconciliation instead of
+        # losing the paid provisioning.
+        email_savepoint = db.begin_nested()
+        db.add(member)
+        try:
+            db.flush()
+        except IntegrityError:
+            email_savepoint.rollback()
+            logger.warning(
+                f"Webhook renew: guest email {member.email} already in use "
+                "— storing member with NULL email; staff should reconcile "
+                "contact data"
+            )
+            member.email = None
+            db.add(member)
+            db.flush()
+
+        logger.info(
+            f"Webhook renew: created guest member for {phone} "
+            f"({member.first_name!r} {member.last_name!r})"
+        )
+        return member, lock_key
+    except Exception:
+        # Provisioning failed before the commit phase — release the advisory
+        # lock. The pending key stays retained, so a replay can retry once
+        # the underlying problem clears.
+        try:
+            redis_client.delete(lock_key)
+        except Exception:  # pragma: no cover — Redis availability edge
+            logger.warning(
+                f"Webhook renew: failed to release provisioning lock {lock_key}"
+            )
+        raise
+
+
 @router.post("/webhook-renew")
 async def portal_webhook_renew(
     request: Request,
@@ -282,8 +393,11 @@ async def portal_webhook_renew(
        AND the Wompi ``amount_in_cents/100`` must be >= the plan price
        (overpayment accepted, underpayment never). Violation → 400 + alert,
        pending key retained.
-    5. Resolve the member from the pending record (body member_id ignored;
-       guest records without member_id are provisioned by Unit 2).
+    5. Resolve the member from the pending record (body member_id ignored).
+       Guest records (v2, ``member_id`` null) resolve or CREATE their member
+       under the ``member-provision:{phone}`` advisory lock (design D5):
+       canonical-phone dedup, ambiguous legacy duplicates → 422, new phone
+       → Member created with NO biometric consent, in the SAME commit as 6.
     6. Membership + SalesTransaction (+ ``wompi_reference``) in a single
        commit — the UNIQUE index makes a same-reference race abort the
        loser as ``already_processed``.
@@ -389,14 +503,18 @@ async def portal_webhook_renew(
         )
 
     # 5. Resolve the member — Redis pending record authoritative (D9).
+    # Guest records (member_id null, v2) resolve or create their member
+    # here under the provisioning advisory lock (D5); member-bound records
+    # whose member vanished stay a 404 (never silently re-created).
     member = _resolve_member_from_pending(db, pending)
+    provision_lock_key = None
+    if member is None and not pending.get("member_id"):
+        member, provision_lock_key = _begin_guest_provisioning(db, r, pending, logger)
     if member is None:
-        # Guest branch (no member_id in the pending record) is provisioned by
-        # the guest provisioning path — refusing here keeps Unit 1 closed.
         logger.error(
-            f"Webhook renew ALERT: pending record {reference} carries no "
-            "resolvable member_id — guest provisioning is not enabled, "
-            "refusing to provision"
+            f"Webhook renew ALERT: pending record {reference} carries an "
+            "unresolvable member_id (member deleted?) — refusing to "
+            "provision, key retained"
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -424,54 +542,76 @@ async def portal_webhook_renew(
 
     end_date = start_date + timedelta(days=plan.duration_days)
 
-    # 6. Membership + Sale (+ wompi_reference idempotency key) single commit.
-    # A SAVEPOINT scopes the attempt: when the UNIQUE index aborts a
-    # same-reference race loser, only the loser's rows are discarded —
-    # never anything committed by another transaction.
+    # 6. Membership + Sale (+ wompi_reference idempotency key) single commit
+    # — for guests this is the SAME commit as the Member insert, so all
+    # three records are atomic (spec: Atomic Provisioning on Approved
+    # Payment). A SAVEPOINT scopes the attempt: when the UNIQUE index
+    # aborts a same-reference race loser, only the loser's rows are
+    # discarded — never anything committed by another transaction.
     nested = db.begin_nested()
-    new_membership = Membership(
-        member_id=str(member.id),
-        plan_id=plan.id,
-        type=plan.name,
-        start_date=start_date,
-        end_date=end_date,
-        price=plan.price,  # server-derived; never trust the webhook body amount
-        status="active",
-    )
-    db.add(new_membership)
-    db.flush()
-
-    invoice_number = f"WOM-{today.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
-
-    transaction = SalesTransaction(
-        member_id=str(member.id),
-        membership_id=new_membership.id,
-        amount=plan.price,  # server-derived; never trust the webhook body amount
-        payment_method="card",
-        invoice_number=invoice_number,
-        notes=f"Wompi ref: {request_data.wompi_reference} | Wompi tx: {request_data.wompi_transaction_id}",
-        wompi_reference=request_data.wompi_reference,
-    )
-    db.add(transaction)
-
     try:
-        db.flush()
-        db.commit()
-    except IntegrityError:
-        # Same-reference race: the UNIQUE index aborted this transaction —
-        # the winner's commit is the authoritative provisioning.
-        nested.rollback()
-        winner = _already_processed(db, reference)
-        logger.info(
-            f"Webhook renew: unique wompi_reference race on {reference}; "
-            "loser aborted, winner's provisioning stands"
+        new_membership = Membership(
+            member_id=str(member.id),
+            plan_id=plan.id,
+            type=plan.name,
+            start_date=start_date,
+            end_date=end_date,
+            price=plan.price,  # server-derived; never trust the webhook body amount
+            status="active",
         )
-        return {
-            "status": "already_processed",
-            "membership_id": (
-                str(winner.membership_id) if winner and winner.membership_id else None
+        db.add(new_membership)
+        db.flush()
+
+        invoice_number = (
+            f"WOM-{today.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+        )
+
+        transaction = SalesTransaction(
+            member_id=str(member.id),
+            membership_id=new_membership.id,
+            amount=plan.price,  # server-derived; never trust the webhook body amount
+            payment_method="card",
+            invoice_number=invoice_number,
+            notes=(
+                f"Wompi ref: {request_data.wompi_reference} | "
+                f"Wompi tx: {request_data.wompi_transaction_id}"
             ),
-        }
+            wompi_reference=request_data.wompi_reference,
+        )
+        db.add(transaction)
+
+        try:
+            db.flush()
+            db.commit()
+        except IntegrityError:
+            # Same-reference race: the UNIQUE index aborted this transaction —
+            # the winner's commit is the authoritative provisioning.
+            nested.rollback()
+            winner = _already_processed(db, reference)
+            logger.info(
+                f"Webhook renew: unique wompi_reference race on {reference}; "
+                "loser aborted, winner's provisioning stands"
+            )
+            return {
+                "status": "already_processed",
+                "membership_id": (
+                    str(winner.membership_id)
+                    if winner and winner.membership_id
+                    else None
+                ),
+            }
+    finally:
+        if provision_lock_key:
+            # The advisory lock only spans resolution → commit of the member
+            # row; once the transaction concludes (either way) it must go so
+            # the next webhook for this phone can proceed.
+            try:
+                r.delete(provision_lock_key)
+            except Exception as exc:  # pragma: no cover — Redis edge
+                logger.warning(
+                    "Webhook renew: failed to release provisioning lock "
+                    f"{provision_lock_key} ({exc}); EX TTL will expire it"
+                )
 
     db.refresh(new_membership)
     db.refresh(transaction)
