@@ -1,0 +1,43 @@
+# Cloudflare Tunnel ingress for the external member portal (LXC 114).
+#
+# PLACEHOLDERS ONLY — this file contains no secrets. Replace before deploy:
+#   <TUNNEL_ID>        output of `cloudflared tunnel create <NAME>`
+#   portal.example.com the real portal hostname (must be in your Cloudflare
+#                      zone; see docs/portal-tunnel-allowlist.md)
+#
+# Public allowlist (design.md threat matrix — EXACT):
+#   ALLOW  GET  /api/health                      (basic liveness ONLY)
+#   ALLOW  POST /api/auth/member-login
+#   ALLOW  POST /api/auth/member-verify
+#   ALLOW  POST /api/auth/member-resend
+#   ALLOW  *    /api/portal/*                    (self-service; JWT/HMAC
+#                                                 enforced at the application)
+#   DENY   *    everything else — explicitly /cv/*, /api/cv/*,
+#               /api/health/db, /api/health/full, /api/health/redis,
+#               every admin API route and the static frontend.
+#
+# Route decisions for this file are pinned by backend/tests/test_tunnel_allowlist.py.
+# Method restrictions (GET vs POST) are enforced by the application, not by
+# cloudflared: ingress rules match paths only; wrong methods get the app's 405.
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # 1. Basic health only — the anchored regex keeps /api/health/db,
+  #    /api/health/full and /api/health/redis OUT.
+  - hostname: portal.example.com
+    path: ^/api/health/?$
+    service: http://127.0.0.1:8000
+
+  # 2. The three public member-auth routes (rate-limited at 10/minute each).
+  - hostname: portal.example.com
+    path: ^/api/auth/member-(login|verify|resend)/?$
+    service: http://127.0.0.1:8000
+
+  # 3. Portal self-service (member JWT or HMAC webhook verified in the app).
+  - hostname: portal.example.com
+    path: ^/api/portal/.*
+    service: http://127.0.0.1:8000
+
+  # 4. Catch-all deny — cloudflared requires a final catch-all; ours 404s.
+  - service: http_status:404
