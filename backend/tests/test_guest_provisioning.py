@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -42,11 +43,7 @@ GUEST_EMAIL = "maria.fernanda@example.com"
 
 def _guest_reference() -> str:
     """A reference matching the Pages signature format (D10 regex)."""
-    return f"ph-guest-{uuid.uuid4().hex[:6]}-{date.today().strftime('%Y%m%d')}-0a1b2c"
-
-
-def _valid_reference_or(pattern_target: str) -> str:
-    return pattern_target
+    return f"PH-guest-{uuid.uuid4().hex[:6]}-{int(time.time())}-0a1b2c"
 
 
 @pytest.fixture
@@ -281,3 +278,186 @@ class TestPortalAuthReusesService:
 
         assert portal_auth_module._canonicalize_phone is canonicalize_phone
         assert portal_auth_module._resolve_member is resolve_member_by_phone
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — guest pending endpoint, design D10 (tasks 4.1 / 4.2)
+# ---------------------------------------------------------------------------
+
+
+class TestGuestPendingEndpoint:
+    """POST /api/portal/pending-payment/guest — no JWT, D10 contract."""
+
+    def test_guest_identity_stores_v2_pending_record(
+        self, client, portal_redis, gym_plan
+    ):
+        """Scenario: Guest identity captured for a gym plan [pytest] +
+        Pending record carries identity, not a member [pytest]."""
+        reference = _guest_reference()
+        # No Authorization header anywhere in this class — guests have no
+        # token; if the endpoint demanded JWT these would all 401.
+        resp = _post_guest(client, _guest_body(gym_plan, reference))
+
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+        assert resp.json()["status"] == "stored"
+
+        raw = portal_redis.get(f"pending-payment:{reference}")
+        assert raw is not None, "pending record must be stored"
+        record = json.loads(raw)
+
+        assert record["v"] == 2
+        assert record["guest_name"] == GUEST_NAME
+        assert record["guest_phone"] == GUEST_PHONE  # normalized 57+10
+        assert record["guest_email"] == GUEST_EMAIL
+        assert record["plan_id"] == str(gym_plan.id)
+        assert record["wompi_reference"] == reference
+        # Identity, not a member — the webhook decides attachment later.
+        assert record["member_id"] is None
+        # TTL: not exceeding 24h (spec: Pending Guest Record).
+        ttl = portal_redis.ttl(f"pending-payment:{reference}")
+        assert 0 < ttl <= 86400
+
+    def test_pending_amount_equals_plan_price(self, client, portal_redis, gym_plan):
+        """Task 4.1: Pending amount equals plan price — server-authored."""
+        reference = _guest_reference()
+        body = _guest_body(gym_plan, reference)
+        # There is no amount field on the guest schema at all — the record
+        # must carry the DB plan price regardless of anything the client
+        # could try to send.
+        body["amount"] = 1  # ignored even if smuggled in
+        resp = _post_guest(client, body)
+        assert resp.status_code == 200, (resp.status_code, resp.text)
+
+        record = json.loads(portal_redis.get(f"pending-payment:{reference}"))
+        assert Decimal(record["amount"]) == Decimal(str(gym_plan.price))
+
+    def test_phone_normalization_variants(self, client, portal_redis, gym_plan):
+        """57+10 variants: formatted, bare mobile, prefixed — one canonical."""
+        variants = {
+            "300 111 2233": GUEST_PHONE,
+            "3001112233": GUEST_PHONE,
+            "+57 300 111 2233": GUEST_PHONE,
+            "(+57)3001112233": GUEST_PHONE,
+            "573001112233": GUEST_PHONE,
+        }
+        for raw_phone, canonical in variants.items():
+            reference = _guest_reference()
+            resp = _post_guest(
+                client, _guest_body(gym_plan, reference, phone=raw_phone)
+            )
+            assert resp.status_code == 200, (raw_phone, resp.status_code, resp.text)
+            record = json.loads(portal_redis.get(f"pending-payment:{reference}"))
+            assert record["guest_phone"] == canonical, raw_phone
+
+    def test_non_canonical_phone_is_rejected(self, client, portal_redis, gym_plan):
+        """Scenario: Non-canonical phone is rejected [pytest] — 422 and NO
+        pending record stored."""
+        bad_phones = [
+            "1234",  # too short
+            "6011234567",  # 10 digits but landline (no 57)
+            "583001112233",  # wrong country code
+            "300111223",  # 9 digits
+            "30011122334",  # 11 digits starting with 3
+            "57300111223",  # 57 + 9 digits
+            "hello-world",  # no digits at all
+        ]
+        for bad in bad_phones:
+            reference = _guest_reference()
+            resp = _post_guest(client, _guest_body(gym_plan, reference, phone=bad))
+            assert resp.status_code == 422, (bad, resp.status_code, resp.text)
+            assert portal_redis.get(f"pending-payment:{reference}") is None, bad
+
+    def test_bad_reference_format_is_rejected(self, client, portal_redis, gym_plan):
+        """D10: the Wompi reference must match the signature format."""
+        bad_references = [
+            "guest-123",  # no PH- prefix structure
+            "PH-GUEST-ABC-20260818-0a1b2c",  # uppercase
+            "PH-guest-x-1755490000-0a1b2",  # 5-hex checksum
+            "ph-guest-x-1755490000-0a1b2c",  # lowercase prefix
+            "PH--1755490000-0a1b2c",  # empty slug
+            "PH-guest-x-1755490000-0A1B2C",  # uppercase hex
+            "PH-guest-x-175549000-0a1b2c",  # 9-digit timestamp
+        ]
+        for bad in bad_references:
+            resp = _post_guest(client, _guest_body(gym_plan, bad))
+            assert resp.status_code == 422, (bad, resp.status_code, resp.text)
+            assert portal_redis.get(f"pending-payment:{bad}") is None
+
+    def test_invalid_name_or_email_is_rejected(self, client, portal_redis, gym_plan):
+        reference = _guest_reference()
+        bad_bodies = [
+            _guest_body(gym_plan, reference, name="   "),
+            _guest_body(gym_plan, reference, name="M"),
+            _guest_body(gym_plan, reference, email="not-an-email"),
+            _guest_body(gym_plan, reference, email=""),
+        ]
+        for body in bad_bodies:
+            resp = _post_guest(client, body)
+            assert resp.status_code == 422, (body, resp.status_code, resp.text)
+        assert portal_redis.get(f"pending-payment:{reference}") is None
+
+    def test_unknown_or_inactive_plan_is_rejected(
+        self, client, portal_redis, db_session
+    ):
+        reference = _guest_reference()
+        inactive = MembershipPlan(
+            name="Viejo",
+            duration_days=30,
+            price=Decimal("30000"),
+            is_active=False,
+        )
+        db_session.add(inactive)
+        db_session.flush()
+
+        for plan_id in (str(inactive.id), str(uuid.uuid4())):
+            resp = _post_guest(
+                client, _guest_body(type("P", (), {"id": plan_id})(), reference)
+            )
+            assert resp.status_code == 404, (plan_id, resp.status_code, resp.text)
+        assert portal_redis.get(f"pending-payment:{reference}") is None
+
+    def test_guest_endpoint_is_rate_limited(
+        self, client, portal_redis, gym_plan, monkeypatch
+    ):
+        """D10: slowapi caps Redis stuffing (pattern of MEMBER_AUTH_RATE_LIMIT)."""
+        from core.config import settings as live_settings
+
+        limit = live_settings.GUEST_CHECKOUT_RATE_LIMIT.split("/")[0]
+        budget = int(limit)
+
+        # Requests that pass schema validation but fail in the handler
+        # (non-canonical phone) still consume quota: handler-executed 422s.
+        for i in range(budget):
+            resp = _post_guest(
+                client,
+                _guest_body(
+                    gym_plan,
+                    _guest_reference(),
+                    phone="6011234567",
+                ),
+            )
+            assert resp.status_code == 422, resp.text
+
+        # Budget exhausted → the next VALID request is 429, nothing stored.
+        good_reference = _guest_reference()
+        blocked = _post_guest(client, _guest_body(gym_plan, good_reference))
+        assert blocked.status_code == 429, (blocked.status_code, blocked.text)
+        assert portal_redis.get(f"pending-payment:{good_reference}") is None
+
+    def test_no_secret_reaches_guest_endpoint_response(
+        self, client, portal_redis, gym_plan, webhook_env
+    ):
+        reference = _guest_reference()
+        responses = [
+            _post_guest(client, _guest_body(gym_plan, reference)),
+            _post_guest(client, _guest_body(gym_plan, "guest-invalid")),
+        ]
+        secrets = (
+            INTEGRITY_SECRET,
+            INTERNAL_KEY,
+            app_settings.SECRET_KEY,
+            app_settings.ENCRYPTION_KEY,
+        )
+        for resp in responses:
+            for secret in secrets:
+                assert secret not in resp.text

@@ -5,6 +5,7 @@ Member Portal endpoints — member self-service.
 import hashlib
 import hmac
 import json
+import re
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -13,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_member, get_portal_session
+from core.config import settings
+from core.rate_limiter import limiter
 from models.member import Member
 from models.membership import Membership, MembershipPlan
 from models.sale import SalesTransaction
@@ -21,12 +24,14 @@ from schemas.portal import (
     PortalMeResponse,
     PortalPlanResponse,
     PortalPendingPaymentRequest,
+    PortalGuestPendingPaymentRequest,
     PortalRenewRequest,
     PortalRenewResponse,
     PortalWebhookRenewRequest,
     ActiveMembershipResponse,
     PaymentHistoryItem,
 )
+from services.canonical_phone import canonicalize_phone
 from services.cv_notify import notify_cv_invalidation
 
 router = APIRouter(prefix="/portal", tags=["Member Portal"])
@@ -551,6 +556,77 @@ def portal_pending_payment(
     # TTL 24 hours — more than enough for a payment to complete
     r.setex(key, 86400, json.dumps(data))
     logger.info(f"Stored pending payment: {key} -> {data}")
+
+    return {"status": "stored"}
+
+
+@router.post("/pending-payment/guest")
+@limiter.limit(settings.GUEST_CHECKOUT_RATE_LIMIT)
+def portal_guest_pending_payment(
+    request: Request,
+    body: PortalGuestPendingPaymentRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Store the GUEST pending payment record in Redis (no JWT — design D10).
+
+    Guests have no portal token, so identity travels instead of a member
+    binding: name, email and a phone that MUST normalize to canonical
+    ``57 + 10 digits`` (anything else is 422 with NO record stored — a
+    non-normalizable phone could never be deduplicated at provisioning
+    time). The reference is validated against the Pages signature format
+    before Redis is touched, the plan price is resolved from the database
+    (active plans only), and the record carries ``member_id: null`` — the
+    webhook's guest branch decides attach-vs-create when Wompi approves.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Canonical phone: exactly 57 + 10 digits, or refuse without storing.
+    canonical = canonicalize_phone(body.guest_phone)
+    if not re.fullmatch(r"57\d{10}", canonical):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El teléfono debe ser un móvil colombiano (57 + 10 dígitos)",
+        )
+
+    # Plan price is server-side only (active plans — same contract as the
+    # JWT member path).
+    plan = (
+        db.query(MembershipPlan)
+        .filter(
+            MembershipPlan.id == body.plan_id,
+            MembershipPlan.is_active == True,
+        )
+        .first()
+    )
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plan no encontrado o inactivo",
+        )
+
+    import redis
+
+    r = redis.from_url(settings.REDIS_URL)
+    key = _pending_key(body.wompi_reference)
+    data = {
+        "v": 2,
+        "plan_id": str(plan.id),
+        "member_id": None,  # identity, not a member — webhook resolves later
+        "guest_name": body.guest_name,
+        "guest_phone": canonical,
+        "guest_email": str(body.guest_email),
+        "amount": str(plan.price),  # server-derived; no client amount exists
+        "wompi_reference": body.wompi_reference,
+    }
+    # TTL 24 hours — the guest must complete payment within the same window
+    # as members (spec: TTL not exceeding 24 hours).
+    r.setex(key, 86400, json.dumps(data))
+    logger.info(
+        f"Stored guest pending payment: {key} (phone {canonical}, " f"plan {plan.name})"
+    )
 
     return {"status": "stored"}
 
