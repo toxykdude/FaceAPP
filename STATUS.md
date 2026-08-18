@@ -7,19 +7,93 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-17 (deployed `5fdc2bf` — the consent-grant/CV-invalidation race fix; see below) |
-| **Current HEAD** | `5fdc2bf` — fix(members): stop CV invalidation racing the enrollment after a consent grant |
-| **Commits on main** | 246 |
-| **PRs merged to date** | through #79 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — #75, #76 and #77 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **Last updated** | 2026-08-18 (portal restore: PRs #80–#83 merged; Pages PR #30 held for deploy window — see below) |
+| **Current HEAD** | `7d45ecb` — feat(portal): provision guest members atomically on approved Wompi payments (PR #83) |
+| **Commits on main** | 253 |
+| **PRs merged to date** | through #83 (numbers contain gaps) |
+| **CI workflow** | `.github/workflows/ci.yml` — #82 and #83 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `5fdc2bfe68f2e463ce481c5bde345a792c8cfb3e` (main).
+`git rev-parse HEAD` → `7d45ecb3e0b0e1b86e43579c1fa62b34271bd83f` (main).
 Remote is clean and in sync.
 
-✅ **Production is in sync with `main`** — LXC 114 at `5fdc2bf` (backend
-`api/members.py` rsynced + backend restarted 2026-08-17, health 200, zero
-journal errors; no migration, no frontend change). Prior state `db64b31`
-verified in sync on 2026-08-14 with post-deploy functional proof.
+⚠️ **Production LXC 114 remains at `5fdc2bf`** — now behind `main` by the
+entire portal-restore delta (intentional: the deploy is held for the ops
+handoff below; `946c605`-style gate exceptions were NOT taken for any
+deployment). Prior state verified in sync on 2026-08-17.
+
+## Portal restore delivered to main (2026-08-18)
+
+Two SDD changes landed, restoring the customer portal securely and adding
+guest purchase:
+
+- **`membership-report-kiosk-tunnel` Phase 4** (PRs #80/#81): portal
+  security suite (webhook HMAC/CORS/RLS/rate-limit tests incl. real
+  `member_portal` RLS proofs), member-verify rate limit
+  (`MEMBER_AUTH_RATE_LIMIT`), cloudflared allowlist config
+  (`scripts/cloudflared/config.yml`) pinned by 35 tests +
+  `docs/portal-tunnel-allowlist.md` runbook. Suite 372 → 423.
+- **`portal-secure-restore`** (PRs #82/#83): migration `8d7e6f5a4b3c`
+  (`CHECK (price > 0)` + `wompi_reference` UNIQUE backfill), webhook-renew
+  reworked around the Redis pending record (implements the
+  documented-but-missing SECURITY.md:498-504 contract), dedicated
+  `PORTAL_INTERNAL_API_KEY` (WS-1 closed; SECRET_KEY rejected), guest
+  checkout endpoint + atomic Member+Membership+Sale provisioning with
+  canonical-phone dedup under a Redis advisory lock, `services/canonical_phone.py`
+  extraction, `backend/.env.example`. Suite 423 → **485 passed**; lint trio
+  clean; dev DB at head `8d7e6f5a4b3c`.
+- **powerhouse-site PR #30** (open, CI-gated, HELD): relay amount/currency
+  gate (`amount_in_cents >= plan && COP`), strict
+  `FACEGYM_PORTAL_INTERNAL_KEY`, `facegymId` single-source in
+  `signature.ts` (renovar ships zero UUIDs), `/comprar` guest checkout,
+  honest confirmation copy. 85 vitest passing. **Do not merge until the
+  backend is deployed to LXC 114 and both internal-key env vars are
+  provisioned** — the new relay fail-closes without the key and renewal
+  provisioning would silently stop (`docs/portal-secure-restore-deploy.md`).
+
+**Receipt-driven review state**: both workstreams completed native
+4-lens reviews with **0 blockers / 0 criticals** — receipts
+`review-9f4362fac88e4acd` (Phase 4) and `review-c498c90ff7f20917`
+(portal-secure-restore), both `approved`. The pre-PR gate for #82/#83
+returned `receipt-discovery/receipt_unrelated` after a compatible
+base-advance merge (restoring `membership-report-kiosk-tunnel/verify-report.md`
+that main had gained via #81; the PR diffs stayed byte-identical to the
+reviewed candidates), and lineage recovery was blocked by store corruption
+(15/17 stale compact lineages; `review repair --preflight` → unsupported).
+**Maintainer-authorized documented exception** (same pattern as the
+`946c605`/`873e51b` deploys): PRs #82/#83 merged citing the two approved
+receipts; exception scoped to those two PRs only. sdd-verify for
+portal-secure-restore: **PASS, 0 critical** (spec matrix 37/37 scenarios;
+verify-report.md in the change dir).
+
+### Ops handoff before the portal can go live (ordered)
+
+1. **Provision `WOMPI_INTEGRITY_SECRET`** (≥32 chars, from the Wompi
+   dashboard) in the LXC 114 backend `.env` — startup checks REFUSE to
+   boot the production backend without it. Verify it is already set before
+   any restart.
+2. **Generate + provision the internal key pair**: `PORTAL_INTERNAL_API_KEY`
+   (backend `.env`, ≥32 random bytes) and the same value as
+   `FACEGYM_PORTAL_INTERNAL_KEY` in Cloudflare Pages env (needs dashboard
+   access).
+3. **Deploy backend to LXC 114** (trap 14 two-pass rsync; migration as the
+   owning role via `MIGRATE_DATABASE_URL` = cv_service URL — prod has no
+   migrator role; `alembic current` MUST confirm `8d7e6f5a4b3c`;
+   pre-check `SELECT count(*) FROM membership_plans WHERE price <= 0`).
+   Migration-window note from review: stop the backend (or accept the
+   small NULL-reference window) before `alembic upgrade` — see
+   R3-deploy-window-null-refs in the review artifacts.
+4. **Merge powerhouse-site PR #30** (auto-deploys Pages) in the same window.
+5. **Tunnel + kiosk**: provision cloudflared on LXC 114 per
+   `docs/portal-tunnel-allowlist.md` (tasks 5.1–5.3), verify
+   `MEMBER_PORTAL_DATABASE_URL` + RLS applied, run the live curl checks,
+   then open. Verify slowapi rate-limit keying honors CF-Connecting-IP
+   behind the tunnel (review follow-up).
+6. **Rotate the powerhouse-site PAT** embedded in
+   `/root/powerhouse-web/creds.env` + old `.git/config` copies (remote URL
+   already sanitized locally).
+
+Dev-DB note: the local dev DB now has plans seeded `0` — renovar/guest
+testing needs seed plans (harness discovery, apply-progress batch 3).
 
 🔧 **The edit→enroll race (found 2026-08-17).** "Enrollment successful but the
 kiosk shows unrecognized" was TWO failure modes:
@@ -362,7 +436,7 @@ Merged-and-deletable local branches (remotes already gone or pending cleanup):
 
 | Suite | Result | Command |
 |-------|--------|---------|
-| Backend | **150 passed** | `cd backend && set -a && . ./.env && set +a && python init_db.py && pytest tests/` |
+| Backend | **485 passed** | `cd backend && set -a && . ./.env && set +a && python init_db.py && pytest tests/` |
 | Frontend | **73 passed** | `cd frontend && npm run test` |
 | cv_service | 12 passed | `cd cv_service && pytest tests/` |
 

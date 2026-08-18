@@ -3,7 +3,49 @@
 > An agent reads this when resuming work after a gap. Concrete and actionable;
 > no philosophy. For state, see [STATUS.md](./STATUS.md).
 
-## DEV brought online and upgraded to `feca985` (2026-08-12, latest)
+## Portal restore delivered to `main`; production deploy is the next action (2026-08-18, latest)
+
+Everything code-side is DONE for restoring powerhousegym.co/portal with
+guest purchase: `membership-report-kiosk-tunnel` Phase 4 (PRs #80/#81) and
+`portal-secure-restore` (PRs #82/#83) are merged, CI-gated, receipt-reviewed
+(both 4-lens reviews approved, 0 blockers/0 criticals; #82/#83 merged under
+a maintainer-authorized gate exception recorded in STATUS.md after a
+base-advance receipt invalidation + store corruption blocked recovery).
+Backend suite **485 passed**, lint clean, dev DB at migration head
+`8d7e6f5a4b3c`. sdd-verify: PASS, 0 critical.
+
+**The one open code artifact: powerhouse-site PR #30** (branch
+`feat/portal-guest-checkout`, CI-green, 85 vitest). DO NOT merge it until
+the backend is live on LXC 114 with both internal keys provisioned — the
+new relay fail-closes without `FACEGYM_PORTAL_INTERNAL_KEY` and renewal
+provisioning silently stops. Exact ordered runbook:
+`docs/portal-secure-restore-deploy.md` + the "Ops handoff" list in
+STATUS.md (Wompi secret check FIRST — startup checks refuse to boot
+production without ≥32-char `WOMPI_INTEGRITY_SECRET`; then the key pair,
+trap-14/20 backend deploy with `alembic current` confirmation, PR #30,
+cloudflared tunnel per `docs/portal-tunnel-allowlist.md`, PAT rotation).
+
+Review follow-ups worth closing during/after the deploy (WARNING-level,
+from the approved reviews): runbook migration-window ordering (stop backend
+before `alembic upgrade` or re-run the notes backfill — R3-deploy-window-
+null-refs), member-writer→webhook happy-path test through the REAL JWT
+endpoint (R3-member-writer-seam), slowapi keying behind the tunnel, and the
+`57\d{10}` regex duplication in `portal.py` (extract to canonical_phone).
+
+SDD state: both changes are `archive-pending-ops` — archive
+`membership-report-kiosk-tunnel` (verify-report.md exists; 5.1–5.3 ops-time)
+and `portal-secure-restore` after the deploy window, then sync specs to
+`openspec/specs/`. Note: `openspec/changes/membership-report-kiosk-tunnel/verify-report.md`
+was nearly lost to a branch-topology artifact (B branched before A's docs
+commit) — it was restored by base-advance merges; do not delete it at
+archive without recording its contents in the archive report.
+
+The gentle-ai review store under `.git/gentle-ai/` carries 15 stale/corrupt
+compact lineages from this session's start-retry noise; `review repair
+--preflight` reports unsupported. The two approved receipts are intact in
+`.git/gentle-ai/review-transactions/v2/{review-9f4362fac88e4acd,review-c498c90ff7f20917}/`.
+
+## DEV brought online and upgraded to `feca985` (2026-08-12)
 
 **DEVFaceApp (LXC 124) was powered off**, not merely unreachable — no reply at
 `.52`, `.101` or `.105` from this workstation *or from production on the same
