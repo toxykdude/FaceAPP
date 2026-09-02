@@ -7,19 +7,55 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-08-18 (portal restore: PRs #80–#83 merged; Pages PR #30 held for deploy window — see below) |
-| **Current HEAD** | `7d45ecb` — feat(portal): provision guest members atomically on approved Wompi payments (PR #83) |
-| **Commits on main** | 253 |
+| **Last updated** | 2026-09-02 (payment-pipeline restore: portal-restore delta DEPLOYED to LXC 114; tunnel recreated — see the 2026-09-02 section) |
+| **Current HEAD** | `1bb4480` — docs(status): record portal restore delivery, gate exception, and ops handoff |
+| **Commits on main** | 254 |
 | **PRs merged to date** | through #83 (numbers contain gaps) |
 | **CI workflow** | `.github/workflows/ci.yml` — #82 and #83 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
 
-`git rev-parse HEAD` → `7d45ecb3e0b0e1b86e43579c1fa62b34271bd83f` (main).
+`git rev-parse HEAD` → `1bb448019aaeadd29e60922f3929f778bdf68f18` (main).
 Remote is clean and in sync.
 
-⚠️ **Production LXC 114 remains at `5fdc2bf`** — now behind `main` by the
-entire portal-restore delta (intentional: the deploy is held for the ops
-handoff below; `946c605`-style gate exceptions were NOT taken for any
-deployment). Prior state verified in sync on 2026-08-17.
+✅ **Production LXC 114 is at `1bb4480`** (deployed 2026-09-02, migration at
+head `8d7e6f5a4b3c`, `.deployed-sha` updated). The held ops handoff below was
+executed during the payment-pipeline restore — see the next section.
+
+## Payment pipeline restored (2026-09-02)
+
+User-facing symptom: clicking PAGAR AHORA on any plan failed. Three stacked
+causes, all fixed the same evening:
+
+1. **Cloudflare tunnel deleted on the CF side** — the tunnel serving
+   `faceapp.powerhousegym.co` (`1963914a-…`) no longer existed, so
+   `cloudflared` on LXC 114 crash-looped with `Unauthorized: Tunnel not
+   found` and every Pages Function proxy returned `530 / error code: 1033`.
+   Recreated as remotely-managed tunnel `faceapp-lxc114`
+   (`490d2fb3-fb34-4982-a9c7-d732782ff959`, ingress
+   `faceapp.powerhousegym.co → http://localhost:80`, DNS CNAME upserted) via
+   the powerhouse-site workflow `cf-payment-tunnel-restore.yml` + script
+   `.github/scripts/restore-payment-tunnel.sh` (reusable for future outages;
+   the connector unit now runs `--token`, backup of the old unit kept beside
+   it).
+2. **Ops handoff executed**: backend deployed to LXC 114 per the runbook
+   (two-pass rsync from `/opt/faceapp` @ `1bb4480`, migration
+   `7c6d5e4f3a2b → 8d7e6f5a4b3c` as the `membership` owner role via
+   `MIGRATE_DATABASE_URL` — prod has no `powerhouse_migrator` role and no
+   `/etc/faceapp/migrate-db.env`; pre-check `price <= 0` returned 0 rows;
+   pre-migration dump of `membership_plans` + `sales_transactions` kept in
+   `/var/backups/pre-migration-8d7e6f5a4b3c/`). `PORTAL_INTERNAL_API_KEY`
+   provisioned in the backend `.env`. Verified: guest pending POST 200
+   (stores v2), relay lookup with `X-API-Key` 200, bogus key 401.
+3. **powerhouse-site**: PRs #39/#40 — webhook relay default host corrected
+   to `faceapp.powerhousegym.co` (was the NXDOMAIN `facegym.`, regression
+   test added) and Pages production env vars set via the maintenance
+   workflow (`FACEGYM_PORTAL_INTERNAL_KEY`, `FACEGYM_API_URL`; existing vars
+   preserved). Deploy verified live: signature 200 → guest pending 200 →
+   Wompi widget opens with correct merchant/amount (mensual + trimestral
+   tested).
+
+Post-deploy notes: `WOMPI_INTEGRITY_SECRET` was already present (verified).
+`GUEST_CHECKOUT_RATE_LIMIT` left at default (10/minute). STATUS ops-handoff
+item 6 (PAT rotation in `/root/powerhouse-web/creds.env`) REMAINS OPEN.
 
 ## Portal restore delivered to main (2026-08-18)
 
