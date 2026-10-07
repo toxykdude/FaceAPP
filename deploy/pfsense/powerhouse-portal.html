@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<!--
+  PowerHouse Member WiFi — pfSense Captive Portal page.
+
+  HOW TO DEPLOY (full runbook: docs/pfsense-captive-portal.md):
+  Services → Captive Portal → <zone> → Portal page contents → upload this
+  file (HTML/PHP without PHP tags = served as-is with variable substitution).
+
+  pfSense substitutes these tokens when serving the page:
+    $PORTAL_ACTION$    form action — the zone's login handler
+    $PORTAL_REDIRURL$  the URL the client originally tried to open
+    $PORTAL_ZONE$      the zone name
+    $PORTAL_MESSAGE$   error text after a failed login (includes the
+                       RADIUS Reply-Message, which our gateway fills with
+                       bilingual "ES / EN" text)
+
+  LOGIN CONTRACT (must stay in sync with radius_service/server.py):
+  pfSense authenticates against RADIUS with PAP, so BOTH auth_user and
+  auth_pass must carry the cédula. The visible field copies its value into
+  the hidden auth_pass via JS; the <noscript> fallback shows a second field.
+  The RADIUS gateway rejects requests where password != username.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerHouse · WiFi Miembros</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b26;
+    --accent: #f5b301;
+    --accent-dark: #c89000;
+    --text: #e6e8ee;
+    --muted: #9aa3b2;
+    --error: #ff6b6b;
+    --ok: #3ddc84;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1d2433 0%, var(--bg) 60%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--card);
+    border: 1px solid #232b3b;
+    border-radius: 16px;
+    padding: 32px 28px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  }
+  .logo {
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+  }
+  .logo span { color: var(--text); }
+  .tagline {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    margin: 6px 0 24px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=password] {
+    width: 100%;
+    padding: 14px 14px;
+    font-size: 18px;
+    letter-spacing: 1px;
+    border: 1px solid #2c3548;
+    border-radius: 10px;
+    background: #0f141f;
+    color: var(--text);
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .field + .field { margin-top: 16px; }
+  button {
+    width: 100%;
+    margin-top: 22px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a1a1a;
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button:active { background: var(--accent-dark); }
+  .msg {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    line-height: 1.45;
+    background: rgba(255,107,107,.08);
+    border: 1px solid rgba(255,107,107,.35);
+    color: var(--error);
+    display: none;
+    word-wrap: break-word;
+  }
+  .msg.show { display: block; }
+  .hint {
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+  .lang {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .lang button {
+    width: auto;
+    margin: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid #2c3548;
+  }
+  .lang button.active { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="logo">Power<span>House</span></div>
+    <div class="tagline" data-es="WiFi para miembros" data-en="Members WiFi">&nbsp;</div>
+
+    <form method="post" action="$PORTAL_ACTION$" autocomplete="off">
+      <input type="hidden" name="redirurl" value="$PORTAL_REDIRURL$">
+      <input type="hidden" name="zone" value="$PORTAL_ZONE$">
+
+      <div class="field">
+        <label for="cedula" data-es="Número de cédula" data-en="ID number (cédula)">&nbsp;</label>
+        <input type="text" id="cedula" name="auth_user" inputmode="numeric"
+               autocomplete="off" autocorrect="off" autocapitalize="characters"
+               placeholder="1234567890" required>
+      </div>
+
+      <!-- PAP contract: RADIUS needs auth_pass == cédula. Exactly ONE
+           auth_pass input exists. It stays hidden and JS-synced; the
+           <noscript> style at the bottom reveals it without JS. -->
+      <div class="field" id="pass-wrap" style="display:none">
+        <label for="pass" data-es="Repite tu cédula" data-en="Repeat your ID number">&nbsp;</label>
+        <input type="password" id="pass" name="auth_pass" autocomplete="off">
+      </div>
+
+      <button type="submit" data-es="Conectarme" data-en="Connect">&nbsp;</button>
+    </form>
+
+    <div class="msg" id="err">$PORTAL_MESSAGE$</div>
+
+    <p class="hint" data-es="Tu membresía debe estar activa para navegar. Sin membresía activa no hay WiFi." data-en="Your membership must be active to browse. No active membership, no WiFi."></p>
+
+    <div class="lang">
+      <button type="button" id="lang-es" class="active">ES</button>
+      <button type="button" id="lang-en">EN</button>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      // NOTE: no "$token$" sequences in this script — pfSense would try to
+      // substitute them when serving the page.
+      var cedula = document.getElementById('cedula');
+      var pass = document.getElementById('pass');
+
+      // Keep the hidden PAP field in sync with the visible cédula field.
+      function syncPass() { pass.value = cedula.value; }
+      cedula.addEventListener('input', syncPass);
+      cedula.addEventListener('change', syncPass);
+      syncPass();
+
+      // Language toggle: default ES.
+      function apply(lang) {
+        var nodes = document.querySelectorAll('[data-es]');
+        for (var i = 0; i < nodes.length; i++) {
+          var el = nodes[i];
+          if (el.tagName === 'INPUT' || el.tagName === 'BUTTON') { continue; }
+          el.textContent = lang === 'en' ? el.getAttribute('data-en') : el.getAttribute('data-es');
+        }
+        var label = document.querySelector('label[for="cedula"]');
+        var btn = document.querySelector('button[type="submit"]');
+        var hint = document.querySelector('.hint');
+        var tag = document.querySelector('.tagline');
+        if (label) { label.textContent = lang === 'en' ? 'ID number (cédula)' : 'Número de cédula'; }
+        if (btn) { btn.textContent = lang === 'en' ? 'Connect' : 'Conectarme'; }
+        if (hint) { hint.textContent = lang === 'en' ? hint.getAttribute('data-en') : hint.getAttribute('data-es'); }
+        if (tag) { tag.textContent = lang === 'en' ? tag.getAttribute('data-en') : tag.getAttribute('data-es'); }
+        document.getElementById('lang-es').className = lang === 'es' ? 'active' : '';
+        document.getElementById('lang-en').className = lang === 'en' ? 'active' : '';
+      }
+      document.getElementById('lang-es').addEventListener('click', function () { apply('es'); });
+      document.getElementById('lang-en').addEventListener('click', function () { apply('en'); });
+      apply('es');
+
+      // Show the RADIUS error block only when pfSense filled it.
+      var err = document.getElementById('err');
+      var text = (err.textContent || '').trim();
+      if (text && text.indexOf('$PORTAL_MESSAGE$') === -1 && text !== '\u00a0') {
+        err.className = 'msg show';
+      }
+    })();
+  </script>
+
+  <noscript>
+    <!-- Without JS the member types the cédula twice: reveal the PAP field. -->
+    <style>#pass-wrap { display: block !important; }</style>
+  </noscript>
+</body>
+</html>
