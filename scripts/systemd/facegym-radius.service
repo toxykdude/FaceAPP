@@ -1,0 +1,21 @@
+[Unit]
+Description=FaceGYM RADIUS Gateway (pfSense captive portal auth)
+Documentation=file:///opt/powerhouse-membership/docs/pfsense-captive-portal.md
+After=network-online.target facegym-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/powerhouse-membership/radius_service
+ExecStart=/opt/powerhouse-membership/radius_service/venv/bin/python main.py
+Restart=always
+RestartSec=5
+# RADIUS_SHARED_SECRET (pfSense ⇄ gateway) and INTERNAL_API_SECRET
+# (gateway ⇄ backend). Root-only 0600 file; see the runbook before editing.
+EnvironmentFile=-/etc/faceapp/radius.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

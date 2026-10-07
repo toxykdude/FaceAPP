@@ -74,6 +74,15 @@ python3 -m venv venv
     ./venv/bin/pip install fastapi uvicorn opencv-python-headless numpy pillow sqlalchemy psycopg2-binary python-jose[cryptography] passlib[bcrypt] python-multipart apscheduler
 cd ..
 
+# RADIUS gateway (pfSense captive portal — see docs/pfsense-captive-portal.md).
+# Installed but left DISABLED until /etc/faceapp/radius.env is provisioned;
+# the unit's EnvironmentFile is optional ('-') so this is safe by default.
+cd radius_service
+python3 -m venv venv
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install -r requirements.txt
+cd ..
+
 # Frontend
 cd frontend
 npm install
@@ -205,6 +214,12 @@ EOF
 cp "${APP_DIR}/scripts/systemd/powerhouse-backup.service" /etc/systemd/system/ 2>/dev/null || true
 cp "${APP_DIR}/scripts/systemd/powerhouse-backup.timer" /etc/systemd/system/ 2>/dev/null || true
 chmod 644 /etc/systemd/system/powerhouse-backup.service /etc/systemd/system/powerhouse-backup.timer 2>/dev/null || true
+
+# RADIUS gateway (authored in repo, copied verbatim). NOT enabled here:
+# it fail-closes without /etc/faceapp/radius.env, and the captive portal
+# should go live deliberately per docs/pfsense-captive-portal.md §3.
+cp "${APP_DIR}/scripts/systemd/facegym-radius.service" /etc/systemd/system/ 2>/dev/null || true
+chmod 644 /etc/systemd/system/facegym-radius.service 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable facegym-backend facegym-cv
