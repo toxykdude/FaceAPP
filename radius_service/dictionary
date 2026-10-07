@@ -1,0 +1,31 @@
+# PowerHouse RADIUS gateway dictionary.
+#
+# Minimal subset of the standard RADIUS dictionaries (RFC 2865, RFC 2866,
+# RFC 3580) covering exactly the attributes the pfSense captive-portal flow
+# uses. Vendored because pyrad 2.5+ no longer ships a dictionary file in the
+# wheel, and the gateway must not depend on site-packages layout.
+#
+# NOTE: integer attributes intentionally have NO VALUES table — pyrad then
+# decodes them as raw ints, which server._acct_payload maps itself.
+
+ATTRIBUTE	User-Name			1	string
+ATTRIBUTE	User-Password			2	string encrypt=1
+ATTRIBUTE	NAS-IP-Address			4	ipaddr
+ATTRIBUTE	NAS-Port			5	integer
+ATTRIBUTE	Framed-IP-Address		8	ipaddr
+ATTRIBUTE	Reply-Message			18	string
+ATTRIBUTE	Calling-Station-Id		31	string
+ATTRIBUTE	NAS-Identifier			32	string
+ATTRIBUTE	Acct-Status-Type		40	integer
+ATTRIBUTE	Acct-Input-Octets		42	integer
+ATTRIBUTE	Acct-Output-Octets		43	integer
+ATTRIBUTE	Acct-Session-Id			44	string
+ATTRIBUTE	Acct-Session-Time		46	integer
+ATTRIBUTE	Acct-Input-Packets		47	integer
+ATTRIBUTE	Acct-Output-Packets		48	integer
+ATTRIBUTE	Acct-Terminate-Cause		49	integer
+ATTRIBUTE	Event-Timestamp			55	date
+ATTRIBUTE	Session-Timeout			27	integer
+ATTRIBUTE	Idle-Timeout			28	integer
+ATTRIBUTE	Acct-Interim-Interval		85	integer
+ATTRIBUTE	Message-Authenticator		80	string
