@@ -40,6 +40,9 @@ configured-timezone sales reporting with CSV export.
 | `cv_service/` | FastAPI + OpenCV + FaceNet; RTSP + WebSocket camera input | `cv_service/main.py` |
 | `cv_service/recognition/` | FaceNet recognizer + template matcher | — |
 | `cv_service/validation/` | Access policy (start/end date enforcement) | `cv_service/validation/access_validator.py` |
+| `radius_service/` | RADIUS gateway: pfSense captive portal ⇄ backend membership auth | `radius_service/main.py` |
+| `deploy/pfsense/` | Captive-portal HTML page uploaded to pfSense | `deploy/pfsense/powerhouse-portal.html` |
+| `docs/pfsense-captive-portal.md` | Captive-portal runbook (install, pfSense config, rollback) | — |
 | `scripts/backup.sh` + `scripts/remote_push.sh` | Local backup + warn-only remote replication | `scripts/backup.sh` |
 | `scripts/systemd/` | `powerhouse-backup.{service,timer}` — 30-min schedule | `scripts/systemd/powerhouse-backup.timer` |
 | `scripts/` | Ops: restore, health monitor, nginx fix, migrations | `scripts/restore.sh` |
@@ -108,8 +111,9 @@ verified against the CI runs of PRs #7–#15, so a local green means a CI green
 | Frontend type check | `npm run type-check` | `frontend/` |
 | Frontend tests | `npm run test` (=`vitest run`) | `frontend/` |
 | CV service tests | `pytest tests/` | `cv_service/` |
+| RADIUS gateway tests | `pytest tests/` (offline, no DB) | `radius_service/` |
 
-Current test counts: backend **144 passed**, frontend **49 passed**, cv_service 12.
+Current test counts: backend **512 passed**, frontend **49 passed**, cv_service 12, radius_service 20.
 
 **Env-export caveat (critical):** the backend `conftest.py` does NOT load
 `backend/.env`, and it supplies no auth secrets of its own. Run pytest like
@@ -386,6 +390,19 @@ CI-placeholder env vars (see the workflow file). Locally, run
     `usmm: command not found` / `Gym: command not found` (lines 17 and 24) —
     trap 13 live on DEV: anything after a bad line may never get set. Quote
     those values before trusting any script that sources `.env`.
+24. **The captive-portal gateway fails CLOSED and its secrets are paired.**
+    `radius_service` answers Access-Reject whenever the backend is
+    unreachable or `/etc/faceapp/radius.env` (0600, root) mismatches
+    `RADIUS_SHARED_SECRET` (pfSense side) or `INTERNAL_API_SECRET` (backend
+    side) — that is by design, so "nobody can get on the WiFi" after a
+    deploy means: check those three secrets first, then UDP 1812/1813 from
+    pfSense. The portal page contract sends the cédula as BOTH `auth_user`
+    and `auth_pass` (PAP); the gateway rejects user≠password, which doubles
+    as shared-secret verification — if you replace the portal page, keep
+    that contract. Deployment order and rollback live in
+    `docs/pfsense-captive-portal.md`. The `wifi_sessions` migration
+    (`a3f8c2d91e47`) creates its RLS policy only when the `backend_app`
+    role exists — dev/CI intentionally skip it.
 
 ## Where to look next
 

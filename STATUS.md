@@ -7,11 +7,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Last updated** | 2026-09-02 (payment-pipeline restore: portal-restore delta DEPLOYED to LXC 114; tunnel recreated — see the 2026-09-02 section) |
-| **Current HEAD** | `1bb4480` — docs(status): record portal restore delivery, gate exception, and ops handoff |
-| **Commits on main** | 254 |
+| **Last updated** | 2026-10-07 (wifi-captive-portal: backend auth/accounting API + radius_service + portal page + runbook delivered — see the 2026-10-07 section) |
+| **Current HEAD** | see `git log -1` — wifi-captive-portal PR chain (A backend → B radius → C deploy/docs) |
+| **Commits on main** | 254 + wifi chain |
 | **PRs merged to date** | through #83 (numbers contain gaps) |
-| **CI workflow** | `.github/workflows/ci.yml` — #82 and #83 each passed all three jobs before merge. Triggers ONLY on PRs/pushes to `main`. |
+| **CI workflow** | `.github/workflows/ci.yml` — 4 jobs (backend, frontend, cv_service, radius_service). Triggers ONLY on PRs/pushes to `main`. |
 
 `git rev-parse HEAD` → `1bb448019aaeadd29e60922f3929f778bdf68f18` (main).
 Remote is clean and in sync.
@@ -19,6 +19,30 @@ Remote is clean and in sync.
 ✅ **Production LXC 114 is at `1bb4480`** (deployed 2026-09-02, migration at
 head `8d7e6f5a4b3c`, `.deployed-sha` updated). The held ops handoff below was
 executed during the payment-pipeline restore — see the next section.
+
+## WiFi captive portal delivered (2026-10-07)
+
+Membership-gated member WiFi: pfSense captive portal → RADIUS → FaceAPP.
+Every client on the member SSID enters their cédula; access requires an
+active, paid membership (same rules/reasons as the kiosk). Chain of three
+PRs (A backend, B radius_service, C portal+runbook+installer) — CI gains a
+`radius_service` job. Dev DB migrated to head `a3f8c2d91e47`
+(`wifi_sessions`, RLS policy guarded on `backend_app` existing).
+
+Verified locally: backend 512 passed + black/flake8/mypy clean; radius_service
+20 passed; live end-to-end smoke (uvicorn + gateway + `tools/radtest.py`):
+Access-Accept with Session-Timeout/Idle-Timeout for an active paid member,
+bilingual Access-Reject for unknown documents, accounting row persisted
+(caught a missing `db.commit()` in the accounting endpoint that the
+savepoint-isolated test harness masked — fixed).
+
+**Production rollout is manual and NOT yet done** — follow
+`docs/pfsense-captive-portal.md` §1–§6: dedicated member-WiFi interface/VLAN
+(never the admin LAN), AP in bridge mode, trap-20 migration + `alembic
+current`, `/etc/faceapp/radius.env` (0600) with BOTH secrets, firewall UDP
+1812/1813 from pfSense only, `systemctl enable --now facegym-radius`, then
+the pfSense zone + portal page upload, then the §6 checklist (radtest
+first, phone second).
 
 ## Payment pipeline restored (2026-09-02)
 
