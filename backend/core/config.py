@@ -107,6 +107,17 @@ class Settings(BaseSettings):
     CV_SERVICE_URL: str = "http://localhost:8001"
     CV_API_KEY: str = ""  # API key for authenticating with CV service
 
+    # WiFi captive portal (pfSense + radius_service) — see
+    # docs/pfsense-captive-portal.md. Timeouts are RADIUS attributes the
+    # portal enforces; the session cap bounds how long a lapse stays
+    # unenforced (no push channel into pfSense's session table).
+    WIFI_SESSION_TIMEOUT_CAP_SECONDS: int = 4 * 60 * 60
+    WIFI_IDLE_TIMEOUT_SECONDS: int = 1800
+    WIFI_ACCT_INTERIM_INTERVAL_SECONDS: int = 600
+    WIFI_MAX_DEVICES_PER_MEMBER: int = 3
+    # A lost Acct-Stop must not consume a device slot forever.
+    WIFI_STALE_SESSION_HOURS: int = 24
+
     class Config:
         env_file = ".env"
         case_sensitive = True

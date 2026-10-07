@@ -20,7 +20,8 @@ LEGACY_REVISION = "5a4b3c2d1e0f"
 # module. Tracked separately from the chain head so that adding an unrelated
 # migration moves only HEAD_REVISION below.
 PHONE_DROP_REVISION = "6b5c4d3e2f1a"
-HEAD_REVISION = "8d7e6f5a4b3c"
+# Advanced by a3f8c2d91e47 (wifi_sessions, captive-portal accounting).
+HEAD_REVISION = "a3f8c2d91e47"
 
 
 @pytest.fixture(autouse=True)
