@@ -171,6 +171,15 @@ CI-placeholder env vars (see the workflow file). Locally, run
    `gh auth setup-git` installs the `gh auth git-credential` helper; it does not
    put the PAT in the remote URL. The previously exposed PAT was rotated on
    2026-07-29. Keep `gh.env` gitignored and rotate again after any new exposure.
+   **Gotcha (2026-10-08): with a fine-grained PAT, `gh auth setup-git` is NOT
+   enough — the helper still serves the stored OAuth token from
+   `hosts.yml`, so workflow-file pushes fail with "refusing to allow an OAuth
+   App…". Use a one-shot inline helper so the PAT actually authenticates the
+   push (token stays in the environment, never in argv or URLs):
+   ```bash
+   export GH_TOKEN=$(grep '^github_pat_' gh.env)
+   git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' push origin BRANCH:BRANCH
+   ```
 2. ~~**CI was just added**~~ — **RESOLVED (2026-07-28).** CI is real and
    enforced: 3 jobs gate every PR to `main`, and PRs #7–#15 all merged through
    it. It already caught real issues (env-sensitive argv test in PR #15's

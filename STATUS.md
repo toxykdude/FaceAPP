@@ -24,9 +24,11 @@ executed during the payment-pipeline restore — see the next section.
 
 Membership-gated member WiFi: pfSense captive portal → RADIUS → FaceAPP.
 Every client on the member SSID enters their cédula; access requires an
-active, paid membership (same rules/reasons as the kiosk). Chain of three
-PRs (A backend, B radius_service, C portal+runbook+installer) — CI gains a
-`radius_service` job. Dev DB migrated to head `a3f8c2d91e47`
+active, paid membership (same rules/reasons as the kiosk). Chain of four
+stacked PRs — #84 backend (CI green) → #85 radius_service → #86
+portal+runbook+installer → #87 the `radius_service` CI job (pushed once a
+workflow-scoped PAT was available; merge top-down, retargeting each to
+`main` as its parent lands). Dev DB migrated to head `a3f8c2d91e47`
 (`wifi_sessions`, RLS policy guarded on `backend_app` existing).
 
 Verified locally: backend 512 passed + black/flake8/mypy clean; radius_service
