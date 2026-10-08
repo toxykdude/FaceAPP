@@ -49,6 +49,16 @@ Browser (Admin SPA / Kiosk) ──HTTPS──▶ Nginx ──┬──▶ Backen
   serves an MJPEG stream for the admin camera monitor. Never exposed to the
   internet — Nginx denies `/api/cv/` externally (see
   [SECURITY.md §6](./SECURITY.md)).
+- **radius_service** gates the member WiFi. A pfSense captive portal on the
+  member-WiFi interface sends RADIUS PAP requests (cédula as user+password)
+  to this pyrad gateway on UDP 1812/1813; it asks the backend
+  `POST /api/wifi/authorize` (X-Internal-Secret) and returns Access-Accept
+  with Session-Timeout/Idle-Timeout, or Access-Reject with a bilingual
+  Reply-Message. Membership rules mirror the kiosk (active member + active
+  date-valid membership + not-pending payment; access_rules day/time/location
+  deliberately NOT applied). Fail-closed on any backend/secret failure.
+  Accounting lands in `wifi_sessions`. Runbook:
+  [docs/pfsense-captive-portal.md](./docs/pfsense-captive-portal.md).
 
 Communication: **REST** for all admin/auth/config, **WebSocket** for the kiosk
 real-time frame stream (`/cv/ws/camera/{id}`), **MJPEG over HTTP** for the

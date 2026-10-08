@@ -27,6 +27,7 @@ Default login `admin` / `admin123` — change it immediately.
 ### Backups & Data Safety
 - **Automated backups every 30 minutes** — systemd timer, `pg_dump -F c` + biometric data + config + manifest + checksums, 30-day local retention
 - **Remote replication to your storage** — NAS (rsync/SFTP) / FTP / SMB / NFS; remote failures are warn-only and never lose the local copy
+- **Membership-gated member WiFi** — pfSense captive portal authenticating the member's cédula against active memberships through a RADIUS gateway (`radius_service/`); sessions, device cap, and timeout attributes enforced per member (runbook: `docs/pfsense-captive-portal.md`)
 - **Managed from the UI** — Settings → Backup tab: pick a transport, fill its fields, run a sanitized connection test, save. Passwords are write-only and AES-256-GCM encrypted at rest
 - **Audited full-DB export** — admin-only `GET /api/system/db-export` streaming download, audit-logged; RLS-safe via a dedicated backup role
 - **Restore tooling** — `scripts/restore.sh` + per-backup manifest
