@@ -39,6 +39,7 @@ from api import (
     enrollment_requests,
     sync,
     system,
+    wifi,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,6 +249,7 @@ app.include_router(portal.router, prefix=settings.API_V1_PREFIX)
 app.include_router(enrollment_requests.router, prefix=settings.API_V1_PREFIX)
 app.include_router(sync.router, prefix=settings.API_V1_PREFIX)
 app.include_router(system.router, prefix=settings.API_V1_PREFIX)
+app.include_router(wifi.router, prefix=settings.API_V1_PREFIX)
 
 
 # Serve frontend static files (for when tunnel hits backend directly)

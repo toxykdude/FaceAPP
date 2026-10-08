@@ -17,6 +17,7 @@ from models.enrollment_request import EnrollmentRequest
 from models.setting import Setting
 from models.audit_log import AuditLog
 from models.password_reset import PasswordResetToken
+from models.wifi_session import WifiSession
 
 __all__ = [
     "Base",
@@ -36,4 +37,5 @@ __all__ = [
     "Setting",
     "AuditLog",
     "PasswordResetToken",
+    "WifiSession",
 ]

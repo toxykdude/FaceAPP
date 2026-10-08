@@ -40,7 +40,11 @@ from models.sale import SalesTransaction
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 BASE_REVISION = "7c6d5e4f3a2b"
-HEAD_REVISION = "8d7e6f5a4b3c"
+PRICE_CHECK_REVISION = "8d7e6f5a4b3c"
+# Head advanced past the price-check migration by a3f8c2d91e47
+# (wifi_sessions, captive-portal accounting) — the chain contract below now
+# pins the new head while still asserting the price-check link itself.
+HEAD_REVISION = "a3f8c2d91e47"
 
 INTEGRITY_SECRET = "test-integrity-secret"
 INTERNAL_KEY = "test-internal-key"
@@ -275,12 +279,14 @@ class TestPriceCheckWompiReferenceMigration:
         script = ScriptDirectory.from_config(_alembic_config())
         assert script.get_heads() == [HEAD_REVISION]
         head = script.get_revision(HEAD_REVISION)
-        assert head.down_revision == BASE_REVISION
+        assert head.down_revision == PRICE_CHECK_REVISION
+        price_check = script.get_revision(PRICE_CHECK_REVISION)
+        assert price_check.down_revision == BASE_REVISION
 
     def test_migration_docstring_records_trap20_mechanics(self):
         """Task 1.4: the migration documents the migrator-role runbook."""
         script = ScriptDirectory.from_config(_alembic_config())
-        docstring = script.get_revision(HEAD_REVISION).module.__doc__ or ""
+        docstring = script.get_revision(PRICE_CHECK_REVISION).module.__doc__ or ""
         assert "MIGRATE_DATABASE_URL" in docstring
         assert "alembic current" in docstring
 
