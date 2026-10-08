@@ -292,12 +292,21 @@ def test_stale_sessions_do_not_count(client, db_session, internal_headers):
 
 
 def test_membership_ending_today_still_grants(client, db_session, internal_headers):
+    from datetime import datetime
+
+    from services.timezone import get_app_tz
+
+    # "today" per the SERVICE's timezone, not the runner's clock — CI runs
+    # UTC and Bogotá is UTC-5, so date.today() and the service's today
+    # disagree for five hours every day (caught by CI on 2026-10-08).
+    today = datetime.now(get_app_tz(db_session)).date()
+
     member = make_member(db_session, id_number="9393939393")
     membership = make_membership(
         db_session,
         member,
         make_plan(db_session),
-        end=date.today(),  # inclusive, like the kiosk
+        end=today,  # inclusive, like the kiosk
     )
     pay(db_session, membership, 50000)
 
